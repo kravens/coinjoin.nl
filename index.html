@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>CoinJoin.nl</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="/css/bootstrap.min.css">
+<link href="https://www.kravens.nl/fonts/SwissSiena.ttf" rel="stylesheet">
+<link href="https://www.kravens.nl/fonts/Library3am.otf" rel="stylesheet">
+<link href='https://fonts.googleapis.com/css?family=Megrim' rel='stylesheet'>
+<link href='https://fonts.googleapis.com/css?family=Anonymous Pro' rel='stylesheet'>
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
+<script src="/js/bootstrap.min.js"></script>
+<script>
+    function myFunction(inputID) {
+    // Get the text field
+    var copyText = document.getElementById(inputID);
+
+    // Select the text field
+    copyText.select();
+    copyText.setSelectionRange(0, 99999); // For mobile devices
+
+    // Copy the text inside the text field
+    navigator.clipboard.writeText(copyText.value);
+
+    // Alert the copied text
+    alert("Copied the text: " + copyText.value);
+}
+</script>
+<style>
+    .css-selector {
+    background: linear-gradient(56deg, #1dbc93, #305ee1);
+    background-size: 400% 400%;
+
+    -webkit-animation: AnimationName 6s ease infinite;
+    -moz-animation: AnimationName 6s ease infinite;
+    -o-animation: AnimationName 6s ease infinite;
+    animation: AnimationName 6s ease infinite;
+}
+
+@-webkit-keyframes AnimationName {
+    0%{background-position:0% 48%}
+    50%{background-position:100% 53%}
+    100%{background-position:0% 48%}
+}
+@-moz-keyframes AnimationName {
+    0%{background-position:0% 48%}
+    50%{background-position:100% 53%}
+    100%{background-position:0% 48%}
+}
+@-o-keyframes AnimationName {
+    0%{background-position:0% 48%}
+    50%{background-position:100% 53%}
+    100%{background-position:0% 48%}
+}
+@keyframes AnimationName {
+    0%{background-position:0% 48%}
+    50%{background-position:100% 53%}
+    100%{background-position:0% 48%}
+}
+    body {
+      padding: 0.618%;
+      border-radius: 15px;
+      text-align:center;
+      /* background-color:darkslategray; */
+      
+      background-color: #3c618b;
+      background: linear-gradient(90deg, #1dbc93, #3c618b);
+    background-size: 400% 400%;
+
+    -webkit-animation: AnimationName 6s ease infinite;
+    -moz-animation: AnimationName 6s ease infinite;
+    -o-animation: AnimationName 6s ease infinite;
+    animation: AnimationName 6s ease infinite;
+      font-family: 'Anonymous Pro';
+      }
+    div {
+        color:whitesmoke;
+        /* background-color: rgb(4, 46, 46); */
+        background-color: #112031;
+        background: linear-gradient(270deg, #0c4e3e, #112031);
+    background-size: 400% 400%;
+
+    -webkit-animation: AnimationName 30s ease infinite;
+    -moz-animation: AnimationName 30s ease infinite;
+    -o-animation: AnimationName 30s ease infinite;
+    animation: AnimationName 30s ease infinite;
+        
+        border-radius: 15px;
+    }
+    p {
+        color:whitesmoke;
+    }
+    .tooltip {
+    position: relative;
+    display: inline-block;
+    }
+
+    .tooltip .tooltiptext {
+    visibility: hidden;
+    width: 140px;
+    background-color: #555;
+    color: #fff;
+    text-align: center;
+    border-radius: 6px;
+    padding: 5px;
+    position: absolute;
+    z-index: 1;
+    bottom: 150%;
+    left: 50%;
+    margin-left: -75px;
+    opacity: 0;
+    transition: opacity 0.3s;
+    }
+
+    .tooltip .tooltiptext::after {
+    content: "";
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    margin-left: -5px;
+    border-width: 5px;
+    border-style: solid;
+    border-color: #555 transparent transparent transparent;
+    }
+
+    .tooltip:hover .tooltiptext {
+    visibility: visible;
+    opacity: 1;
+    }
+    a:link {
+    color: orange;
+    background-color: transparent;
+    text-decoration: none;
+    }
+    a:visited {
+    color: pink;
+    background-color: transparent;
+    text-decoration: none;
+    }
+    a:hover {
+    color: darkorange;
+    background-color: transparent;
+    text-decoration: underline;
+    }
+    a:active {
+    color: yellow;
+    background-color: transparent;
+    text-decoration: underline;
+    }
+    table {
+    width: 100%;
+    border-collapse: collapse;
+    }
+
+    th, td {
+    padding: 8px;
+    text-align: left;
+    border-bottom: 1px solid #ddd;
+    }
+    table {
+        width: 80%;
+        border-collapse: collapse;
+        position: auto;
+        border-radius: 5px;
+        margin-top: 3px auto;
+        margin: 3px auto;
+        background-color: #3c618b;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    }
+
+</style>
+<link rel="apple-touch-icon" sizes="57x57" href="https://wasabi.kravens.nl/Logo icon PNG.png">
+<link rel="apple-touch-icon" sizes="60x60" href="https://wasabi.kravens.nl/Logo icon PNG.png">
+<link rel="apple-touch-icon" sizes="72x72" href="https://wasabi.kravens.nl/Logo icon PNG.png">
+<link rel="apple-touch-icon" sizes="76x76" href="https://wasabi.kravens.nl/Logo icon PNG.png">
+<link rel="apple-touch-icon" sizes="114x114" href="https://wasabi.kravens.nl/Logo icon PNG.png">
+<link rel="apple-touch-icon" sizes="120x120" href="https://wasabi.kravens.nl/Logo icon PNG.png">
+<link rel="apple-touch-icon" sizes="144x144" href="https://wasabi.kravens.nl/Logo icon PNG.png">
+<link rel="apple-touch-icon" sizes="152x152" href="https://wasabi.kravens.nl/Logo icon PNG.png">
+<link rel="apple-touch-icon" sizes="180x180" href="https://wasabi.kravens.nl/Logo icon PNG.png">
+<link rel="icon" type="image/png" sizes="192x192"  href="https://wasabi.kravens.nl/Logo icon PNG.png">
+<link rel="icon" type="image/png" sizes="32x32" href="https://wasabi.kravens.nl/Logo icon PNG.png">
+<link rel="icon" type="image/png" sizes="96x96" href="https://wasabi.kravens.nl/Logo icon PNG.png">
+<link rel="icon" type="image/png" sizes="16x16" href="https://wasabi.kravens.nl/Logo icon PNG.png">
+<link rel="manifest" href="/manifest.json">
+<meta name="msapplication-TileColor" content="#000000">
+<meta name="msapplication-TileImage" content="https://wasabi.kravens.nl/Logo icon PNG.png">
+<meta name="theme-color" content="#000000">
+</head>
+<body>
+<div class="container-fluid text-center">
+    <p>
+        <br>
+        <br>
+        <img src="https://wasabi.kravens.nl/Logo PNG.png" style="max-width:80%;max-height:210px;text-align: center; position:relative;vertical-align: middle;margin-right:-0.1em; background-blend-mode: darken;"></img>
+        <!-- <h2><br> <img src="bitcoin-lightning.svg" style="max-height:42px;text-align: center; position:relative;vertical-align: middle;margin-right:-0.1em; background-blend-mode: darken;"></img>itcoin How to: </h2> -->
+        <h2><br> WabiSabi Coordinator for Wasabi Wallet / BTCPay / <a href="https://wasabi.kravens.nl#trezor" >Trezor</a></h2>
+        <br>
+        With this community batched transaction coordinator we can save on transaction cost by bundling our input and outputs in one single large transaction. A byproduct of batched transactions with same-size outputs is forward spending privacy, you can't deterministically link previous inputs with any of the same sized outputs that now have anonymity-set > 1. Read more about the <a href="https://kravens.nl/WabiSabi.pdf" target="_blank">WabiSabi protocol.</a> 
+        <br><br> <h4>Disclaimer: </h4><br>User error (registration over clearnet without Tor) or malicious coordinators can lead to loss of UTXO privacy: <a href="https://groups.google.com/g/bitcoindev/c/CbfbEGozG7c/m/fKuKwo6kDAAJ">Bitcoindev mailinglist discussion</a> 
+        <br>Always update to the latest Wasabi Wallet version when possible and do your own research! <a href="https://petertodd.org/2025/coinjoin-comparison">Peter Todd's coinjoin comparison</a>, <a href="https://youtu.be/eIBTSe4OABI?t=19002">Kruw presentation BTC++ Riga 2025</a>.
+        <br><br> <h4>Funding: </h4> 
+        <br>The <a href='https://coinjoin.nl'>coinjoin.nl</a> coordinator is a not-for-profit community project, any future fee-revenue will be donated to OpenSats / HRF / BTCPayServer to support open source development of bitcoin privacy tools. 
+        <br>Even with a 0% Coordinator-fee, there can be dust (pieces of bitcoin too small to economically spend) collection revenue for WabiSabi coordinators.
+    </p>
+<h4>Coordinator status & history:</h4>
+<a href="https://coinjoin.nl/wabisabi/human-monitor">Check CoinJoin round status</a>
+    
+<div id="content"></div>
+<script>
+        async function fetchData() {
+            try {
+                const response = await fetch('https://coinjoin.nl/wabisabi/human-monitor');
+                if (!response.ok) {
+                    throw new Error('Network response was not ok');
+                }
+                const data = await response.json();
+                displayData(data);
+            } catch (error) {
+                const contentDiv = document.getElementById('content');
+                contentDiv.innerHTML = `<p class="error">Error fetching data: ${error.message}</p>`;
+            }
+        }
+
+        function displayData(data) {
+            const contentDiv = document.getElementById('content');
+            if (data.RoundStates && data.RoundStates.length > 0) {
+                let tableHTML = `
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Round ID</th>
+                                <th>Is Blame Round</th>
+                                <th>Input Count</th>
+                                <th>Max Suggested Amount</th>
+                                <th>Input Registration Remaining</th>
+                                <th>Phase</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                `;
+                data.RoundStates.forEach(state => {
+                    tableHTML += `
+                        <tr>
+                            <td>${state.RoundId}</td>
+                            <td>${state.IsBlameRound}</td>
+                            <td>${state.InputCount}</td>
+                            <td>${state.MaxSuggestedAmount}</td>
+                            <td>${state.InputRegistrationRemaining}</td>
+                            <td>${state.Phase}</td>
+                        </tr>
+                    `;
+                });
+                tableHTML += '</tbody></table>';
+                contentDiv.innerHTML = tableHTML;
+            } else {
+                contentDiv.innerHTML = '<p class="error">No round states found.</p>';
+            }
+        }
+
+        // Fetch data when the page loads
+        fetchData();
+    </script>
+
+<br> <br>
+<a href="https://liquisabi.com">Check CoinJoin rounds history on LiquiSabi</a>
+<br> <br>
+<br>
+    <iframe style="max-width: 90% !important; border-radius:21px; max-inline-size:90%;" width="1022" height="486" src="https://www.youtube.com/embed/dGATztn5Ql8" title="WabiSabi Coinjoin Explained in 3 Minutes" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+    <br>
+
+    <p>
+        <h2>Change Coordinator, <br> works from v2.3.0+ of <a href='https://github.com/walletwasabi/walletwasabi/'>Wasabi Wallet</a>:</h2>
+
+    </p>
+        <!-- <img src="https://kravens.nl/images/wasabi_change.png" style="width:40em; border-radius:21px; max-inline-size:90%;"> -->
+        <p>Simply open Wasabi Wallet, copy the magic string below and go back to Wasabi Wallet.</p>
+        <img src="https://kravens.nl/images/wasabi_detected.png" style="width:40em; border-radius:21px; max-inline-size:90%;">
+    <br>
+    <br>
+    <!-- The text field -->
+    <input style="width:560px; user-select:all;" type="text" value='name=Noderunners%20Batched%20Transaction%20Coordinator&network=main&coordinatorUri=https://coinjoin.nl&coordinationFeeRate=0&readMore=https://wasabi.kravens.nl/&absoluteMinInputCount=21' id="myInput2" readonly>
+    <!-- The button used to copy the text -->
+<button onclick="myFunction('myInput2')">Copy</button>
+<br>
+<p>Check if the Coordinator URI matches
+    <br> Click on Yes
+</p>
+<h2>Restart Wasabi Wallet after saving</h2>
+<h2>Now you are ready to Batch Transactions with the Noderunners Batched Transaction Coordinator!</h2>
+<p>Simply open your wallet, receive funds you'd like to CoinJoin and press the play button to start!</p>
+<h3>🕶️ Privacy can be a side-effect of batching your transactions 🕶️</h3>
+<br>
+</div>
+<br>
+<div>
+<br>
+<h2 id="old">For older Wasabi Wallet versions, Change your Wasabi Wallet Config File: <br> </h1>
+    <img src="https://kravens.nl/images/wasabi.png" style="width:60em; border-radius:21px; max-inline-size:90%;">
+    </br></br>
+    <!-- The text field -->
+    <input style="width:560px; user-select:all;" type="text" value='  "MainNetCoordinatorUri": "https://coinjoin.nl",' id="myInput" readonly>
+    
+    <!-- The button used to copy the text -->
+    <button onclick="myFunction('myInput')">Copy</button>
+    <h2>Paste the line above in your config file so it looks like this:</h1>
+    <p style="text-align:left; padding-left:21%" >{</br>
+        "Network": "Main", </br>
+        "MainNetBackendUri": "https://api.wasabiwallet.io/",</br>
+        "TestNetBackendUri": "https://api.wasabiwallet.co/",</br>
+        "MainNetCoordinatorUri": "https://coinjoin.nl",</br>
+        "RegTestBackendUri": "http://localhost:37127/",</br>
+        "UseTor": true,</br>
+        "TerminateTorOnExit": false,</br>
+        "DownloadNewVersion": true,</br>
+        ...
+      
+    </p>
+
+
+<h2>Restart Wasabi Wallet after saving</h2>
+<br>
+</div>
+<br>
+<div>
+<br>
+<p>
+<h2 id="nostr">Or find Noderunners Coordinator using Kukks <a href="https://github.com/Kukks/WasabiNostr">WasabiNostr</a> tool and directly set it here:</2>
+<br>
+<br>
+
+<img src="https://kravens.nl/images/nostr.png" style="width:60em; border-radius:21px; max-inline-size:90%;">
+<br>
+<br>
+<h2>These are the parameters for Batched transaction rounds of the Noderunners Coordinator:</h2>
+    <br>
+<img src="https://kravens.nl/images/noderunners_parameters.png" style="width:60em; border-radius:21px; max-inline-size:90%;">
+<br>
+<p>Notice that the Fee is set to 0%, so you will only pay your fraction of the mining fee! No coordinator fee.</p>
+<br>
+
+<br>
+</p>
+</div>
+
+<div>
+    <p>
+        <br>
+        <br>
+        <h1 id="trezor">Trezor Suite - Hardware Wallet WabiSabi signing (advanced)</h1>
+        With a small trick it is possible to use your Trezor (model T and newer) as a signing device that can more safely hold large amount of bitcoin to be CoinJoined with the Noderunners Coordinator.
+        This has been tested with <a href="https://trezor.io/trezor-suite" >Trezor Suite for Desktop version 24.7.2</a> on Debian 12 and MacOS, I advice Windows users to use a <a href="https://www.virtualbox.org/">virtual machine</a> with <a href="https://www.debian.org/">Debian 12</a>.
+        <br>
+        Start Trezor Suite in a terminal (commandline) with the following custom arguments:
+        <br>
+        <br>
+            <!-- The text field -->
+    <input style="width:560px; user-select:all;" type="text" value='--args --state.wallet.coinjoin.debug.coinjoinConfigOverride.btc=&#39;{"affiliationId":null,"coordinatorUrl":"https://coinjoin.nl"}&#39;' id="myInput3" readonly>
+    <!-- The button used to copy the text -->
+<button onclick="myFunction('myInput3')">Copy</button>
+        <br>
+
+        <br>
+        <h2>Example for Debian (or VM Debian on Windows) to paste in terminal</h2>
+    <input style="width:560px; user-select:all;" type="text" value='./Trezor-Suite-24.7.2-linux-x86_64.AppImage --args --state.wallet.coinjoin.debug.coinjoinConfigOverride.btc=&apos;{&quot;affiliationId&quot;:null,&quot;coordinatorUrl&quot;:&quot;https://coinjoin.nl&quot;}&apos;' id="myInput4" readonly>
+    <!-- The button used to copy the text -->
+<button onclick="myFunction('myInput4')">Copy</button>
+<br>
+<br>
+On Windows you should forward the USB device into the VM, so the Trezor can talk with Trezor Suite in the VM. This might require installing the additional <a href="https://www.virtualbox.org/manual/ch01.html#intro-installing">Extension Pack</a>.
+<h2>Example for MacOS to paste in terminal</h2>
+<input style="width:560px; user-select:all;" type="text" value='open /Applications/Trezor\ Suite.app --args --state.wallet.coinjoin.debug.coinjoinConfigOverride.btc=&apos;{&quot;affiliationId&quot;:null,&quot;coordinatorUrl&quot;:&quot;https://coinjoin.nl&quot;}&apos;' id="myInput4" readonly>
+<!-- The button used to copy the text -->
+<button onclick="myFunction('myInput4')">Copy</button>
+<br>
+<br>
+<img src="https://kravens.nl/images/trezor_1.png" style="width:60em; border-radius:21px; max-inline-size:90%;">
+<br>
+<br>
+You will need to create a new Coinjoin account (+ button next to Search) after your Trezor is connected to Trezor Suite.
+<br>
+After that you can send funds to this Coinjoin account and press Start (green play button) to pre-approve a certain number of CoinJoins with a maximum fee-rate. 
+<br>
+<br>
+        <img src="https://kravens.nl/images/trezor_4.png" style="width:20em; border-radius:21px; max-inline-size:90%;">
+<br>
+<br>
+Approve the CoinJoin's (check max rounds and max feerate) on the Trezor hardware wallet and let it do it's magic while you enjoy life!
+<br>
+<br>
+<img src="https://kravens.nl/images/trezor_5.png" style="width:60em; border-radius:21px; max-inline-size:90%;">
+<br>
+<br>
+Once you've joined a Noderunners Coordinator CoinJoin the bitcoin will be marked as ✅ Private 
+<br>
+and are ready for non-KYC spending or hodling✊💎✊
+<br>
+<br>
+<img src="https://kravens.nl/images/trezor_6.png" style="width:60em; border-radius:21px; max-inline-size:90%;">
+<br>
+<br>
+To prevent joining high mining fee CoinJoin's you can set a maximum mining fee under Details -> Custom -> Max mining fee.
+<br>
+<br>
+</p>
+</div>
+
+</body>
+</html>
