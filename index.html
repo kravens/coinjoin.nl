@@ -195,19 +195,56 @@
         <br>
         <img src="https://wasabi.kravens.nl/Logo PNG.png" style="max-width:80%;max-height:210px;text-align: center; position:relative;vertical-align: middle;margin-right:-0.1em; background-blend-mode: darken;"></img>
         <!-- <h2><br> <img src="bitcoin-lightning.svg" style="max-height:42px;text-align: center; position:relative;vertical-align: middle;margin-right:-0.1em; background-blend-mode: darken;"></img>itcoin How to: </h2> -->
-        <h2><br> WabiSabi Coordinator for Wasabi Wallet / BTCPay / <a href="https://wasabi.kravens.nl#trezor" >Trezor</a></h2>
-        <br>
-        With this community batched transaction coordinator we can save on transaction cost by bundling our input and outputs in one single large transaction. A byproduct of batched transactions with same-size outputs is forward spending privacy, you can't deterministically link previous inputs with any of the same sized outputs that now have anonymity-set > 1. Read more about the <a href="https://kravens.nl/WabiSabi.pdf" target="_blank">WabiSabi protocol.</a> 
-        <br><br> <h4>Disclaimer: </h4><br>User error (registration over clearnet without Tor) or malicious coordinators can lead to loss of UTXO privacy: <a href="https://groups.google.com/g/bitcoindev/c/CbfbEGozG7c/m/fKuKwo6kDAAJ">Bitcoindev mailinglist discussion</a> 
+        <h1><br> WabiSabi Coordinator for <a href="https://wasabiwallet.io/">Wasabi Wallet</a></h1>
+	Weekly coinjoin round with 26 inputs is our target, join us every Sunday from 0:00-23:59 (CET).
+
+	<div id="content"></div>
+
+	<h2>1. Download & Install <a href="https://wasabiwallet.io/#download">Wasabi Wallet</a><h2>
+	
+	<h2>2. Copy magic connect string: </h2>
+    	<!-- The text field -->
+    	<input style="width:560px; user-select:all;" type="text" value='name=Noderunners%20Batched%20Transaction%20Coordinator&network=main&coordinatorUri=https://coinjoin.nl&coordinationFeeRate=0&readMore=https://wasabi.kravens.nl/&absoluteMinInputCount=21' id="myInput2" readonly>
+    	<!-- The button used to copy the text -->
+	<button onclick="myFunction('myInput2')">Copy</button>
+	<h2>3. Open Wasabi & Accept coinjoin.nl as coordinator </h2>
+        <img src="https://kravens.nl/images/wasabi_detected.png" style="width:40em; border-radius:21px; max-inline-size:90%;">
+
+	<h2>4. Restart Wasabi Wallet after saving</h2>
+	<h2>5. Click Receive & send bitcoin to your Wasabi Wallet</h2>
+	<p>Simply open your wallet, receive funds you'd like to CoinJoin and press the play button to start!</p>
+	<h3>🕶️ Privacy can be a side-effect of batching your transactions 🕶️</h3>
+
+</p>
+<br>
+    <iframe style="max-width: 90% !important; border-radius:21px; max-inline-size:90%;" width="1022" height="486" src="https://www.youtube.com/embed/dGATztn5Ql8" title="WabiSabi Coinjoin Explained in 3 Minutes" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+    <br>
+
+    <p>
+
+    </p>
+    <br>
+    <br>
+<br>
+</p>
+<br>
+</div>
+<br>
+
+<div>
+	<br><h4>Disclaimer: </h4><br>User error (registration over clearnet without Tor) or malicious coordinators can lead to loss of UTXO privacy: <a href="https://groups.google.com/g/bitcoindev/c/CbfbEGozG7c/m/fKuKwo6kDAAJ">Bitcoindev mailinglist discussion</a> 
         <br>Always update to the latest Wasabi Wallet version when possible and do your own research! <a href="https://petertodd.org/2025/coinjoin-comparison">Peter Todd's coinjoin comparison</a>, <a href="https://youtu.be/eIBTSe4OABI?t=19002">Kruw presentation BTC++ Riga 2025</a>.
         <br><br> <h4>Funding: </h4> 
         <br>The <a href='https://coinjoin.nl'>coinjoin.nl</a> coordinator is a not-for-profit community project, any future fee-revenue will be donated to OpenSats / HRF / BTCPayServer to support open source development of bitcoin privacy tools. 
         <br>Even with a 0% Coordinator-fee, there can be dust (pieces of bitcoin too small to economically spend) collection revenue for WabiSabi coordinators.
-    </p>
+<br><br>
+</div>
+<br>
+<div><br>
 <h4>Coordinator status & history:</h4>
+
 <a href="https://coinjoin.nl/wabisabi/human-monitor">Check CoinJoin round status</a>
     
-<div id="content"></div>
 <script>
         async function fetchData() {
             try {
@@ -231,10 +268,10 @@
                         <thead>
                             <tr>
                                 <th>Round ID</th>
-                                <th>Is Blame Round</th>
+                                <!-- <th>Is Blame Round</th> !-->
                                 <th>Input Count</th>
-                                <th>Max Suggested Amount</th>
-                                <th>Input Registration Remaining</th>
+                                <!-- <th>Max Suggested Amount</th> !-->
+                                <th>Time Remaining</th>
                                 <th>Phase</th>
                             </tr>
                         </thead>
@@ -244,9 +281,9 @@
                     tableHTML += `
                         <tr>
                             <td>${state.RoundId}</td>
-                            <td>${state.IsBlameRound}</td>
+                            <!-- <td>${state.IsBlameRound}</td> !-->
                             <td>${state.InputCount}</td>
-                            <td>${state.MaxSuggestedAmount}</td>
+                            <!-- <td>${state.MaxSuggestedAmount}</td> !-->
                             <td>${state.InputRegistrationRemaining}</td>
                             <td>${state.Phase}</td>
                         </tr>
@@ -266,144 +303,6 @@
 <br> <br>
 <a href="https://liquisabi.com">Check CoinJoin rounds history on LiquiSabi</a>
 <br> <br>
-<br>
-    <iframe style="max-width: 90% !important; border-radius:21px; max-inline-size:90%;" width="1022" height="486" src="https://www.youtube.com/embed/dGATztn5Ql8" title="WabiSabi Coinjoin Explained in 3 Minutes" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
-    <br>
-
-    <p>
-        <h2>Change Coordinator, <br> works from v2.3.0+ of <a href='https://github.com/walletwasabi/walletwasabi/'>Wasabi Wallet</a>:</h2>
-
-    </p>
-        <!-- <img src="https://kravens.nl/images/wasabi_change.png" style="width:40em; border-radius:21px; max-inline-size:90%;"> -->
-        <p>Simply open Wasabi Wallet, copy the magic string below and go back to Wasabi Wallet.</p>
-        <img src="https://kravens.nl/images/wasabi_detected.png" style="width:40em; border-radius:21px; max-inline-size:90%;">
-    <br>
-    <br>
-    <!-- The text field -->
-    <input style="width:560px; user-select:all;" type="text" value='name=Noderunners%20Batched%20Transaction%20Coordinator&network=main&coordinatorUri=https://coinjoin.nl&coordinationFeeRate=0&readMore=https://wasabi.kravens.nl/&absoluteMinInputCount=21' id="myInput2" readonly>
-    <!-- The button used to copy the text -->
-<button onclick="myFunction('myInput2')">Copy</button>
-<br>
-<p>Check if the Coordinator URI matches
-    <br> Click on Yes
-</p>
-<h2>Restart Wasabi Wallet after saving</h2>
-<h2>Now you are ready to Batch Transactions with the Noderunners Batched Transaction Coordinator!</h2>
-<p>Simply open your wallet, receive funds you'd like to CoinJoin and press the play button to start!</p>
-<h3>🕶️ Privacy can be a side-effect of batching your transactions 🕶️</h3>
-<br>
-</div>
-<br>
-<div>
-<br>
-<h2 id="old">For older Wasabi Wallet versions, Change your Wasabi Wallet Config File: <br> </h1>
-    <img src="https://kravens.nl/images/wasabi.png" style="width:60em; border-radius:21px; max-inline-size:90%;">
-    </br></br>
-    <!-- The text field -->
-    <input style="width:560px; user-select:all;" type="text" value='  "MainNetCoordinatorUri": "https://coinjoin.nl",' id="myInput" readonly>
-    
-    <!-- The button used to copy the text -->
-    <button onclick="myFunction('myInput')">Copy</button>
-    <h2>Paste the line above in your config file so it looks like this:</h1>
-    <p style="text-align:left; padding-left:21%" >{</br>
-        "Network": "Main", </br>
-        "MainNetBackendUri": "https://api.wasabiwallet.io/",</br>
-        "TestNetBackendUri": "https://api.wasabiwallet.co/",</br>
-        "MainNetCoordinatorUri": "https://coinjoin.nl",</br>
-        "RegTestBackendUri": "http://localhost:37127/",</br>
-        "UseTor": true,</br>
-        "TerminateTorOnExit": false,</br>
-        "DownloadNewVersion": true,</br>
-        ...
-      
-    </p>
-
-
-<h2>Restart Wasabi Wallet after saving</h2>
-<br>
-</div>
-<br>
-<div>
-<br>
-<p>
-<h2 id="nostr">Or find Noderunners Coordinator using Kukks <a href="https://github.com/Kukks/WasabiNostr">WasabiNostr</a> tool and directly set it here:</2>
-<br>
-<br>
-
-<img src="https://kravens.nl/images/nostr.png" style="width:60em; border-radius:21px; max-inline-size:90%;">
-<br>
-<br>
-<h2>These are the parameters for Batched transaction rounds of the Noderunners Coordinator:</h2>
-    <br>
-<img src="https://kravens.nl/images/noderunners_parameters.png" style="width:60em; border-radius:21px; max-inline-size:90%;">
-<br>
-<p>Notice that the Fee is set to 0%, so you will only pay your fraction of the mining fee! No coordinator fee.</p>
-<br>
-
-<br>
-</p>
-</div>
-
-<div>
-    <p>
-        <br>
-        <br>
-        <h1 id="trezor">Trezor Suite - Hardware Wallet WabiSabi signing (advanced)</h1>
-        With a small trick it is possible to use your Trezor (model T and newer) as a signing device that can more safely hold large amount of bitcoin to be CoinJoined with the Noderunners Coordinator.
-        This has been tested with <a href="https://trezor.io/trezor-suite" >Trezor Suite for Desktop version 24.7.2</a> on Debian 12 and MacOS, I advice Windows users to use a <a href="https://www.virtualbox.org/">virtual machine</a> with <a href="https://www.debian.org/">Debian 12</a>.
-        <br>
-        Start Trezor Suite in a terminal (commandline) with the following custom arguments:
-        <br>
-        <br>
-            <!-- The text field -->
-    <input style="width:560px; user-select:all;" type="text" value='--args --state.wallet.coinjoin.debug.coinjoinConfigOverride.btc=&#39;{"affiliationId":null,"coordinatorUrl":"https://coinjoin.nl"}&#39;' id="myInput3" readonly>
-    <!-- The button used to copy the text -->
-<button onclick="myFunction('myInput3')">Copy</button>
-        <br>
-
-        <br>
-        <h2>Example for Debian (or VM Debian on Windows) to paste in terminal</h2>
-    <input style="width:560px; user-select:all;" type="text" value='./Trezor-Suite-24.7.2-linux-x86_64.AppImage --args --state.wallet.coinjoin.debug.coinjoinConfigOverride.btc=&apos;{&quot;affiliationId&quot;:null,&quot;coordinatorUrl&quot;:&quot;https://coinjoin.nl&quot;}&apos;' id="myInput4" readonly>
-    <!-- The button used to copy the text -->
-<button onclick="myFunction('myInput4')">Copy</button>
-<br>
-<br>
-On Windows you should forward the USB device into the VM, so the Trezor can talk with Trezor Suite in the VM. This might require installing the additional <a href="https://www.virtualbox.org/manual/ch01.html#intro-installing">Extension Pack</a>.
-<h2>Example for MacOS to paste in terminal</h2>
-<input style="width:560px; user-select:all;" type="text" value='open /Applications/Trezor\ Suite.app --args --state.wallet.coinjoin.debug.coinjoinConfigOverride.btc=&apos;{&quot;affiliationId&quot;:null,&quot;coordinatorUrl&quot;:&quot;https://coinjoin.nl&quot;}&apos;' id="myInput4" readonly>
-<!-- The button used to copy the text -->
-<button onclick="myFunction('myInput4')">Copy</button>
-<br>
-<br>
-<img src="https://kravens.nl/images/trezor_1.png" style="width:60em; border-radius:21px; max-inline-size:90%;">
-<br>
-<br>
-You will need to create a new Coinjoin account (+ button next to Search) after your Trezor is connected to Trezor Suite.
-<br>
-After that you can send funds to this Coinjoin account and press Start (green play button) to pre-approve a certain number of CoinJoins with a maximum fee-rate. 
-<br>
-<br>
-        <img src="https://kravens.nl/images/trezor_4.png" style="width:20em; border-radius:21px; max-inline-size:90%;">
-<br>
-<br>
-Approve the CoinJoin's (check max rounds and max feerate) on the Trezor hardware wallet and let it do it's magic while you enjoy life!
-<br>
-<br>
-<img src="https://kravens.nl/images/trezor_5.png" style="width:60em; border-radius:21px; max-inline-size:90%;">
-<br>
-<br>
-Once you've joined a Noderunners Coordinator CoinJoin the bitcoin will be marked as ✅ Private 
-<br>
-and are ready for non-KYC spending or hodling✊💎✊
-<br>
-<br>
-<img src="https://kravens.nl/images/trezor_6.png" style="width:60em; border-radius:21px; max-inline-size:90%;">
-<br>
-<br>
-To prevent joining high mining fee CoinJoin's you can set a maximum mining fee under Details -> Custom -> Max mining fee.
-<br>
-<br>
-</p>
 </div>
 
 </body>
