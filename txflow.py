@@ -2,9 +2,9 @@
 # -*- coding: utf-8 -*- ###########  T X   F L O W  ·  coinjoin.nl  ###########
 #  Pull any Bitcoin transaction from mempool.space (or your own self-hosted    #
 #  mempool) and animate its input -> output flow as ASCII.  Equal-value        #
-#  "coinjoin" outputs are detected and highlighted.  Runs interactively:       #
-#  a/d walk the chain back/forward, w/s scroll inputs/outputs by value, q quit  #
-#     python txflow.py <txid> [--depth N] [--mempool URL] [--file tx.json]      #
+#  "coinjoin" outputs are detected & highlighted.  No txid -> live mempool.   #
+#  Interactive: a/d walk chain, w/s scroll, 1-9/Tab pick branch, q quit.      #
+#   txflow.py [txid] [--watch] [--depth N] [--export out.gif] [--mempool URL]  #
 ###############################################################################
 import sys, os, time, math, random, json, argparse, urllib.request
 M = math
@@ -146,7 +146,7 @@ def emit(o, ch, col):                                # paint a frame (RLE, synch
         out.append("".join(line)+"\x1b[0m")
     o("\n".join(out)+"\x1b[?2026l"); sys.stdout.flush()
 
-def render_tx(ch, col, meta, viz, source, f, parts, hint=None):
+def render_tx(ch, col, meta, viz, source, f, parts, hint=None, isel=None, osel=None):
     nin, nout = viz["nin"], viz["nout"]
     if not nin or not nout: return
     inw=[max(n[2][0],1) for n in nin]; outw=[max(n[2][0],1) for n in nout]
@@ -179,12 +179,16 @@ def render_tx(ch, col, meta, viz, source, f, parts, hint=None):
         for cc in (X_MIX-1,X_MIX,X_MIX+1): ch[r][cc]="█"; col[r][cc]=cg
     for i,k in enumerate(label):
         put(ch,col,int(CY)-len(label)//2+i,X_MIX,k,WHITE)
-    for (y,c,(v,addr,cb)) in nin:                     # input chips + labels
-        put(ch,col,y,X_IN,"█",c)
-        rput(ch,col,y,X_IN-2, f"{short(addr)} {cfmt(v)}", lerp(c,WHITE,.35))
-    for (y,c,(v,addr,typ)) in nout:                   # output chips + labels
-        put(ch,col,y,X_OUT,"██",c)
-        put(ch,col,y,X_OUT+3, f"{cfmt(v)} {short(addr)}", lerp(c,WHITE,.3))
+    for k,(y,c,(v,addr,cb)) in enumerate(nin):        # input chips (◂ = selected branch)
+        s = (k==isel); cc = clamp8(lerp(c,WHITE,.75)) if s else c
+        put(ch,col,y,X_IN,"█",cc)
+        rput(ch,col,y,X_IN-2, f"{short(addr)} {cfmt(v)}", lerp(cc,WHITE,.35))
+        if s: put(ch,col,y,X_IN+1,"◂",WHITE)
+    for k,(y,c,(v,addr,typ)) in enumerate(nout):      # output chips (▸ = selected branch)
+        s = (k==osel); cc = clamp8(lerp(c,WHITE,.75)) if s else c
+        put(ch,col,y,X_OUT,"██",cc)
+        put(ch,col,y,X_OUT+3, f"{cfmt(v)} {short(addr)}", lerp(cc,WHITE,.3))
+        if s: put(ch,col,y,X_OUT-1,"▸",WHITE)
     sweep = (f*0.7) % 28 - 4                           # shimmering shield + data card
     for r, row in enumerate(LOGO):
         base = lerp(BRAND, WHITE, 0.45 - 0.42*(r/(len(LOGO)-1)))
@@ -372,7 +376,8 @@ def child_of(txid, gosp, gmeta):                     # spending tx of the larges
 def make_keyreader():                                # non-blocking w/a/s/d controls
     KEYS = {"w":"UP","a":"LEFT","s":"DOWN","d":"RIGHT",
             "W":"UP","A":"LEFT","S":"DOWN","D":"RIGHT",
-            "q":"QUIT","Q":"QUIT","\x1b":"QUIT"}
+            "\t":"TAB","q":"QUIT","Q":"QUIT","\x1b":"QUIT"}
+    for _d in "123456789": KEYS[_d] = _d
     if os.name == "nt":
         import msvcrt
         def get():
@@ -406,12 +411,24 @@ def explore(txid, base, source):
             try: ospc[t] = fetch_json(f"{base}/api/tx/{t}/outspends")
             except Exception: ospc[t] = []
         return ospc[t]
-    cur, io_off = txid, 0
+    cur, io_off, sel = txid, 0, 0
     meta = gmeta(cur)                                 # initial fetch (may raise -> caught in main)
     getkey, restore = make_keyreader()
-    HINT = "a / d  walk back / forward      w / s  higher / lower value      q  quit"
+    HINT = "a/d walk chain    w/s scroll value    1-9/Tab pick branch (◂▸)    q quit"
     o = sys.stdout.write; o("\x1b[?1049h\x1b[?25l\x1b[2J")
     parts = []; viz = build(meta, io_off); flash, flasht = "", 0
+    def back_targets():                               # funding txids, largest input first
+        items = [(((vin.get("prevout") or {}).get("value",0)), vin.get("txid"))
+                 for vin in graw(cur).get("vin", []) if not vin.get("is_coinbase") and vin.get("txid")]
+        return [t for _, t in sorted(items, reverse=True)]
+    def fwd_targets():                                # spending txids, largest output first
+        outs = gmeta(cur)["outs"]; osp = gosp(cur)
+        order = sorted(range(len(outs)), key=lambda i: outs[i][0], reverse=True)
+        res = []
+        for i in order:
+            oo = osp[i] if i < len(osp) else None
+            res.append(oo["txid"] if (oo and oo.get("spent") and oo.get("txid")) else None)
+        return res
     try:
         f = 0
         while True:
@@ -421,19 +438,30 @@ def explore(txid, base, source):
                 mx = max(0, max(len(meta["ins"]), len(meta["outs"])) - MAXN)
                 no = max(0, min(mx, io_off + (-1 if k == "UP" else 1)))
                 if no != io_off: io_off = no; viz = build(meta, io_off); parts.clear()
+            elif k == "TAB":
+                sel = (sel + 1) % max(len(viz["nin"]), len(viz["nout"]), 1)
+            elif k and k.isdigit():
+                i = int(k) - 1
+                if i < max(len(viz["nin"]), len(viz["nout"])): sel = i
             elif k == "LEFT":
-                p = parent_of(graw(cur))
+                tg = back_targets(); i = viz["ai"] + sel
+                p = tg[i] if 0 <= i < len(tg) else (tg[0] if tg else None)
                 try: p and gmeta(p)
                 except Exception: p = None
-                if p: cur, io_off = p, 0; meta = gmeta(cur); viz = build(meta, io_off); parts.clear(); flash, flasht = "◀  walked back to a funding tx", 30
-                else: flash, flasht = "no parent here (coinbase or unavailable)", 24
+                if p: cur, io_off, sel = p, 0, 0; meta = gmeta(cur); viz = build(meta, io_off); parts.clear(); flash, flasht = "◀  walked back through input #%d" % (i+1), 30
+                else: flash, flasht = "no funding tx for that input (coinbase or unavailable)", 24
             elif k == "RIGHT":
-                try: c = child_of(cur, gosp, gmeta); c and gmeta(c)
+                tg = fwd_targets(); i = viz["ao"] + sel
+                c = tg[i] if 0 <= i < len(tg) else None
+                try: c and gmeta(c)
                 except Exception: c = None
-                if c: cur, io_off = c, 0; meta = gmeta(cur); viz = build(meta, io_off); parts.clear(); flash, flasht = "walked forward to a spending tx  ▶", 30
-                else: flash, flasht = "this output isn't spent yet (tip of the chain)", 24
+                if c: cur, io_off, sel = c, 0, 0; meta = gmeta(cur); viz = build(meta, io_off); parts.clear(); flash, flasht = "walked forward through output #%d  ▶" % (i+1), 30
+                else: flash, flasht = "that output isn't spent yet (tip of the chain)", 24
             ch, col = blank()
-            render_tx(ch, col, meta, viz, source, f, parts, hint=(flash if flasht > 0 else HINT))
+            isel = sel if sel < len(viz["nin"]) else None
+            osel = sel if sel < len(viz["nout"]) else None
+            render_tx(ch, col, meta, viz, source, f, parts,
+                      hint=(flash if flasht > 0 else HINT), isel=isel, osel=osel)
             emit(o, ch, col)
             if flasht > 0: flasht -= 1
             time.sleep(0.05); f += 1
@@ -441,6 +469,174 @@ def explore(txid, base, source):
         pass
     finally:
         restore(); o("\x1b[?2026l\x1b[?25h\x1b[?1049l\x1b[0m\n")
+
+# ---- live mempool dashboard (--watch / default when no txid) ----------------------
+def feecol(fr):                                      # colour a feerate (sat/vB)
+    if fr <= 1: return BLUE
+    if fr < 8:  return lerp(BLUE, GREEN, (fr-1)/7)
+    if fr < 30: return lerp(GREEN, ORANGE, (fr-8)/22)
+    return lerp(ORANGE, RED, min((fr-30)/70, 1.0))
+
+def watch(base, source, frames):                     # returns a txid to inspect, or None to quit
+    import threading
+    stop = threading.Event(); seen = set()
+    state = {"recent": [], "stats": None, "new": [], "err": "connecting...", "ver": 0}
+    def poll():
+        while not stop.is_set():
+            try:
+                rec = fetch_json(f"{base}/api/mempool/recent")
+                st  = fetch_json(f"{base}/api/mempool")
+                new = [t for t in rec if t.get("txid") not in seen]
+                for t in rec: seen.add(t.get("txid"))
+                state.update(recent=rec, stats=st, new=new, err=None, ver=state["ver"]+1)
+            except Exception as e:
+                state["err"] = str(e)
+            stop.wait(3)
+    threading.Thread(target=poll, daemon=True).start()
+    getkey, restore = make_keyreader()
+    o = sys.stdout.write; o("\x1b[?1049h\x1b[?25l\x1b[2J")
+    parts = []; chosen = None; lastver = -1; BARX = X_MIX
+    def fr_of(t): return t.get("fee",0)/max(t.get("vsize",1),1)
+    try:
+        f = 0
+        while frames == 0 or f < frames:
+            k = getkey()
+            if k == "QUIT": break
+            if k and k.isdigit():
+                i = int(k) - 1
+                shown = sorted(state["recent"], key=fr_of, reverse=True)
+                if i < len(shown): chosen = shown[i]["txid"]; break
+            ch, col = blank(); pulse = 0.5 + 0.5*M.sin(f*0.12)
+            if state["ver"] != lastver:                  # spawn coins for newly arrived txs
+                for t in state.get("new", [])[:40]:
+                    parts.append([0.0, random.uniform(.010,.018), random.uniform(TOP,BOT),
+                                  random.uniform(-7,7), clamp8(feecol(fr_of(t)))])
+                lastver = state["ver"]
+            if state["recent"] and random.random() < 0.5:  # keep the stream lively
+                t = random.choice(state["recent"])
+                parts.append([0.0, random.uniform(.010,.018), random.uniform(TOP,BOT),
+                              random.uniform(-7,7), clamp8(feecol(fr_of(t)))])
+            for yi in range(TOP, BOT+1, 2):              # faint inflow ribbons
+                for kk in range(0, 34):
+                    t = kk/34.0; dot(ch, col, yi+(CY-yi)*smooth(t), X_IN+(BARX-X_IN)*t, "·", DIM)
+            parts[:] = [p for p in parts if (p.__setitem__(0, p[0]+p[1]) or p[0] < 1.04)]
+            for t, sp, yi, off, pc in parts:
+                for kk in range(4):
+                    tt = t - kk*0.018
+                    if tt <= 0 or tt >= 1: continue
+                    x = X_IN + (BARX-X_IN)*tt; y = yi + (CY+off - yi)*smooth(tt)
+                    dot(ch, col, y, x, "●" if kk==0 else "·", clamp8(lerp(BG, pc, 1.0-kk*0.30)))
+            for r in range(TOP, BOT+1):                  # the mempool bar
+                cg = clamp8(lerp((40,46,78), GLOW, 0.30+0.4*pulse))
+                for cc in (BARX-1, BARX, BARX+1): ch[r][cc] = "█"; col[r][cc] = cg
+            for i, kk in enumerate("MEMPOOL"): put(ch, col, int(CY)-3+i, BARX, kk, WHITE)
+            put(ch, col, TOP-1, X_IN-4, "INCOMING TXS", GREY)
+            rec = sorted(state["recent"], key=fr_of, reverse=True)   # live feed (numbered)
+            put(ch, col, TOP-1, BARX+6, "LIVE FEED  (press 1-9 to inspect)", GREY)
+            for i, t in enumerate(rec[:BOT-TOP+1]):
+                y = TOP + i; pc = clamp8(feecol(fr_of(t)))
+                num = f"{i+1}." if i < 9 else "  ·"
+                txid = t.get("txid",""); lab = (txid[:8]+"…"+txid[-6:]) if txid else "?"
+                put(ch, col, y, BARX+6, f"{num:>3} {fr_of(t):5.1f} sat/vB  {lab}  {fmt(t.get('value',0))}",
+                    lerp(pc, WHITE, .25))
+            sweep = (f*0.7) % 28 - 4                      # shimmering shield + live stats
+            for r, row in enumerate(LOGO):
+                bs = lerp(BRAND, WHITE, 0.45 - 0.42*(r/(len(LOGO)-1)))
+                for c, kk in enumerate(row):
+                    if kk != " ":
+                        sh = M.exp(-((c + r*0.6 - sweep)**2)/8.0)
+                        ch[r][c] = kk; col[r][c] = clamp8(lerp(bs, (255,255,255), 0.65*sh))
+            put(ch,col,0,20,"CoinJoin",lerp(BRAND,WHITE,.45)); put(ch,col,0,29,"live mempool",GREY)
+            rput(ch,col,0,W-2,"via "+source,GREY)
+            st = state["stats"]
+            if st:
+                cnt = st.get("count",0); vb = st.get("vsize",0); tf = st.get("total_fee",0)
+                hist = st.get("fee_histogram") or []
+                top = hist[0][0] if hist else 0; flo = hist[-1][0] if hist else 0
+                rput(ch,col,1,W-2, f"{cnt:,} txs waiting", lerp(BRAND,WHITE,.25))
+                put(ch,col,1,20, f"backlog {vb/1e6:.1f} vMB  ·  {tf/1e8:.3f} BTC in fees", lerp(BRAND,WHITE,.2))
+                put(ch,col,3,20, f"top fee {top:.0f} sat/vB", ORANGE)
+                put(ch,col,3,40, f"purging floor {flo:.1f} sat/vB", lerp(BRAND,WHITE,.2))
+            else:
+                put(ch,col,1,20, state.get("err") or "loading live mempool ...", ORANGE)
+            tag = "coinjoin.nl    ·    mix to break the link    ·    press q to quit"
+            put(ch,col,H-1,(W-len(tag))//2,tag,lerp(BRAND,WHITE,.25))
+            emit(o, ch, col); time.sleep(0.05); f += 1
+    except KeyboardInterrupt:
+        pass
+    finally:
+        stop.set(); restore(); o("\x1b[?2026l\x1b[?25h\x1b[?1049l\x1b[0m\n")
+    return chosen
+
+# ---- export to gif / png / svg (--export) -----------------------------------------
+def _xescape(g): return g.replace("&","&amp;").replace("<","&lt;").replace(">","&gt;")
+
+def export_svg(meta, viz, source, out, frame=36):
+    parts = []
+    for f in range(frame+1):
+        ch, col = blank(); render_tx(ch, col, meta, viz, source, f, parts)
+    cw, chh = 10, 19; br, bg, bb = BG
+    svg = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{W*cw}" height="{H*chh}" '
+           f'font-family="Consolas,Menlo,monospace" font-size="16">',
+           f'<rect width="100%" height="100%" fill="rgb({br},{bg},{bb})"/>']
+    for r in range(H):
+        for c in range(W):
+            g = ch[r][c]
+            if g == " ": continue
+            cr, cg2, cb = clamp8(col[r][c])
+            svg.append(f'<text x="{c*cw}" y="{r*chh+14}" fill="rgb({cr},{cg2},{cb})" '
+                       f'xml:space="preserve">{_xescape(g)}</text>')
+    svg.append("</svg>")
+    open(out, "w", encoding="utf-8").write("\n".join(svg))
+    print(f"wrote {out}  ({W*cw}x{H*chh} svg, 1 frame)", file=sys.stderr)
+
+def _xfont(size):
+    from PIL import ImageFont
+    for p in ("C:/Windows/Fonts/consola.ttf","C:/Windows/Fonts/cour.ttf",
+              "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf","/Library/Fonts/Menlo.ttc"):
+        try: return ImageFont.truetype(p, size)
+        except Exception: pass
+    return ImageFont.load_default()
+
+def _raster(ch, col, font, cw, chh):
+    from PIL import Image, ImageDraw
+    img = Image.new("RGB", (W*cw, H*chh), BG); d = ImageDraw.Draw(img)
+    for r in range(H):
+        for c in range(W):
+            g = ch[r][c]
+            if g == " ": continue
+            d.text((c*cw, r*chh), g, fill=clamp8(col[r][c]), font=font)
+    return img
+
+def export_raster(meta, viz, source, out, nframes, gif):
+    try:
+        from PIL import Image
+    except Exception:
+        sys.exit("PNG/GIF export needs Pillow:  pip install pillow   (or export a .svg)")
+    size = 18; font = _xfont(size)
+    try: cw = max(1, int(font.getlength("█")))
+    except Exception: cw = 0
+    if cw < 6: cw = int(size*0.6)
+    chh = int(size*1.3)
+    if not gif:
+        parts = []
+        for f in range(nframes):
+            ch, col = blank(); render_tx(ch, col, meta, viz, source, f, parts)
+        _raster(ch, col, font, cw, chh).save(out)
+        print(f"wrote {out}  ({W*cw}x{H*chh} png)", file=sys.stderr); return
+    frs = []; parts = []
+    for f in range(nframes):
+        ch, col = blank(); render_tx(ch, col, meta, viz, source, f, parts)
+        frs.append(_raster(ch, col, font, cw, chh).convert("P", palette=Image.ADAPTIVE, colors=256))
+    frs[0].save(out, save_all=True, append_images=frs[1:], duration=50, loop=0, optimize=True, disposal=2)
+    print(f"wrote {out}  ({W*cw}x{H*chh}, {nframes} frames gif)", file=sys.stderr)
+
+def export(meta, viz, source, out, nframes):
+    ext = out.lower().rsplit(".", 1)[-1] if "." in out else ""
+    if   ext == "svg": export_svg(meta, viz, source, out)
+    elif ext == "png": export_raster(meta, viz, source, out, nframes, gif=False)
+    elif ext == "gif": export_raster(meta, viz, source, out, nframes, gif=True)
+    else: sys.exit("--export needs a .gif, .png, or .svg filename")
 
 # ---- main -------------------------------------------------------------------------
 def main():
@@ -450,8 +646,24 @@ def main():
     ap.add_argument("--file", help="load tx JSON from a file instead of fetching")
     ap.add_argument("--frames", type=int, default=0, help="frames to run (0 = forever)")
     ap.add_argument("--depth", type=int, default=0, help="also load N levels of connected txs (graph mode)")
+    ap.add_argument("--watch", action="store_true", help="live mempool dashboard (default when no txid)")
+    ap.add_argument("--export", metavar="FILE", help="render to FILE (.gif/.png/.svg) instead of live view")
     a = ap.parse_args()
     base = a.mempool.rstrip("/")
+    if a.export:                                      # export mode (gif/png/svg)
+        nframes = a.frames if a.frames > 0 else 90
+        if a.file:
+            try: meta = parse_tx(json.load(open(a.file, encoding="utf-8")))
+            except Exception as e: sys.exit(f"could not load file: {e}")
+            src = "file"
+        else:
+            if not a.txid or len(a.txid)!=64 or any(c not in "0123456789abcdefABCDEF" for c in a.txid):
+                ap.error("--export needs a valid txid (or --file)")
+            try: meta = parse_tx(fetch_json(f"{base}/api/tx/{a.txid}"))
+            except Exception as e: sys.exit(f"could not load transaction: {e}")
+            src = base.split("//")[-1]
+        if not meta["ins"] or not meta["outs"]: sys.exit("transaction has no inputs/outputs to draw.")
+        export(meta, build(meta), src, a.export, nframes); return
     if a.depth > 0:                                   # multi-tx graph mode
         if a.file: ap.error("--depth needs live data; drop --file")
         if not a.txid or len(a.txid)!=64 or any(c not in "0123456789abcdefABCDEF" for c in a.txid):
@@ -472,12 +684,23 @@ def main():
         except Exception as e: sys.exit(f"could not load file: {e}")
         if not meta["ins"] or not meta["outs"]: sys.exit("transaction has no inputs/outputs to draw.")
         animate(meta, build(meta), "file", a.frames); return
-    if not a.txid: ap.error("provide a txid (or --file)")
+    if a.watch or not a.txid:                         # live mempool dashboard (default, no txid)
+        src = base.split("//")[-1]
+        if not sys.stdin.isatty() and a.frames == 0:
+            print("live mempool needs a terminal; pass a txid or --frames N for a fixed run.", file=sys.stderr)
+        while True:
+            print(f"connecting to {base} live mempool ... (1-9 inspect, q quit)", file=sys.stderr)
+            txid = watch(base, src, a.frames)
+            if not txid: break
+            try: explore(txid, base, src)
+            except urllib.error.HTTPError as e: print(f"HTTP {e.code} for {txid[:12]}", file=sys.stderr); time.sleep(1)
+            except Exception as e: print(f"could not load {txid[:12]}: {e}", file=sys.stderr); time.sleep(1)
+        return
     if len(a.txid)!=64 or any(c not in "0123456789abcdefABCDEF" for c in a.txid):
         ap.error("that doesn't look like a 64-hex-char txid")
     source = base.split("//")[-1]
     try:
-        if a.frames == 0 and sys.stdin.isatty():      # interactive explorer (arrow keys)
+        if a.frames == 0 and sys.stdin.isatty():      # interactive explorer (w/a/s/d)
             print(f"loading {a.txid[:12]}... (a/d walk the chain, w/s scroll value, q quit)", file=sys.stderr)
             explore(a.txid, base, source); return
         print(f"fetching {a.txid[:12]}... from {base} ...", file=sys.stderr)
