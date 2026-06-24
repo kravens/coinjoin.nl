@@ -62,11 +62,38 @@ def cap(items, maxn):                                # keep top-by-value, aggreg
 
 def fetch_tx(txid, base): return fetch_json(f"{base}/api/tx/{txid}")
 
-def is_cj(meta):                                     # equal-output (coinjoin) heuristic
+WHIRLPOOL_POOLS = {100_000, 1_000_000, 5_000_000, 50_000_000}   # 0.001/0.01/0.05/0.5 BTC
+
+def classify_cj(meta):                               # name the coinjoin protocol (or None)
     from collections import Counter
-    vals = Counter(v for v,_,_ in meta["outs"])
-    cl = {v for v,c in vals.items() if c >= 3 and v > 0}
-    return sum(vals[v] for v in cl) >= 5
+    outs = [v for v,_,_ in meta["outs"] if v > 0]; nin = len(meta["ins"]); nout = len(outs)
+    if not outs: return (None, 0.0)
+    vals = Counter(outs)
+    clusters = sorted(((c, v) for v, c in vals.items() if c >= 2), reverse=True)
+    eqcnt, eqval = (clusters[0] if clusters else (0, 0))
+    ndenoms = sum(1 for c, _ in clusters if c >= 3)   # distinct repeated denominations
+    if nin == 5 and nout == 5 and len(set(outs)) == 1 and outs[0] in WHIRLPOOL_POOLS:
+        return ("Whirlpool 5x5", 0.99)                # Samourai Whirlpool: fixed-denom 5-in/5-out
+    if eqcnt < 3: return (None, 0.0)
+    if nin >= 20 and nout >= 20 and ndenoms >= 4:
+        return ("Wasabi/WabiSabi", min(0.97, 0.55 + 0.02*nout))   # many participants, many denoms
+    if eqcnt >= 5 and 9_000_000 <= eqval <= 12_000_000:
+        return ("Wasabi 1.x", 0.9)                    # ~0.1 BTC equal outputs
+    if 2 <= eqcnt <= 20 and abs((nout - eqcnt) - eqcnt) <= 2 and nin <= 30:
+        return ("JoinMarket", 0.8)                    # k equal outputs + ~k change outputs
+    if eqcnt >= 5:
+        return ("equal-output mix", min(0.85, 0.4 + 0.05*eqcnt))
+    return (None, 0.0)
+
+def is_cj(meta): return classify_cj(meta)[0] is not None
+
+def ndenoms(meta):                                   # distinct equal-output denominations (>=2)
+    from collections import Counter
+    vc = Counter(v for v,_,_ in meta["outs"] if v > 0)
+    return sum(1 for c in vc.values() if c >= 2)
+
+SHORT_CJ = {"Whirlpool 5x5":"Whirlpool", "Wasabi/WabiSabi":"Wasabi", "Wasabi 1.x":"Wasabi1",
+            "JoinMarket":"JoinMkt", "equal-output mix":"mix"}
 
 # ---- layout -----------------------------------------------------------------------
 W,H = 118, 40
@@ -107,7 +134,8 @@ def build(meta, io_off=0):
     from collections import Counter
     vals = Counter(v for v,_,_ in meta["outs"])
     clusters = {v for v,c in vals.items() if c >= 3 and v > 0}
-    cj = sum(vals[v] for v in clusters) >= 5          # enough uniform outputs to be a mix
+    cjlabel, cjconf = classify_cj(meta)               # protocol name + confidence (or None)
+    cj = cjlabel is not None
     denoms = sorted(((vals[v], v) for v in clusters), reverse=True)
     maxout = max((v for v,_,_ in meta["outs"]), default=1) or 1
     def ocol(v,typ):
@@ -117,7 +145,7 @@ def build(meta, io_off=0):
         return BLUE
     nodes_in  = [(iy[k], IN_COLS[k%len(IN_COLS)], ins[k]) for k in range(len(ins))]
     nodes_out = [(oy[k], ocol(outs[k][0], outs[k][2]), outs[k]) for k in range(len(outs))]
-    return dict(nin=nodes_in, nout=nodes_out, cj=cj, denoms=denoms,
+    return dict(nin=nodes_in, nout=nodes_out, cj=cj, denoms=denoms, cjlabel=cjlabel, cjconf=cjconf,
                 center=GLOW if cj else (228,232,244), ai=ai, bi=bi, ao=ao, bo=bo)
 
 # ---- render ----------------------------------------------------------------------
@@ -146,7 +174,7 @@ def emit(o, ch, col):                                # paint a frame (RLE, synch
         out.append("".join(line)+"\x1b[0m")
     o("\n".join(out)+"\x1b[?2026l"); sys.stdout.flush()
 
-def render_tx(ch, col, meta, viz, source, f, parts, hint=None, isel=None, osel=None):
+def render_tx(ch, col, meta, viz, source, f, parts, hint=None, isel=None, osel=None, den_off=0):
     nin, nout = viz["nin"], viz["nout"]
     if not nin or not nout: return
     inw=[max(n[2][0],1) for n in nin]; outw=[max(n[2][0],1) for n in nout]
@@ -201,13 +229,33 @@ def render_tx(ch, col, meta, viz, source, f, parts, hint=None, isel=None, osel=N
     rput(ch,col,0,W-2,"via "+source,GREY)
     stat = f"confirmed · block {meta['height']:,}" if meta["confirmed"] else "unconfirmed · in mempool"
     rput(ch,col,1,W-2,stat, GREEN if meta["confirmed"] else ORANGE)
-    txid = (meta["txid"][:10]+"…"+meta["txid"][-8:]) if meta["txid"] else "(local)"
-    rput(ch,col,3,LABX,"txid",GREY);  put(ch,col,3,VALX,txid, lerp(BRAND,WHITE,.1))
+    rput(ch,col,3,LABX,"txid",GREY);  put(ch,col,3,VALX, meta["txid"] or "(local)", lerp(BRAND,WHITE,.1))
     rput(ch,col,4,LABX,"value",GREY); put(ch,col,4,VALX,f"in {fmt(meta['total_in'])}    →    out {fmt(meta['total_out'])}", lerp(BRAND,WHITE,.25))
     rput(ch,col,5,LABX,"fee",GREY);   put(ch,col,5,VALX,f"{meta['fee']:,} sats   ·   {meta['feerate']:.1f} sat/vB   ·   {meta['vsize']:,} vB", lerp(BRAND,WHITE,.25))
     if cj:
-        dn = "   ·   ".join(f"{c}× {fmt(v)}" for c,v in viz["denoms"][:3])
-        rput(ch,col,6,LABX,"mix",GREY); put(ch,col,6,VALX,dn+"   — equal, unlinkable", GREEN)
+        from collections import Counter
+        vc = Counter(v for v,_,_ in meta["outs"] if v > 0)
+        denoms = sorted(((c, v) for v, c in vc.items() if c >= 2), reverse=True)
+        teq = sum(c for c, _ in denoms); nd = len(denoms)
+        doff = max(0, min(den_off, max(0, nd-6))); win = denoms[doff:doff+6]   # w/s scroll window
+        maxc = max((c for c, _ in denoms), default=1)         # two columns x 3 rows = 6 denoms
+        rng = f"   [{doff+1}-{doff+len(win)}/{nd}]" if nd > 6 else ""
+        rput(ch,col,6,LABX,"goggles",GREY)
+        put(ch,col,6,VALX, f"◆ {viz['cjlabel']}  ({viz['cjconf']*100:.0f}%)   "
+            f"{teq} equal outputs in {nd} denomination{'s' if nd!=1 else ''}  — unlinkable" + rng, GREEN)
+        COLS = [(VALX, VALX+22), (VALX+44, VALX+66)]           # (label x, bar x) left / right
+        track = clamp8(lerp(BG, GREEN, 0.18))
+        def denbar(r, x, n):
+            for j in range(16): put(ch,col,r,x+j,"·",track)   # faint gauge track
+            w = max(1, round(16*n/maxc))
+            for j in range(w): put(ch,col,r,x+j,"█", lerp(GLOW, GREEN, j/max(w-1,1)))
+        for idx, (c, v) in enumerate(win):
+            lx, bx = COLS[idx//3]; r = 7 + idx % 3
+            put(ch,col,r,lx, f"{c:>3}× {fmt(v)}", lerp(GREEN,WHITE,.30))
+            denbar(r, bx, c)
+        if nd > 6:
+            put(ch,col,10,VALX, f"▲ {doff} above    ▼ {nd-doff-len(win)} below    w/s scroll",
+                lerp(GREEN,GREY,.4))
     ilab=f"{len(meta['ins'])} INPUTS"                  # counts + scroll window
     olab=f"{len(meta['outs'])} OUTPUTS"
     if viz["ai"] or viz["bi"]: ilab+=f"  [{viz['ai']+1}-{viz['ai']+len(nin)} by value]"
@@ -335,7 +383,7 @@ def animate_graph(placed, parsed, edges, main_txid, source, depth, frames):
             rput(ch,col,0,W-2,"via "+source,GREY)
             put(ch,col,1,20,f"transaction graph  ·  depth {depth}  ·  {len(pos)} txs",lerp(BRAND,WHITE,.2))
             rput(ch,col,1,W-2,"← earlier        later →",GREY)
-            put(ch,col,3,20,"main  "+(main_txid[:10]+"…"+main_txid[-8:]),lerp(BRAND,WHITE,.1))
+            put(ch,col,3,20,"main  "+main_txid,lerp(BRAND,WHITE,.1))
             put(ch,col,4,20,f"{fmt(m['total_in'])} in  ·  {fmt(m['total_out'])} out  ·  fee {m['fee']:,} sats ({m['feerate']:.1f} sat/vB)",lerp(BRAND,WHITE,.25))
             tag = "coinjoin.nl    ·    privacy for cheap mining fees"
             put(ch,col,H-1,(W-len(tag))//2,tag,lerp(BRAND,WHITE,.25))
@@ -435,7 +483,7 @@ def explore(txid, base, source):
             k = getkey()
             if k == "QUIT": break
             elif k in ("UP", "DOWN"):
-                mx = max(0, max(len(meta["ins"]), len(meta["outs"])) - MAXN)
+                mx = max(0, max(len(meta["ins"]), len(meta["outs"])) - MAXN, ndenoms(meta) - 6)
                 no = max(0, min(mx, io_off + (-1 if k == "UP" else 1)))
                 if no != io_off: io_off = no; viz = build(meta, io_off); parts.clear()
             elif k == "TAB":
@@ -461,7 +509,7 @@ def explore(txid, base, source):
             isel = sel if sel < len(viz["nin"]) else None
             osel = sel if sel < len(viz["nout"]) else None
             render_tx(ch, col, meta, viz, source, f, parts,
-                      hint=(flash if flasht > 0 else HINT), isel=isel, osel=osel)
+                      hint=(flash if flasht > 0 else HINT), isel=isel, osel=osel, den_off=io_off)
             emit(o, ch, col)
             if flasht > 0: flasht -= 1
             time.sleep(0.05); f += 1
@@ -477,25 +525,94 @@ def feecol(fr):                                      # colour a feerate (sat/vB)
     if fr < 30: return lerp(GREEN, ORANGE, (fr-8)/22)
     return lerp(ORANGE, RED, min((fr-30)/70, 1.0))
 
+def project_blocks(hist, maxn=6, cap_vsize=1_000_000):
+    # fold the fee histogram ([[feerate, vsize], ...], high->low) into 1 MvB blocks,
+    # splitting a bucket across the boundary so each block is exactly ~1 MvB
+    blocks = []; pairs = []; cvs = 0; fee = 0.0
+    for item in (hist or []):
+        fr, vs = item[0], item[1]
+        while vs > 0:
+            take = min(vs, cap_vsize - cvs)
+            pairs.append((fr, take)); cvs += take; fee += fr*take; vs -= take
+            if cvs >= cap_vsize:
+                blocks.append(_mk_block(pairs, cvs, fee)); pairs = []; cvs = 0; fee = 0.0
+                if len(blocks) >= maxn: return blocks
+    if pairs and len(blocks) < maxn: blocks.append(_mk_block(pairs, cvs, fee))
+    return blocks
+
+def _mk_block(pairs, cvs, fee):
+    half = cvs/2; acc = 0; med = pairs[-1][0]            # vsize-weighted median feerate
+    for fr, vs in pairs:
+        acc += vs
+        if acc >= half: med = fr; break
+    frs = [fr for fr, _ in pairs]
+    return dict(vsize=cvs, fee=fee, med=med, lo=min(frs), hi=max(frs), ntx=None, size=None)
+
+def fetch_projected(base, hist):                     # next blocks, mempool.space-style if available
+    try:
+        mb = fetch_json(f"{base}/api/v1/fees/mempool-blocks")   # has real size, nTx, fees
+        out = []
+        for b in (mb or [])[:3]:
+            fr = b.get("feeRange") or [b.get("medianFee", 0)]
+            out.append(dict(med=b.get("medianFee", 0), lo=fr[0], hi=fr[-1],
+                            fee=b.get("totalFees", 0), ntx=b.get("nTx"),
+                            size=b.get("blockSize"), vsize=b.get("blockVSize", 0)))
+        if out: return out
+    except Exception:
+        pass
+    return project_blocks(hist, maxn=3)               # fallback: project from the histogram
+
+def ff(x): return (f"{x:.2f}".rstrip("0").rstrip(".")) if x < 10 else f"{x:.0f}"
+
+def draw_block(ch, col, x, y, w, h, lines, base, bright, caption, capcol=None, xmin=0):
+    ring = clamp8(lerp(base, WHITE, 0.15 + 0.45*bright))         # chunky colour cube
+    def cell(yy, xx, g, cc):                                     # plot, clipped left of xmin
+        if xx >= xmin and 0 <= yy < H and 0 <= xx < W: ch[yy][xx] = g; col[yy][xx] = cc
+    for c in range(w):
+        cell(y, x+c, "█", ring); cell(y+h-1, x+c, "█", ring)
+    for r in range(1, h-1):
+        cell(y+r, x, "█", ring); cell(y+r, x+w-1, "█", ring)
+        s = lines[r-1] if r-1 < len(lines) else ""
+        if s:
+            sx = x+1+max(0,(w-2-len(s))//2)
+            for i, k in enumerate(s[:w-2]): cell(y+r, sx+i, k, WHITE)
+    if caption:
+        cx = x+max(0,(w-len(caption))//2)
+        for i, k in enumerate(caption[:w]): cell(y+h, cx+i, k, capcol or GREY)
+
 def watch(base, source, frames):                     # returns a txid to inspect, or None to quit
     import threading
     stop = threading.Event(); seen = set()
-    state = {"recent": [], "stats": None, "new": [], "err": "connecting...", "ver": 0}
+    state = {"recent": [], "stats": None, "new": [], "err": "connecting...",
+             "ver": 0, "height": None, "projected": []}
     def poll():
         while not stop.is_set():
             try:
                 rec = fetch_json(f"{base}/api/mempool/recent")
                 st  = fetch_json(f"{base}/api/mempool")
+                try: h = fetch_json(f"{base}/api/blocks/tip/height")
+                except Exception: h = state.get("height")
+                proj = fetch_projected(base, st.get("fee_histogram") or [])
                 new = [t for t in rec if t.get("txid") not in seen]
                 for t in rec: seen.add(t.get("txid"))
-                state.update(recent=rec, stats=st, new=new, err=None, ver=state["ver"]+1)
+                state.update(recent=rec, stats=st, new=new, height=h, projected=proj,
+                             err=None, ver=state["ver"]+1)
+                cjmap = state.get("cjmeta", {}); done = 0   # lazy coinjoin goggles on the feed
+                for t in sorted(rec, key=lambda t: t.get("fee",0)/max(t.get("vsize",1),1), reverse=True)[:26]:
+                    tid = t.get("txid")
+                    if tid in cjmap: continue
+                    try: cjmap[tid] = classify_cj(parse_tx(fetch_json(f"{base}/api/tx/{tid}")))[0]
+                    except Exception: cjmap[tid] = None
+                    done += 1
+                    if done >= 10: break          # bound fetches per cycle to keep polling snappy
+                state["cjmeta"] = cjmap
             except Exception as e:
                 state["err"] = str(e)
             stop.wait(3)
     threading.Thread(target=poll, daemon=True).start()
     getkey, restore = make_keyreader()
     o = sys.stdout.write; o("\x1b[?1049h\x1b[?25l\x1b[2J")
-    parts = []; chosen = None; lastver = -1; BARX = X_MIX
+    parts = []; chosen = None; lastver = -1; BARX = X_MIX; lastheight = None; nbflash = 0; slide = 0.0
     def fr_of(t): return t.get("fee",0)/max(t.get("vsize",1),1)
     try:
         f = 0
@@ -507,6 +624,12 @@ def watch(base, source, frames):                     # returns a txid to inspect
                 shown = sorted(state["recent"], key=fr_of, reverse=True)
                 if i < len(shown): chosen = shown[i]["txid"]; break
             ch, col = blank(); pulse = 0.5 + 0.5*M.sin(f*0.12)
+            height = state.get("height"); projected = state.get("projected") or []
+            if lastheight is not None and height is not None and height != lastheight:
+                nbflash = 40; slide = -22.0          # new block -> shove the lane one pitch right
+            if height is not None: lastheight = height
+            if slide < 0:                            # ease the slide back to rest
+                slide = 0.0 if slide > -0.5 else slide*0.82
             if state["ver"] != lastver:                  # spawn coins for newly arrived txs
                 for t in state.get("new", [])[:40]:
                     parts.append([0.0, random.uniform(.010,.018), random.uniform(TOP,BOT),
@@ -531,14 +654,24 @@ def watch(base, source, frames):                     # returns a txid to inspect
                 for cc in (BARX-1, BARX, BARX+1): ch[r][cc] = "█"; col[r][cc] = cg
             for i, kk in enumerate("MEMPOOL"): put(ch, col, int(CY)-3+i, BARX, kk, WHITE)
             put(ch, col, TOP-1, X_IN-4, "INCOMING TXS", GREY)
-            rec = sorted(state["recent"], key=fr_of, reverse=True)   # live feed (numbered)
-            put(ch, col, TOP-1, BARX+6, "LIVE FEED  (press 1-9 to inspect)", GREY)
-            for i, t in enumerate(rec[:BOT-TOP+1]):
+            cjmap = state.get("cjmeta", {})                          # live feed (numbered, goggled)
+            rec = sorted(state["recent"], key=fr_of, reverse=True)
+            shown = rec[:BOT-TOP+1]
+            ncj = sum(1 for t in shown if cjmap.get(t.get("txid")))
+            hdr = (f"LIVE FEED  ({ncj} coinjoin{'s' if ncj!=1 else ''} ◆  ·  1-9 inspect)" if ncj
+                   else "LIVE FEED  (press 1-9 to inspect)")
+            put(ch, col, TOP-1, BARX+6, hdr, lerp(GREEN,WHITE,.2) if ncj else GREY)
+            for i, t in enumerate(shown):
                 y = TOP + i; pc = clamp8(feecol(fr_of(t)))
                 num = f"{i+1}." if i < 9 else "  ·"
                 txid = t.get("txid",""); lab = (txid[:8]+"…"+txid[-6:]) if txid else "?"
-                put(ch, col, y, BARX+6, f"{num:>3} {fr_of(t):5.1f} sat/vB  {lab}  {fmt(t.get('value',0))}",
-                    lerp(pc, WHITE, .25))
+                cjl = cjmap.get(txid)
+                row = f"{num:>3} {fr_of(t):5.1f} sat/vB  {lab}  {fmt(t.get('value',0))}"
+                put(ch, col, y, BARX+6, row, lerp(GREEN,WHITE,.25) if cjl else lerp(pc, WHITE, .25))
+                if cjl:
+                    put(ch, col, y, BARX+4, "◆", GREEN)
+                    s = SHORT_CJ.get(cjl, cjl)
+                    put(ch, col, y, min(W-len(s)-1, BARX+8+len(row)), s, GREEN)
             sweep = (f*0.7) % 28 - 4                      # shimmering shield + live stats
             for r, row in enumerate(LOGO):
                 bs = lerp(BRAND, WHITE, 0.45 - 0.42*(r/(len(LOGO)-1)))
@@ -555,10 +688,33 @@ def watch(base, source, frames):                     # returns a txid to inspect
                 top = hist[0][0] if hist else 0; flo = hist[-1][0] if hist else 0
                 rput(ch,col,1,W-2, f"{cnt:,} txs waiting", lerp(BRAND,WHITE,.25))
                 put(ch,col,1,20, f"backlog {vb/1e6:.1f} vMB  ·  {tf/1e8:.3f} BTC in fees", lerp(BRAND,WHITE,.2))
-                put(ch,col,3,20, f"top fee {top:.0f} sat/vB", ORANGE)
-                put(ch,col,3,40, f"purging floor {flo:.1f} sat/vB", lerp(BRAND,WHITE,.2))
+                put(ch,col,2,20, (f"chain tip  #{height:,}" if height else "chain tip  (loading)"), lerp(BRAND,WHITE,.3))
+                rput(ch,col,2,W-2, f"top {top:.0f}  ·  floor {flo:.1f} sat/vB", lerp(BRAND,WHITE,.2))
+                put(ch,col,3,20, "UPCOMING BLOCKS", GREY)
             else:
                 put(ch,col,1,20, state.get("err") or "loading live mempool ...", ORANGE)
+            # -- upcoming-blocks lane: next 3 blocks (real size/tx/fees) + chain tip ---------
+            BW, PITCH, YB, BH = 20, 22, 4, 6; xo = round(slide); x_tip = W-2-BW
+            if projected:
+                tcap, tbr, tcc = "just mined", 0.5+0.5*pulse, lerp(ORANGE,WHITE,.3)
+                if nbflash > 0:
+                    if (nbflash//4) % 2 == 0: tcap, tbr, tcc = "** JUST MINED **", 1.0, clamp8(lerp(ORANGE,WHITE,.6))
+                    nbflash -= 1
+                draw_block(ch,col,x_tip+xo,YB,BW,BH, ["", (f"#{height:,}" if height else "tip"), "chain tip", ""],
+                           ORANGE, tbr, tcap, tcc, xmin=19)
+                for bi in range(min(len(projected), 3)):
+                    x = x_tip - (bi+1)*PITCH + xo
+                    pb = projected[bi]
+                    if pb.get("ntx") and pb.get("size"):
+                        n = pb["ntx"]; ktx = f"{n/1000:.1f}k" if n >= 1000 else str(n)
+                        l4 = f"{ktx} tx · {pb['size']/1e6:.2f} MB"
+                    elif pb.get("size"): l4 = f"{pb['size']/1e6:.2f} MB"
+                    else:                l4 = f"{pb['vsize']/1e6:.2f} MvB"
+                    lines = [f"~{pb['med']:.0f} sat/vB", f"{ff(pb['lo'])} - {ff(pb['hi'])} sat/vB",
+                             f"{pb['fee']/1e8:.3f} BTC", l4]
+                    cap = "next block" if bi==0 else f"in ~{(bi+1)*10} min"
+                    draw_block(ch,col,x,YB,BW,BH, lines, feecol(pb['med']),
+                               (0.45+0.45*pulse) if bi==0 else 0.18, cap, GREY, xmin=19)
             tag = "coinjoin.nl    ·    mix to break the link    ·    press q to quit"
             put(ch,col,H-1,(W-len(tag))//2,tag,lerp(BRAND,WHITE,.25))
             emit(o, ch, col); time.sleep(0.05); f += 1
