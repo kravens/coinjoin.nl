@@ -44,6 +44,38 @@ def fetch_text(url, timeout=20):                     # endpoints returning a bar
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return r.read().decode().strip()
 
+LIQUISABI_API = "http://liquisabi.com/api"           # LiquiSabi JSON-RPC dashboard (WabiSabi rounds)
+def coord_name(url):                                 # short coordinator name from its URL
+    from urllib.parse import urlparse
+    h = (urlparse(url).netloc or url).lower()
+    for pre in ("www.", "api.", "btcpay.", "coordinator.", "coinjoin.", "wabisabi."):
+        if h.startswith(pre): h = h[len(pre):]
+    return h or url
+def fetch_coinjoins(n=10, api=LIQUISABI_API):        # latest n WabiSabi coinjoin rounds from LiquiSabi
+    import datetime
+    now = datetime.datetime.now(datetime.timezone.utc)
+    body = json.dumps({"jsonrpc": "2.0", "id": "1", "method": "dashboard", "params": {
+        "since": (now - datetime.timedelta(days=14)).isoformat(), "until": now.isoformat(),
+        "page": 1, "pageSize": n, "orderBy": "RoundEndTime", "descending": True, "searchTerm": ""}})
+    req = urllib.request.Request(api, data=body.encode("utf-8"),
+        headers={"Content-Type": "text/plain;charset=UTF-8", "User-Agent": "txflow/1.0 (coinjoin.nl)",
+                 "Origin": "http://liquisabi.com", "Referer": "http://liquisabi.com/"})
+    with urllib.request.urlopen(req, timeout=20) as r:
+        resp = json.loads(r.read().decode())
+    rounds = ((resp.get("result") or resp).get("PaginatedRounds") or {}).get("Rounds") or []
+    return [dict(txid=(rd.get("TxId") or "").lower(), coord=coord_name(rd.get("CoordinatorEndpoint") or ""),
+                 anon=rd.get("AverageStandardOutputsAnonSet"), ins=rd.get("InputCount")) for rd in rounds[:n]]
+
+def clip_copy(text):                                 # copy to the OS clipboard (best effort)
+    import subprocess
+    try:
+        if os.name == "nt": subprocess.run("clip", input=text, text=True, check=True)
+        elif sys.platform == "darwin": subprocess.run("pbcopy", input=text, text=True, check=True)
+        else: subprocess.run(["xclip","-selection","clipboard"], input=text, text=True, check=True)
+        return True
+    except Exception:
+        return False
+
 def parse_tx(tx):
     vin = tx.get("vin",[]) or []; vout = tx.get("vout",[]) or []
     coinbase = any(i.get("is_coinbase") for i in vin)
@@ -71,10 +103,12 @@ def fetch_tx(txid, base): return fetch_json(f"{base}/api/tx/{txid}")
 WHIRLPOOL_POOLS = {100_000, 1_000_000, 5_000_000, 50_000_000}   # 0.001/0.01/0.05/0.5 BTC
 
 def _wabisabi_denoms(maxv=10**14):                   # WabiSabi standard denominations
-    s = set()                                        # powers of 2, powers of 3, and 1/2/5 x 10^n
+    s = set()                                        # 2^n, 3^n, 2*3^n, and 1/2/5 x 10^n
     for b in (2, 3):
         v = 1
         while v <= maxv: s.add(v); v *= b
+    v = 1                                            # 2*3^n  (e.g. 28,697,814 = 2*3^15, 86,093,442 = 2*3^16)
+    while v <= maxv: s.add(2*v); v *= 3
     k = 1
     while k <= maxv: s.update((k, 2*k, 5*k)); k *= 10
     return frozenset(s)
@@ -122,6 +156,23 @@ def coin_anon(fm, value):                            # anon-set of a `value` coi
         from collections import Counter
         return Counter(v for v,_,_ in fm["outs"] if v > 0).get(value, 1)
     return 1
+
+_PARENT_CJ = {}                                      # txid -> is that tx a coinjoin (cached across views)
+def relink_scan(raw, base, cap=12):                  # toxic change: a non-cj tx merging private + non-private
+    if not raw or is_cj(parse_tx(raw)): return (0, 0)    # the coinjoin round itself isn't a re-link
+    priv = nonpriv = 0; seen = 0
+    for vin in raw.get("vin", []):
+        if vin.get("is_coinbase"): continue
+        p = vin.get("txid")
+        if not p: continue
+        if p not in _PARENT_CJ:
+            try: _PARENT_CJ[p] = is_cj(parse_tx(fetch_json(f"{base}/api/tx/{p}")))
+            except Exception: _PARENT_CJ[p] = None
+        c = _PARENT_CJ[p]
+        priv += c is True; nonpriv += c is False
+        seen += 1
+        if seen >= cap: break
+    return (priv, nonpriv)
 
 def ndenoms(meta):                                   # distinct equal-output denominations (>=2)
     from collections import Counter
@@ -208,6 +259,17 @@ def funnel(t,yi,yo,off):
     ym=CY+off
     return yi+(ym-yi)*smooth(t/0.5) if t<0.5 else ym+(yo-ym)*smooth((t-0.5)/0.5)
 
+def draw_help(ch, col, title, lines):                # centered key-help overlay
+    w = max([len(title)] + [len(l) for l in lines]) + 6; h = len(lines) + 4
+    x0 = max(0, (W-w)//2); y0 = max(0, (H-h)//2)
+    for yy in range(y0, min(y0+h, H)):
+        for xx in range(x0, min(x0+w, W)):
+            edge = yy in (y0, y0+h-1) or xx in (x0, x0+w-1)
+            ch[yy][xx] = "█" if edge else " "
+            col[yy][xx] = clamp8(lerp(BRAND, WHITE, .25)) if edge else (16, 18, 26)
+    put(ch, col, y0+1, x0+(w-len(title))//2, title, WHITE)
+    for i, l in enumerate(lines): put(ch, col, y0+3+i, x0+3, l, lerp(BRAND, WHITE, .45))
+
 def emit(o, ch, col):                                # paint a frame (RLE, synchronized)
     out=["\x1b[?2026h\x1b[H"]
     for r in range(H):
@@ -221,7 +283,7 @@ def emit(o, ch, col):                                # paint a frame (RLE, synch
         out.append("".join(line)+"\x1b[0m")
     o("\n".join(out)+"\x1b[?2026l"); sys.stdout.flush()
 
-def render_tx(ch, col, meta, viz, source, f, parts, hint=None, isel=None, osel=None, den_off=0):
+def render_tx(ch, col, meta, viz, source, f, parts, hint=None, isel=None, osel=None, den_off=0, relink=None):
     nin, nout = viz["nin"], viz["nout"]
     if not nin or not nout: return
     inw=[max(n[2][0],1) for n in nin]; outw=[max(n[2][0],1) for n in nout]
@@ -304,7 +366,11 @@ def render_tx(ch, col, meta, viz, source, f, parts, hint=None, isel=None, osel=N
     rput(ch,col,3,LABX,"txid",GREY);  put(ch,col,3,VALX, meta["txid"] or "(local)", lerp(BRAND,WHITE,.1))
     rput(ch,col,4,LABX,"value",GREY); put(ch,col,4,VALX,f"in {fmt(meta['total_in'])}    →    out {fmt(meta['total_out'])}", lerp(BRAND,WHITE,.25))
     rput(ch,col,5,LABX,"fee",GREY);   put(ch,col,5,VALX,f"{meta['fee']:,} sats   ·   {meta['feerate']:.1f} sat/vB   ·   {meta['vsize']:,} vB", lerp(BRAND,WHITE,.25))
-    if cj:
+    if relink and relink[0] > 0 and relink[1] > 0:    # toxic change: re-links a mix with non-private coins
+        rput(ch,col,6,LABX,"warning",GREY)
+        put(ch,col,6,VALX, f"⚠ TOXIC CHANGE  —  merges {relink[0]} coinjoin + {relink[1]} non-private input(s); "
+            "this re-links your mixed coins", (255,92,92))
+    elif cj:
         from collections import Counter
         vc = Counter(v for v,_,_ in meta["outs"] if v > 0)
         denoms = sorted(((c, v) for v, c in vc.items() if c >= 2), reverse=True)
@@ -448,8 +514,26 @@ def animate_graph(G, source, frames):
     interactive = (frames == 0 and sys.stdin.isatty())
     apply_canvas(*term_canvas(interactive))
     getkey, restore = make_keyreader() if interactive else ((lambda: None), (lambda: None))
-    HINT = "w/a/s/d move    Tab/S-Tab page    e/f expand/contract    space open tx    q quit"
-    parts = []; o = sys.stdout.write; flash, flasht = "", 0
+    HINT = "w/a/s/d move   Tab/S-Tab page   e/f or a/d-at-edge expand   space open tx   y copy   ? help   q quit"
+    HELP = ["w / a / s / d   move between transactions (column / row)",
+            "a / d at edge   expand the graph one level that direction",
+            "Tab / S-Tab     page down / up a column (reveals more)",
+            "e / f           expand / contract depth both ways",
+            "space           open the selected transaction in the flow view",
+            "y               copy the selected txid to the clipboard",
+            "q               quit / back",
+            "",
+            "green node = coinjoin    columns = time (older left)"]
+    parts = []; o = sys.stdout.write; flash, flasht = "", 0; helpon = False
+    import threading
+    relinkc = {}                                      # txid -> (priv, nonpriv) re-link scan (background)
+    def kick_relink(t):
+        if t in relinkc or t not in G["raw"]: return
+        relinkc[t] = None; raw = G["raw"][t]
+        def work():
+            try: relinkc[t] = relink_scan(raw, base)
+            except Exception: relinkc[t] = (0, 0)
+        threading.Thread(target=work, daemon=True).start()
     o("\x1b[?1049h\x1b[?25l\x1b[2J")
     def layout():                                      # band + value-order per level + scroll window
         GT = 16; GB = H - 6; band = GB - GT          # node band; packs denser as it grows
@@ -463,7 +547,24 @@ def animate_graph(G, source, frames):
         lvs = sorted(levels)
         ov = {lv: sorted(levels[lv], key=lambda t: parsed[t]["total_out"], reverse=True) for lv in lvs}
         XL, XR = 8, W-9
-        xs = {lv: round(XL + (XR-XL)*(i/max(len(lvs)-1, 1))) for i, lv in enumerate(lvs)}
+        def even(): return {lv: round(XL + (XR-XL)*(i/max(len(lvs)-1, 1))) for i, lv in enumerate(lvs)}
+        hmap = {}                                     # median block height per level (the time axis)
+        for lv in lvs:
+            hs = sorted(h for h in (parsed[t].get("height") for t in levels[lv]) if h)
+            hmap[lv] = hs[len(hs)//2] if hs else None
+        known = [h for h in hmap.values() if h]
+        if len(lvs) >= 2 and len(known) >= 2 and max(known) > min(known):   # space columns by time
+            hmin, hmax = min(known), max(known); xs = {}
+            for lv in lvs:
+                frac = 1.0 if hmap[lv] is None else (hmap[lv]-hmin)/(hmax-hmin)   # unconfirmed -> newest
+                xs[lv] = round(XL + (XR-XL)*frac)
+            prev = None                               # keep left->right order with a minimum gap
+            for lv in lvs:
+                if prev is not None and xs[lv] <= xs[prev]+12: xs[lv] = xs[prev]+12
+                prev = lv
+            if xs[lvs[-1]] > XR: xs = even()          # overflowed -> fall back to even spacing
+        else:
+            xs = even()
         for lv in lvs: loff[lv] = max(0, min(loff[lv], max(0, len(ov[lv])-FITS)))
         slv = placed[sel[0]]; sr = ov[slv].index(sel[0])      # keep selection inside its window
         if sr < loff[slv]: loff[slv] = sr
@@ -473,13 +574,13 @@ def animate_graph(G, source, frames):
             win = ov[lv][loff[lv]:loff[lv]+FITS]; vis[lv] = win
             for t, y in zip(win, gy(len(win))): pos[t] = (xs[lv], y)
         cjset = {t for t in placed if _g_cj(G, t)}
-        return placed, parsed, lvs, ov, xs, pos, vis, cjset, GT, GB
+        return placed, parsed, lvs, ov, xs, pos, vis, cjset, GT, GB, hmap
     try:
         f = 0
         while frames == 0 or f < frames:
             nw, nh = term_canvas(interactive)          # adapt to a terminal resize
             if (nw, nh) != (W, H): apply_canvas(nw, nh); o("\x1b[2J")
-            placed, parsed, lvs, ov, xs, pos, vis, cjset, GT, GB = layout()
+            placed, parsed, lvs, ov, xs, pos, vis, cjset, GT, GB, hmap = layout()
             k = getkey()
             if k == "QUIT": break
             elif k == "SPACE":                         # open the selected tx in the explorer
@@ -533,7 +634,12 @@ def animate_graph(G, source, frames):
                                   key=lambda t: G["parsed"][t]["total_out"], reverse=True)
                     sel[0] = lst2[min(target, len(lst2)-1)]
                     if rv: flash, flasht = "revealed %d more tx at this level" % rv, 20
-            placed, parsed, lvs, ov, xs, pos, vis, cjset, GT, GB = layout()   # reflect any mutation now
+            elif k == "YANK":
+                flash, flasht = ("copied txid to clipboard" if clip_copy(sel[0]) else "clipboard copy unavailable"), 24
+            elif k == "HELP":
+                helpon = not helpon
+            kick_relink(sel[0])                        # background toxic-change scan for the selected tx
+            placed, parsed, lvs, ov, xs, pos, vis, cjset, GT, GB, hmap = layout()   # reflect any mutation now
             elist = [(a, b) for (a, b) in G["edges"] if a in pos and b in pos]
             adj = defaultdict(list)
             for (a, b) in elist: adj[a].append(b); adj[b].append(a)
@@ -594,11 +700,13 @@ def animate_graph(G, source, frames):
                     bb = .4 if mainnode else (.32 if t in pnodes else 0.0)
                     ch[y][x] = "█"; col[y][x] = clamp8(lerp(c, WHITE, bb))
                     if mainnode: put(ch, col, y, x+2, "main", GREY)
-            for lv in lvs:                             # per-column scroll cues (hidden + revealable txs)
+            for lv in lvs:                             # per-column scroll cues + block-height (time axis)
                 x = xs[lv]; above = loff[lv]
                 below = (len(ov[lv]) - loff[lv] - len(vis[lv])) + len(G["overflow"].get(lv, []))
                 if above > 0: put(ch, col, GT-1, x-1, f"▲{above}", GREY)
                 if below > 0: put(ch, col, GB+1, x-1, f"▼{below}", GREY)
+                hl = f"#{hmap[lv]:,}" if hmap.get(lv) else "mempool"
+                put(ch, col, GB+2, x-len(hl)//2, hl, lerp(GREY, BRAND, .2))
             for r, row in enumerate(LOGO):             # shimmering shield + header
                 bs = lerp(BRAND, WHITE, 0.45 - 0.42*(r/(len(LOGO)-1)))
                 for c, kk in enumerate(row):
@@ -614,7 +722,10 @@ def animate_graph(G, source, frames):
             info = f"{fmt(ms['total_in'])} in  ·  {fmt(ms['total_out'])} out  ·  fee {ms['fee']:,} sats ({ms['feerate']:.1f} sat/vB)"
             put(ch,col,4,20,info,lerp(BRAND,WHITE,.25))
             if cjl: put(ch,col,4,20+len(info)+3,"◆ "+cjl,GREEN)
-            if sel[0] == main_txid:
+            rl = relinkc.get(sel[0])
+            if rl and rl[0] > 0 and rl[1] > 0:         # toxic change: this tx re-links a mix
+                put(ch,col,5,20,f"⚠ TOXIC CHANGE — merges {rl[0]} coinjoin + {rl[1]} non-private input(s); re-links your mix",(255,92,92))
+            elif sel[0] == main_txid:
                 put(ch,col,5,20,"this is the central transaction",lerp(GREEN,WHITE,.35))
             else:
                 put(ch,col,5,20,f"lineage  {hops} hop{'s' if hops!=1 else ''} to central tx  ·  "
@@ -642,6 +753,7 @@ def animate_graph(G, source, frames):
                 if flasht > 0: flasht -= 1
             tag = "coinjoin.nl    ·    great privacy for cheap mining fees"
             put(ch,col,H-1,(W-len(tag))//2,tag,lerp(BRAND,WHITE,.25))
+            if helpon: draw_help(ch, col, "TRANSACTION GRAPH  ·  keys", HELP)
             emit(o, ch, col)
             time.sleep(FRAME); f += 1
     except KeyboardInterrupt:
@@ -670,6 +782,7 @@ def make_keyreader():                                # non-blocking w/a/s/d cont
     KEYS = {"w":"UP","a":"LEFT","s":"DOWN","d":"RIGHT",
             "W":"UP","A":"LEFT","S":"DOWN","D":"RIGHT",
             "e":"EXPAND","E":"EXPAND","f":"CONTRACT","F":"CONTRACT","c":"COINBASE","C":"COINBASE",
+            "y":"YANK","Y":"YANK","?":"HELP","j":"JOINS","J":"JOINS",
             "\t":"TAB"," ":"SPACE","q":"QUIT","Q":"QUIT","\x1b":"QUIT"}
     for _d in "123456789": KEYS[_d] = _d
     def consume(nextc):                              # we just read ESC; swallow the whole sequence
@@ -769,9 +882,28 @@ def explore(txid, base, source):
     meta = gmeta(cur)                                 # initial fetch (may raise -> caught in main)
     interactive = sys.stdin.isatty(); apply_canvas(*term_canvas(interactive))
     getkey, restore = make_keyreader()
-    HINT = "a/d walk    w/s move ◂▸    Tab page    e graph    space address    c fee-block    q quit"
+    HINT = "a/d walk   w/s move ◂▸   Tab page   e graph   space address   y copy   ? help   q quit"
+    HELP = ["a / d        walk back / forward through the selected branch",
+            "w / s        move the ◂▸ cursor (up/down a row, scrolls if needed)",
+            "Tab / S-Tab  page forward / back through many inputs/outputs",
+            "1-9          (none) - use w/s; cursor follows value rank",
+            "e            zoom out to the connected-transaction graph",
+            "space        open the privacy view of the selected output's address",
+            "c            follow the fee to its block's coinbase tx",
+            "y            copy this txid to the clipboard",
+            "q            quit / back"]
     o = sys.stdout.write; o("\x1b[?1049h\x1b[?25l\x1b[2J")
-    parts = []; viz = build(meta, io_off); flash, flasht = "", 0
+    parts = []; viz = build(meta, io_off); flash, flasht = "", 0; helpon = False
+    import threading
+    relinkc = {}                                      # txid -> (priv, nonpriv) re-link scan (background)
+    def kick_relink(t):
+        if t in relinkc: return
+        relinkc[t] = None
+        raw = graw(t)
+        def work():
+            try: relinkc[t] = relink_scan(raw, base)
+            except Exception: relinkc[t] = (0, 0)
+        threading.Thread(target=work, daemon=True).start()
     def back_targets():                               # funding txids, largest input first
         items = [(((vin.get("prevout") or {}).get("value",0)), vin.get("txid"))
                  for vin in graw(cur).get("vin", []) if not vin.get("is_coinbase") and vin.get("txid")]
@@ -849,14 +981,21 @@ def explore(txid, base, source):
                         parts.clear(); flash, flasht = "▲  followed the fee to the block #%d coinbase" % bheight, 30
                 else:
                     flash, flasht = "fee goes to the next block (this tx is still unconfirmed)", 24
+            elif k == "YANK":
+                flash, flasht = ("copied txid to clipboard" if clip_copy(cur) else "clipboard copy unavailable"), 24
+            elif k == "HELP":
+                helpon = not helpon
             nw, nh = term_canvas(interactive)             # terminal resized -> resize the canvas
             if (nw, nh) != (W, H): apply_canvas(nw, nh); o("\x1b[2J"); viz = build(meta, io_off); parts.clear()
+            kick_relink(cur)                              # background toxic-change scan for this tx
             ch, col = blank()
             vsel = sel - io_off                            # cursor row inside the visible window
             isel = vsel if 0 <= vsel < len(viz["nin"]) else None
             osel = vsel if 0 <= vsel < len(viz["nout"]) else None
             render_tx(ch, col, meta, viz, source, f, parts,
-                      hint=(flash if flasht > 0 else HINT), isel=isel, osel=osel, den_off=io_off)
+                      hint=(flash if flasht > 0 else HINT), isel=isel, osel=osel, den_off=io_off,
+                      relink=relinkc.get(cur))
+            if helpon: draw_help(ch, col, "TRANSACTION FLOW  ·  keys", HELP)
             emit(o, ch, col)
             if flasht > 0: flasht -= 1
             time.sleep(FRAME); f += 1
@@ -920,7 +1059,13 @@ def explore_address(addr, base, source):
     interactive = sys.stdin.isatty(); apply_canvas(*term_canvas(interactive))
     getkey, restore = make_keyreader()
     o = sys.stdout.write; o("\x1b[?1049h\x1b[?25l\x1b[2J")
-    LIST = 12; sel = 0; off = 0
+    LIST = 12; sel = 0; off = 0; helpon = False; flash, flasht = "", 0
+    HELP = ["w / s    select a UTXO / transaction in the list",
+            "space    open the selected (funding) tx in the flow view",
+            "y        copy this address to the clipboard",
+            "q        back to the transaction",
+            "",
+            "anon-set = how many equal coins your UTXO hides among (1 = none)"]
     try:
         f = 0
         while True:
@@ -928,6 +1073,10 @@ def explore_address(addr, base, source):
             if k == "QUIT": break
             elif k == "DOWN" and items: sel = min(len(items)-1, sel+1)
             elif k == "UP" and items: sel = max(0, sel-1)
+            elif k == "YANK":
+                flash, flasht = ("copied address to clipboard" if clip_copy(addr) else "clipboard copy unavailable"), 24
+            elif k == "HELP":
+                helpon = not helpon
             elif k == "SPACE" and items:
                 tid = items[sel].get("txid")
                 if tid:
@@ -988,11 +1137,12 @@ def explore_address(addr, base, source):
                         put(ch,col,y,58, f"anon {t['anon']}", GREEN if t["anon"] > 1 else GREY)
                     put(ch,col,y,70, short(t["txid"]), lerp(bc,GREY,.3))
                     rput(ch,col,y,W-2, conf, GREY)
-            hint = ("w/s select UTXO    space open funding tx    q back to tx" if mode == "utxo"
-                    else "w/s select tx    space open tx    q back to tx")
+            hint = flash if flasht > 0 else ("w/s select   space open tx   y copy address   ? help   q back")
             put(ch,col,H-2,(W-len(hint))//2,hint,lerp(BRAND,WHITE,.4))
             tag = "coinjoin.nl    ·    one address, one use    ·    never mix private + non-private"
             put(ch,col,H-1,(W-len(tag))//2,tag,lerp(BRAND,WHITE,.25))
+            if flasht > 0: flasht -= 1
+            if helpon: draw_help(ch, col, "ADDRESS PRIVACY  ·  keys", HELP)
             emit(o, ch, col); time.sleep(FRAME); f += 1
     except KeyboardInterrupt:
         pass
@@ -1061,13 +1211,18 @@ def draw_block(ch, col, x, y, w, h, lines, base, bright, caption, capcol=None, x
         cx = x+max(0,(w-len(caption))//2)
         for i, k in enumerate(caption[:w]): cell(y+h, cx+i, k, capcol or GREY)
 
-def watch(base, source, frames):                     # returns a txid to inspect, or None to quit
+def watch(base, source, frames, liquisabi=LIQUISABI_API):   # returns a txid to inspect, or None to quit
     import threading
     stop = threading.Event(); seen = set()
     state = {"recent": [], "stats": None, "new": [], "err": "connecting...",
-             "ver": 0, "height": None, "projected": []}
+             "ver": 0, "height": None, "projected": [], "coinjoins": []}
     def poll():
+        last_lq = 0.0
         while not stop.is_set():
+            if time.monotonic() - last_lq >= 30:      # LiquiSabi: gentle, every 30s (don't overload it)
+                try: state["coinjoins"] = fetch_coinjoins(10, liquisabi)
+                except Exception: pass
+                last_lq = time.monotonic()
             try:
                 rec = fetch_json(f"{base}/api/mempool/recent")
                 st  = fetch_json(f"{base}/api/mempool")
@@ -1078,33 +1233,49 @@ def watch(base, source, frames):                     # returns a txid to inspect
                 for t in rec: seen.add(t.get("txid"))
                 state.update(recent=rec, stats=st, new=new, height=h, projected=proj,
                              err=None, ver=state["ver"]+1)
-                cjmap = state.get("cjmeta", {}); done = 0   # lazy coinjoin goggles on the feed
-                for t in sorted(rec, key=lambda t: t.get("fee",0)/max(t.get("vsize",1),1), reverse=True)[:26]:
+                cjmap = state.get("cjmeta", {}); done = 0   # classify biggest txs first (coinjoins = large vsize)
+                for t in sorted(rec, key=lambda t: t.get("vsize",0), reverse=True)[:30]:
                     tid = t.get("txid")
                     if tid in cjmap: continue
                     try: cjmap[tid] = classify_cj(parse_tx(fetch_json(f"{base}/api/tx/{tid}")))[0]
                     except Exception: cjmap[tid] = None
                     done += 1
-                    if done >= 10: break          # bound fetches per cycle to keep polling snappy
+                    if done >= 12: break          # bound fetches per cycle
                 state["cjmeta"] = cjmap
             except Exception as e:
                 state["err"] = str(e)
-            stop.wait(3)
+            stop.wait(2)                          # faster live-feed refresh
     threading.Thread(target=poll, daemon=True).start()
     interactive = sys.stdin.isatty(); apply_canvas(*term_canvas(interactive))
     getkey, restore = make_keyreader()
     o = sys.stdout.write; o("\x1b[?1049h\x1b[?25l\x1b[2J")
     parts = []; chosen = None; lastver = -1; lastheight = None; nbflash = 0; slide = 0.0
+    helpon = False; sel = 0; loff = 0; cj_seen = set(); cj_flash = {}; focus = "feed"
+    HELP = ["w / s    move the ▸ cursor up / down the focused list",
+            "Tab      switch cursor: live feed  <->  latest coinjoins",
+            "space    open the selected transaction in the flow view",
+            "?        toggle this help",
+            "q        quit",
+            "",
+            "live feed = mempool, biggest txs scanned for coinjoins",
+            "◆ pulsing green = a coinjoin just detected in the mempool",
+            "latest coinjoins (below) come from LiquiSabi"]
     def fr_of(t): return t.get("fee",0)/max(t.get("vsize",1),1)
+    def cur_list(): return sorted(state["recent"], key=fr_of, reverse=True)
     try:
         f = 0
         while frames == 0 or f < frames:
             k = getkey()
+            items = cur_list(); cjlist = state.get("coinjoins") or []; jn = min(len(cjlist), 8)
+            active = cjlist if focus == "joins" else items
             if k == "QUIT": break
-            if k and k.isdigit():
-                i = int(k) - 1
-                shown = sorted(state["recent"], key=fr_of, reverse=True)
-                if i < len(shown): chosen = shown[i]["txid"]; break
+            elif k == "HELP": helpon = not helpon
+            elif k == "TAB":                              # switch cursor between feed and coinjoins list
+                if focus == "feed" and jn: focus, sel, loff = "joins", 0, 0
+                elif focus == "joins": focus, sel, loff = "feed", 0, 0
+            elif k == "UP": sel = max(0, sel-1)
+            elif k == "DOWN": sel = min(max(0, (jn if focus == "joins" else len(items))-1), sel+1)
+            elif k == "SPACE" and active and sel < len(active): chosen = active[sel].get("txid"); break
             nw, nh = term_canvas(interactive)             # adapt to a terminal resize
             if (nw, nh) != (W, H): apply_canvas(nw, nh); o("\x1b[2J")
             BARX = X_MIX                                   # mempool bar tracks the (resizable) centre
@@ -1139,24 +1310,55 @@ def watch(base, source, frames):                     # returns a txid to inspect
                 for cc in (BARX-1, BARX, BARX+1): ch[r][cc] = "█"; col[r][cc] = cg
             for i, kk in enumerate("MEMPOOL"): put(ch, col, int(CY)-3+i, BARX, kk, WHITE)
             put(ch, col, TOP-1, X_IN-4, "INCOMING TXS", GREY)
-            cjmap = state.get("cjmeta", {})                          # live feed (numbered, goggled)
-            rec = sorted(state["recent"], key=fr_of, reverse=True)
-            shown = rec[:BOT-TOP+1]
-            ncj = sum(1 for t in shown if cjmap.get(t.get("txid")))
-            hdr = (f"LIVE FEED  ({ncj} coinjoin{'s' if ncj!=1 else ''} ◆  ·  1-9 inspect)" if ncj
-                   else "LIVE FEED  (press 1-9 to inspect)")
-            put(ch, col, TOP-1, BARX+6, hdr, lerp(GREEN,WHITE,.2) if ncj else GREY)
-            for i, t in enumerate(shown):
-                y = TOP + i; pc = clamp8(feecol(fr_of(t)))
-                num = f"{i+1}." if i < 9 else "  ·"
+            cjmap = state.get("cjmeta", {}); items = cur_list()
+            cjlist = state.get("coinjoins") or []
+            for t in items:                                        # newly-detected coinjoin -> trigger a flash
+                tid = t.get("txid")
+                if cjmap.get(tid) and tid not in cj_seen: cj_seen.add(tid); cj_flash[tid] = 40
+            CJN = min(len(cjlist), 8)                              # bottom panel: latest coinjoins (LiquiSabi)
+            HC = (BOT - CJN) if CJN else BOT + 2                   # its header row (off-screen if none)
+            FBOT = HC - 2                                          # live feed occupies TOP..FBOT
+            VIS = max(1, FBOT - TOP + 1)                           # w/s cursor + scroll window over the feed
+            on_feed = (focus == "feed")
+            if on_feed:                                            # feed cursor scrolls; joins cursor is fixed list
+                sel = max(0, min(sel, max(0, len(items)-1)))
+                if sel < loff: loff = sel
+                elif sel >= loff+VIS: loff = sel-VIS+1
+                loff = max(0, min(loff, max(0, len(items)-VIS)))
+            else:
+                loff = 0; sel = max(0, min(sel, max(0, CJN-1)))
+            shown = items[loff:loff+VIS]
+            gpulse = 0.5 + 0.5*M.sin(f*0.28)                       # coinjoin glow pulse
+            ncj = sum(1 for t in items if cjmap.get(t.get("txid")))
+            hdr = (f"LIVE FEED ◆{ncj}" if ncj else "LIVE FEED") + ("  ◂ w/s · space open · Tab ▾" if on_feed else "  (Tab to focus)")
+            put(ch, col, TOP-1, BARX+6, hdr, WHITE if on_feed else (lerp(GREEN,WHITE,.2) if ncj else GREY))
+            for i, t in enumerate(shown):                          # ---- live mempool feed (goggled) ----
+                y = TOP + i; pc = clamp8(feecol(fr_of(t))); selrow = (on_feed and loff+i == sel)
                 txid = t.get("txid",""); lab = (txid[:8]+"…"+txid[-6:]) if txid else "?"
                 cjl = cjmap.get(txid)
-                row = f"{num:>3} {fr_of(t):5.1f} sat/vB  {lab}  {fmt(t.get('value',0))}"
-                put(ch, col, y, BARX+6, row, lerp(GREEN,WHITE,.25) if cjl else lerp(pc, WHITE, .25))
+                row = ("▸ " if selrow else "  ") + f"{fr_of(t):5.1f} sat/vB  {lab}  {fmt(t.get('value',0))}"
                 if cjl:
-                    put(ch, col, y, BARX+4, "◆", GREEN)
+                    fl = cj_flash.get(txid, 0)                     # new detection: extra-bright flash, fading
+                    if fl > 0: cj_flash[txid] = fl - 1
+                    g = clamp8(lerp(lerp(GREEN, GLOW, gpulse), WHITE, 0.7*(fl/40.0)))
+                    halo = clamp8(lerp(BG, g, 0.35 + 0.4*gpulse))
+                    put(ch, col, y, BARX+3, "◆", g); put(ch, col, y, BARX+5, "◆", halo)   # pulsing twin-glow ◆
+                    put(ch, col, y, BARX+6, row, WHITE if selrow else g)
                     s = SHORT_CJ.get(cjl, cjl)
-                    put(ch, col, y, min(W-len(s)-1, BARX+8+len(row)), s, GREEN)
+                    put(ch, col, y, min(W-len(s)-1, BARX+8+len(row)), s, g)
+                else:
+                    put(ch, col, y, BARX+6, row, WHITE if selrow else lerp(pc, WHITE, .25))
+            if CJN:                                                # ---- latest coinjoins from LiquiSabi ----
+                jhdr = "LATEST COINJOINS · LiquiSabi" + ("  ◂ w/s · space open · Tab ▴" if not on_feed else "  (Tab to focus)")
+                put(ch, col, HC, BARX+6, jhdr, WHITE if not on_feed else lerp(GREEN,WHITE,.25))
+                for i, r in enumerate(cjlist[:CJN]):
+                    y = HC + 1 + i; selrow = (not on_feed and i == sel)
+                    txid = r["txid"]; lab = (txid[:8]+"…"+txid[-6:]) if txid else "?"
+                    a = f"anon {r['anon']:.0f}" if r.get("anon") else "anon ?"
+                    n = f"{r['ins']}in" if r.get("ins") else ""
+                    put(ch, col, y, BARX+4, "◆", lerp(GREEN,GLOW,.3*gpulse))
+                    put(ch, col, y, BARX+6, ("▸ " if selrow else "  ") + f"{r['coord']:<16}  {a:<8} {n:<6}  {lab}",
+                        WHITE if selrow else lerp(GREEN,WHITE,.2))
             sweep = (f*0.7) % 28 - 4                      # shimmering shield + live stats
             for r, row in enumerate(LOGO):
                 bs = lerp(BRAND, WHITE, 0.45 - 0.42*(r/(len(LOGO)-1)))
@@ -1200,8 +1402,9 @@ def watch(base, source, frames):                     # returns a txid to inspect
                     cap = "next block" if bi==0 else f"in ~{(bi+1)*10} min"
                     draw_block(ch,col,x,YB,BW,BH, lines, feecol(pb['med']),
                                (0.45+0.45*pulse) if bi==0 else 0.18, cap, GREY, xmin=19)
-            tag = "coinjoin.nl    ·    mix to break the link    ·    press q to quit"
+            tag = "coinjoin.nl    ·    mix to break the link    ·    w/s · space open · ? help · q quit"
             put(ch,col,H-1,(W-len(tag))//2,tag,lerp(BRAND,WHITE,.25))
+            if helpon: draw_help(ch, col, "LIVE MEMPOOL  ·  keys", HELP)
             emit(o, ch, col); time.sleep(FRAME); f += 1
     except KeyboardInterrupt:
         pass
@@ -1289,6 +1492,8 @@ def main():
     ap.add_argument("--depth", type=int, default=0, help="also load N levels of connected txs (graph mode)")
     ap.add_argument("--width", type=int, default=8, help="max txs plotted per graph level (4-10)")
     ap.add_argument("--watch", action="store_true", help="live mempool dashboard (default when no txid)")
+    ap.add_argument("--liquisabi", default=LIQUISABI_API, metavar="URL",
+                    help="LiquiSabi (or self-hosted/compatible) JSON-RPC dashboard URL for the coinjoin list")
     ap.add_argument("--export", metavar="FILE", help="render to FILE (.gif/.png/.svg) instead of live view")
     a = ap.parse_args()
     base = a.mempool.rstrip("/")
@@ -1332,8 +1537,8 @@ def main():
         if not sys.stdin.isatty() and a.frames == 0:
             print("live mempool needs a terminal; pass a txid or --frames N for a fixed run.", file=sys.stderr)
         while True:
-            print(f"connecting to {base} live mempool ... (1-9 inspect, q quit)", file=sys.stderr)
-            txid = watch(base, src, a.frames)
+            print(f"connecting to {base} live mempool ... (w/s select, space open, q quit)", file=sys.stderr)
+            txid = watch(base, src, a.frames, a.liquisabi)
             if not txid: break
             try: explore(txid, base, src)
             except urllib.error.HTTPError as e: print(f"HTTP {e.code} for {txid[:12]}", file=sys.stderr); time.sleep(1)
