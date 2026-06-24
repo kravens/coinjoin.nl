@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+22#!/usr/bin/env python
 # -*- coding: utf-8 -*- ###########  T X   F L O W  ·  coinjoin.nl  ###########
 #  Pull any Bitcoin transaction from mempool.space (or your own self-hosted    #
 #  mempool) and animate its input -> output flow as ASCII.  Equal-value        #
@@ -16,7 +16,7 @@ except Exception: pass
 # ---- palette ----------------------------------------------------------------------
 BG=(10,12,16); BRAND=(176,186,236); GREEN=(46,214,122); GLOW=(120,255,170)
 ORANGE=(247,147,26); WHITE=(236,239,246); GREY=(110,120,134); DIM=(44,40,36)
-BLUE=(96,156,236); RED=(232,92,104)
+BLUE=(96,156,236); RED=(232,92,104); AMBER=(255,176,32)
 IN_COLS=[(86,150,240),(232,86,98),(240,158,48),(206,108,196),(74,200,200),(122,138,250),(232,120,150)]
 def lerp(a,b,t): return (a[0]+(b[0]-a[0])*t, a[1]+(b[1]-a[1])*t, a[2]+(b[2]-a[2])*t)
 def clamp8(c): return (max(0,min(255,int(c[0]))),max(0,min(255,int(c[1]))),max(0,min(255,int(c[2]))))
@@ -38,6 +38,11 @@ def fetch_json(url, timeout=20):
     req = urllib.request.Request(url, headers={"User-Agent":"txflow/1.0 (coinjoin.nl)"})
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return json.loads(r.read().decode())
+
+def fetch_text(url, timeout=20):                     # endpoints returning a bare string (e.g. block hash)
+    req = urllib.request.Request(url, headers={"User-Agent":"txflow/1.0 (coinjoin.nl)"})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return r.read().decode().strip()
 
 def parse_tx(tx):
     vin = tx.get("vin",[]) or []; vout = tx.get("vout",[]) or []
@@ -65,19 +70,31 @@ def fetch_tx(txid, base): return fetch_json(f"{base}/api/tx/{txid}")
 
 WHIRLPOOL_POOLS = {100_000, 1_000_000, 5_000_000, 50_000_000}   # 0.001/0.01/0.05/0.5 BTC
 
+def _wabisabi_denoms(maxv=10**14):                   # WabiSabi standard denominations
+    s = set()                                        # powers of 2, powers of 3, and 1/2/5 x 10^n
+    for b in (2, 3):
+        v = 1
+        while v <= maxv: s.add(v); v *= b
+    k = 1
+    while k <= maxv: s.update((k, 2*k, 5*k)); k *= 10
+    return frozenset(s)
+WABISABI_DENOMS = _wabisabi_denoms()
+
 def classify_cj(meta):                               # name the coinjoin protocol (or None)
     from collections import Counter
     outs = [v for v,_,_ in meta["outs"] if v > 0]; nin = len(meta["ins"]); nout = len(outs)
     if not outs: return (None, 0.0)
+    if nin < 2: return (None, 0.0)                    # a coinjoin needs >=2 participants (inputs)
     vals = Counter(outs)
     clusters = sorted(((c, v) for v, c in vals.items() if c >= 2), reverse=True)
     eqcnt, eqval = (clusters[0] if clusters else (0, 0))
-    ndenoms = sum(1 for c, _ in clusters if c >= 3)   # distinct repeated denominations
     if nin == 5 and nout == 5 and len(set(outs)) == 1 and outs[0] in WHIRLPOOL_POOLS:
         return ("Whirlpool 5x5", 0.99)                # Samourai Whirlpool: fixed-denom 5-in/5-out
+    std_out = sum(1 for v in outs if v in WABISABI_DENOMS)        # outputs on the WabiSabi denom set
+    std_denoms = len({v for v in outs if v in WABISABI_DENOMS})   # distinct standard denominations
+    if nout >= 8 and eqcnt >= 2 and std_denoms >= 3 and std_out >= 0.75*nout:
+        return ("Wasabi/WabiSabi", min(0.98, 0.6 + 0.02*nout))    # outputs match the standard denom set
     if eqcnt < 3: return (None, 0.0)
-    if nin >= 20 and nout >= 20 and ndenoms >= 4:
-        return ("Wasabi/WabiSabi", min(0.97, 0.55 + 0.02*nout))   # many participants, many denoms
     if eqcnt >= 5 and 9_000_000 <= eqval <= 12_000_000:
         return ("Wasabi 1.x", 0.9)                    # ~0.1 BTC equal outputs
     if 2 <= eqcnt <= 20 and abs((nout - eqcnt) - eqcnt) <= 2 and nin <= 30:
@@ -87,6 +104,24 @@ def classify_cj(meta):                               # name the coinjoin protoco
     return (None, 0.0)
 
 def is_cj(meta): return classify_cj(meta)[0] is not None
+
+def is_batched(meta):                                # one input fanning out to many outputs
+    return len(meta["ins"]) == 1 and sum(1 for v,_,_ in meta["outs"] if v > 0) >= 3
+
+def is_payjoin(meta):                                # heuristic candidate: receiver co-funds (BIP78)
+    ins = [v for v,_,cb in meta["ins"] if not cb]
+    outs = [(v,t) for v,_,t in meta["outs"] if v > 0]
+    if len(ins) < 2 or len(outs) != 2 or is_cj(meta): return False
+    (v0,t0),(v1,t1) = outs
+    if not (v0 != v1 and bool(t0) and t0 == t1): return False   # 2 unequal same-type outs (pay + change)
+    return max(v0, v1) > max(ins)                    # an output exceeds any single input (inputs combined)
+
+def coin_anon(fm, value):                            # anon-set of a `value` coin from its funding tx fm
+    if not fm: return None                           # N equal outputs if coinjoin, else 1 (non-private)
+    if is_cj(fm):
+        from collections import Counter
+        return Counter(v for v,_,_ in fm["outs"] if v > 0).get(value, 1)
+    return 1
 
 def ndenoms(meta):                                   # distinct equal-output denominations (>=2)
     from collections import Counter
@@ -190,7 +225,9 @@ def render_tx(ch, col, meta, viz, source, f, parts, hint=None, isel=None, osel=N
     nin, nout = viz["nin"], viz["nout"]
     if not nin or not nout: return
     inw=[max(n[2][0],1) for n in nin]; outw=[max(n[2][0],1) for n in nout]
-    center=viz["center"]; cj=viz["cj"]; label="COINJOIN" if cj else "TRANSACTION"
+    center=viz["center"]; cj=viz["cj"]
+    batched=(not cj) and is_batched(meta); payjoin=(not cj) and (not batched) and is_payjoin(meta)
+    label="COINJOIN" if cj else ("BATCHED" if batched else "TRANSACTION")
     pulse=0.5+0.5*M.sin(f*0.12)
     for (yi,_,_) in nin:                               # faint sankey ribbons
         for k in range(0,36):
@@ -198,27 +235,50 @@ def render_tx(ch, col, meta, viz, source, f, parts, hint=None, isel=None, osel=N
     for (yo,_,_) in nout:
         for k in range(35,71):
             t=k/70.0; dot(ch,col,funnel(t,CY,yo,0),X_IN+(X_OUT-X_IN)*t,"·",DIM)
-    for _ in range(5):                                # spawn + advance coins
+    for _ in range(5):                                # spawn + advance coins  (kind 0)
         i=random.choices(range(len(nin)),weights=inw)[0]
         j=random.choices(range(len(nout)),weights=outw)[0]
         parts.append([0.0,random.uniform(.012,.018),nin[i][0],nout[j][0],
-                      random.uniform(-6,6),nin[i][1],nout[j][1]])
+                      random.uniform(-6,6),nin[i][1],nout[j][1],0])
+    if meta["fee"] > 0:                               # amber fee stream -> the flame  (kind 1)
+        nfee = max(5.0*meta["fee"]/max(meta["total_in"],1), 0.10)   # sized to the fee's share of value
+        while nfee > 0:
+            if (nfee >= 1 or random.random() < nfee):
+                parts.append([0.0,random.uniform(.014,.020),random.choice(nin)[0],float(BOT),
+                              0.0,AMBER,AMBER,1])
+            nfee -= 1
     parts[:]=[p for p in parts if (p.__setitem__(0,p[0]+p[1]) or p[0]<1.02)]
-    for t,sp,yi,yo,off,icl,ocl in parts:
+    for t,sp,yi,yo,off,icl,ocl,kind in parts:
         for k in range(4):
             tt=t-k*0.016
             if tt<=0 or tt>=1: continue
-            x=X_IN+(X_OUT-X_IN)*tt; y=funnel(tt,yi,yo,off)
-            if   tt<0.44: c=icl
-            elif tt<0.50: c=lerp(icl,center,(tt-0.44)/0.06)
-            elif tt<0.57: c=center
-            else:         c=ocl
+            if kind:                                  # fee particle: input -> flame at the bar base
+                x=X_IN+(X_MIX-X_IN)*tt; y=yi+(yo-yi)*smooth(tt); c=AMBER
+            else:
+                x=X_IN+(X_OUT-X_IN)*tt; y=funnel(tt,yi,yo,off)
+                if   tt<0.44: c=icl
+                elif tt<0.50: c=lerp(icl,center,(tt-0.44)/0.06)
+                elif tt<0.57: c=center
+                else:         c=ocl
             dot(ch,col,y,x,"●" if k==0 else "·",clamp8(lerp(BG,c,1.0-k*0.30)))
     for r in range(TOP,BOT+1):                        # mixing/tx bar + vertical label
         cg=clamp8(lerp((22,104,68) if cj else (40,46,78), center, 0.35+0.4*pulse))
         for cc in (X_MIX-1,X_MIX,X_MIX+1): ch[r][cc]="█"; col[r][cc]=cg
     for i,k in enumerate(label):
         put(ch,col,int(CY)-len(label)//2+i,X_MIX,k,WHITE)
+    if meta["fee"] > 0:                               # mining fee = a slowly flickering flame at the bar base
+        flick = 0.5 + 0.3*M.sin(f*0.22) + 0.1*M.sin(f*0.5)
+        em_base = clamp8(lerp((214,55,18), (247,140,30), flick))               # glowing coals
+        em_top  = clamp8(lerp((255,200,70), (255,240,150), flick))             # flame tongues
+        FLAMES  = ["ʌ^▴", "▲ʌΛ", "Λ^ʌ", "^▴ʌ", "▴▲^"]                          # one rotating flame row
+        PLAYFUL = ["_*_", "∞/₿", "*_*", "$_$", "~_~", "T_T", "^.^", ">_<", "Y.Y"]   # occasional spark / face
+        period = f // 7
+        glyphs = PLAYFUL[(period//6) % len(PLAYFUL)] if period % 6 == 5 else FLAMES[period % len(FLAMES)]
+        for j, cc in enumerate((X_MIX-1, X_MIX, X_MIX+1)):
+            ch[BOT][cc] = "█"; col[BOT][cc] = em_base
+            if glyphs[j] != " ": ch[BOT-1][cc] = glyphs[j]; col[BOT-1][cc] = em_top
+        dest = (f"→ block #{meta['height']:,}" if meta["confirmed"] and meta.get("height") else "→ next block")
+        put(ch,col, BOT, X_MIX+3, "fee "+dest, clamp8(lerp(AMBER, WHITE, .25)))
     for k,(y,c,(v,addr,cb)) in enumerate(nin):        # input chips (◂ = selected branch)
         s = (k==isel); cc = clamp8(lerp(c,WHITE,.75)) if s else c
         put(ch,col,y,X_IN,"█",cc)
@@ -268,6 +328,15 @@ def render_tx(ch, col, meta, viz, source, f, parts, hint=None, isel=None, osel=N
         if nd > 6:
             put(ch,col,10,VALX, f"▲ {doff} above    ▼ {nd-doff-len(win)} below    w/s scroll",
                 lerp(GREEN,GREY,.4))
+    elif batched:
+        nbo = sum(1 for v,_,_ in meta["outs"] if v > 0)
+        rput(ch,col,6,LABX,"type",GREY)
+        put(ch,col,6,VALX, f"batched payment  —  1 input fans out to {nbo} outputs  (not a coinjoin)",
+            lerp(ORANGE,WHITE,.25))
+    elif payjoin:                                     # subtle hint only; PayJoin looks like a normal payment
+        rput(ch,col,6,LABX,"hint",GREY)
+        put(ch,col,6,VALX, "possibly a PayJoin (co-funded inputs?)  —  indistinguishable from a normal payment",
+            lerp(GREY,WHITE,.25))
     ilab=f"{len(meta['ins'])} INPUTS"                  # counts + scroll window
     olab=f"{len(meta['outs'])} OUTPUTS"
     if viz["ai"] or viz["bi"]: ilab+=f"  [{viz['ai']+1}-{viz['ai']+len(nin)} by value]"
@@ -310,32 +379,42 @@ def _g_cj(G, t):
 
 def _g_expand_back(G):                               # one more ancestor level from the frontier
     d = G["bdepth"] + 1; cand = {}
-    for t in [t for t, lv in G["placed"].items() if lv == -(d-1)]:
-        for vin in _g_raw(G, t).get("vin", []):
-            if vin.get("is_coinbase"): continue
-            p = vin.get("txid")
-            if not p: continue
-            G["edges"].add((p, t))
-            if p not in G["placed"]: cand[p] = cand.get(p, 0) + ((vin.get("prevout") or {}).get("value", 0))
-    ranked = sorted(cand, key=lambda k: cand[k], reverse=True)
-    for p in ranked[:G["capn"]]: G["placed"][p] = -d; _g_parsed(G, p)
+    try:                                             # gathering candidates touches the network
+        for t in [t for t, lv in G["placed"].items() if lv == -(d-1)]:
+            for vin in _g_raw(G, t).get("vin", []):
+                if vin.get("is_coinbase"): continue
+                p = vin.get("txid")
+                if not p: continue
+                G["edges"].add((p, t))
+                if p not in G["placed"]: cand[p] = cand.get(p, 0) + ((vin.get("prevout") or {}).get("value", 0))
+    except Exception: return False
+    ranked = sorted(cand, key=lambda k: cand[k], reverse=True); keep = 0
+    for p in ranked[:G["capn"]]:
+        try: _g_parsed(G, p)                         # parse BEFORE placing -> placed stays in sync
+        except Exception: break
+        G["placed"][p] = -d; keep += 1
     G["overflow"][-d] = ranked[G["capn"]:]
-    if ranked: G["bdepth"] = d
-    return bool(ranked)
+    if keep: G["bdepth"] = d
+    return keep > 0
 
 def _g_expand_fwd(G):                                # one more descendant level from the frontier
     d = G["fdepth"] + 1; cand = {}
-    for t in [t for t, lv in G["placed"].items() if lv == (d-1)]:
-        outs = _g_parsed(G, t)["outs"]
-        for i, o in enumerate(_g_osp(G, t) or []):
-            if o and o.get("spent") and o.get("txid"):
-                s = o["txid"]; G["edges"].add((t, s))
-                if s not in G["placed"]: cand[s] = cand.get(s, 0) + (outs[i][0] if i < len(outs) else 0)
-    ranked = sorted(cand, key=lambda k: cand[k], reverse=True)
-    for s in ranked[:G["capn"]]: G["placed"][s] = d; _g_parsed(G, s)
+    try:
+        for t in [t for t, lv in G["placed"].items() if lv == (d-1)]:
+            outs = _g_parsed(G, t)["outs"]
+            for i, o in enumerate(_g_osp(G, t) or []):
+                if o and o.get("spent") and o.get("txid"):
+                    s = o["txid"]; G["edges"].add((t, s))
+                    if s not in G["placed"]: cand[s] = cand.get(s, 0) + (outs[i][0] if i < len(outs) else 0)
+    except Exception: return False
+    ranked = sorted(cand, key=lambda k: cand[k], reverse=True); keep = 0
+    for s in ranked[:G["capn"]]:
+        try: _g_parsed(G, s)
+        except Exception: break
+        G["placed"][s] = d; keep += 1
     G["overflow"][d] = ranked[G["capn"]:]
-    if ranked: G["fdepth"] = d
-    return bool(ranked)
+    if keep: G["fdepth"] = d
+    return keep > 0
 
 def _g_expand(G):  return _g_expand_back(G) | _g_expand_fwd(G)     # 'e'
 def _g_contract(G):                                  # 'f' : drop the outermost level both ways
@@ -349,7 +428,10 @@ def _g_contract(G):                                  # 'f' : drop the outermost 
 def _g_reveal(G, lv):                                # scroll past a column edge -> fetch one overflow tx
     of = G["overflow"].get(lv) or []
     if not of: return None
-    t = of.pop(0); G["placed"][t] = lv; _g_parsed(G, t); return t
+    t = of[0]
+    try: _g_parsed(G, t)                             # parse first; only place if the fetch succeeded
+    except Exception: return None
+    of.pop(0); G["placed"][t] = lv; return t
 
 def build_graph(main_txid, base, depth, capn, log):
     G = dict(base=base, main=main_txid, capn=capn, raw={}, parsed={}, osp={}, cj={},
@@ -505,7 +587,8 @@ def animate_graph(G, source, frames):
                     bc = clamp8(lerp(c, WHITE, .8))
                     for dy in range(-selh, selh+1):
                         if 0 <= y+dy < H: ch[y+dy][x] = "█"; col[y+dy][x] = bc
-                    rput(ch, col, y, x-3, "» " + ("COINJOIN" if cjn else "TX") + " «", ORANGE)
+                    kind = "COINJOIN" if cjn else ("BATCH" if is_batched(parsed[t]) else "TX")
+                    rput(ch, col, y, x-3, "» " + kind + " «", ORANGE)
                     put(ch, col, y, x+3, cfmt(parsed[t]["total_out"]), WHITE)
                 else:
                     bb = .4 if mainnode else (.32 if t in pnodes else 0.0)
@@ -557,7 +640,7 @@ def animate_graph(G, source, frames):
                 hb = flash if flasht > 0 else HINT
                 put(ch,col,H-2,(W-len(hb))//2,hb,lerp(BRAND,WHITE,.4))
                 if flasht > 0: flasht -= 1
-            tag = "coinjoin.nl    ·    privacy for cheap mining fees"
+            tag = "coinjoin.nl    ·    great privacy for cheap mining fees"
             put(ch,col,H-1,(W-len(tag))//2,tag,lerp(BRAND,WHITE,.25))
             emit(o, ch, col)
             time.sleep(FRAME); f += 1
@@ -586,7 +669,7 @@ def child_of(txid, gosp, gmeta):                     # spending tx of the larges
 def make_keyreader():                                # non-blocking w/a/s/d controls
     KEYS = {"w":"UP","a":"LEFT","s":"DOWN","d":"RIGHT",
             "W":"UP","A":"LEFT","S":"DOWN","D":"RIGHT",
-            "e":"EXPAND","E":"EXPAND","f":"CONTRACT","F":"CONTRACT",
+            "e":"EXPAND","E":"EXPAND","f":"CONTRACT","F":"CONTRACT","c":"COINBASE","C":"COINBASE",
             "\t":"TAB"," ":"SPACE","q":"QUIT","Q":"QUIT","\x1b":"QUIT"}
     for _d in "123456789": KEYS[_d] = _d
     def consume(nextc):                              # we just read ESC; swallow the whole sequence
@@ -632,12 +715,26 @@ def make_keyreader():                                # non-blocking w/a/s/d cont
     sys.stdout.write("\x1b[?2004h"); sys.stdout.flush()   # bracketed paste on (belt-and-suspenders)
     if os.name == "nt":
         import msvcrt
+        hin = mode0 = _k32 = None                    # turn off console mouse + quick-edit so the
+        try:                                         # scroll wheel / clicks don't stall getwch()
+            import ctypes
+            _k32 = ctypes.windll.kernel32; hin = _k32.GetStdHandle(-10)
+            m = ctypes.c_uint(); _k32.GetConsoleMode(hin, ctypes.byref(m)); mode0 = m.value
+            _k32.SetConsoleMode(hin, (mode0 | 0x0080) & ~0x0010 & ~0x0040)   # EXTENDED, ~MOUSE, ~QUICK_EDIT
+        except Exception:
+            hin = mode0 = _k32 = None
         def get():
             if not msvcrt.kbhit(): return None
             chars = []                               # drain everything buffered this tick
-            while msvcrt.kbhit() and len(chars) < 256: chars.append(msvcrt.getwch())
+            while msvcrt.kbhit() and len(chars) < 256:
+                try: chars.append(msvcrt.getwch())
+                except Exception: break
             return None if len(chars) > PASTE else first_key(chars)
-        def restore(): sys.stdout.write("\x1b[?2004l"); sys.stdout.flush()
+        def restore():
+            sys.stdout.write("\x1b[?2004l"); sys.stdout.flush()
+            if _k32 is not None and hin is not None and mode0 is not None:
+                try: _k32.SetConsoleMode(hin, mode0)
+                except Exception: pass
         return get, restore
     try:
         import termios, tty, select
@@ -672,7 +769,7 @@ def explore(txid, base, source):
     meta = gmeta(cur)                                 # initial fetch (may raise -> caught in main)
     interactive = sys.stdin.isatty(); apply_canvas(*term_canvas(interactive))
     getkey, restore = make_keyreader()
-    HINT = "a/d walk    w/s move ◂▸    Tab/S-Tab page    e graph    space address    q quit"
+    HINT = "a/d walk    w/s move ◂▸    Tab page    e graph    space address    c fee-block    q quit"
     o = sys.stdout.write; o("\x1b[?1049h\x1b[?25l\x1b[2J")
     parts = []; viz = build(meta, io_off); flash, flasht = "", 0
     def back_targets():                               # funding txids, largest input first
@@ -739,6 +836,19 @@ def explore(txid, base, source):
                 try: animate_graph(build_graph(cur, base, 1, 8, lambda n: None), source, 0)
                 except Exception as e: flash, flasht = f"graph view failed: {e}", 40
                 getkey, restore = make_keyreader(); o("\x1b[?1049h\x1b[?25l\x1b[2J"); parts.clear()
+            elif k == "COINBASE":                         # follow the fee to its block's coinbase tx
+                if meta["confirmed"] and meta.get("height"):
+                    bheight = meta["height"]; cb = cbm = None
+                    try:
+                        bh = fetch_text(f"{base}/api/block-height/{bheight}")
+                        cb = ((fetch_json(f"{base}/api/block/{bh}/txs/0") or [{}])[0]).get("txid")
+                        if cb: cbm = gmeta(cb)        # fetch the coinbase tx inside the guard
+                    except Exception as e: cbm = None; flash, flasht = f"could not load coinbase: {e}", 40
+                    if cbm:
+                        cur, io_off, sel = cb, 0, 0; meta = cbm; viz = build(meta, io_off)
+                        parts.clear(); flash, flasht = "▲  followed the fee to the block #%d coinbase" % bheight, 30
+                else:
+                    flash, flasht = "fee goes to the next block (this tx is still unconfirmed)", 24
             nw, nh = term_canvas(interactive)             # terminal resized -> resize the canvas
             if (nw, nh) != (W, H): apply_canvas(nw, nh); o("\x1b[2J"); viz = build(meta, io_off); parts.clear()
             ch, col = blank()
@@ -768,35 +878,38 @@ def address_report(addr, base):
     except Exception: utxos = []
     try: atxs = fetch_json(f"{base}/api/address/{addr}/txs") or []
     except Exception: atxs = []
-    prov = {}                                        # txid -> is the funding tx a coinjoin (private)?
-    def is_private(txid):
-        if txid not in prov:
-            try: prov[txid] = is_cj(parse_tx(fetch_json(f"{base}/api/tx/{txid}")))
-            except Exception: prov[txid] = None
-        return prov[txid]
+    provmeta = {}                                    # txid -> parsed funding tx (for provenance + anon-set)
+    def fmeta(txid):
+        if txid not in provmeta:
+            try: provmeta[txid] = parse_tx(fetch_json(f"{base}/api/tx/{txid}"))
+            except Exception: provmeta[txid] = None
+        return provmeta[txid]
     npriv = nnon = 0
-    for u in utxos[:12]:                             # bounded provenance classification
-        p = is_private(u.get("txid"))
-        if p is True: npriv += 1
-        elif p is False: nnon += 1
-    consol = sum(1 for tx in atxs[:12]                # txs that spent this addr merged with others
-                 if any(((vin.get("prevout") or {}).get("scriptpubkey_address") == addr) for vin in tx.get("vin", []))
-                 and len(tx.get("vin", [])) >= 3)
+    for u in utxos[:12]:                             # bounded provenance classification (anon-set)
+        a = coin_anon(fmeta(u.get("txid")), u.get("value", 0))
+        if a is None: continue
+        npriv += a > 1; nnon += a == 1
+    consol = 0                                        # spent-together merges, EXCLUDING coinjoin rounds
+    for tx in atxs[:12]:
+        if len(tx.get("vin", [])) >= 3 and any(((vin.get("prevout") or {}).get("scriptpubkey_address") == addr) for vin in tx.get("vin", [])):
+            if not is_cj(parse_tx(tx)): consol += 1   # entering a coinjoin is a mix, not a consolidation
     warns = []
     if funded > 1: warns.append(f"ADDRESS REUSE - received {funded} times to one address; links those payments")
     if npriv > 0 and nnon > 0: warns.append(f"MIXED COINS - holds {npriv} private (coinjoin) + {nnon} non-private UTXOs; consolidating delinks your mix")
-    if consol > 0: warns.append(f"CONSOLIDATION - {consol} tx merged this address with other inputs; ties identities together")
+    if consol > 0: warns.append(f"CONSOLIDATION - {consol} non-coinjoin tx merged this address with other inputs; ties identities together")
     if len(utxos) > 1 and funded <= 1: warns.append(f"{len(utxos)} UTXOs on one address - spending them together links them")
     txrows = []                                      # recent history (already fetched; ~50 max, no extra calls)
     for tx in atxs:
         m = parse_tx(tx)
         recv = sum(v for v, a, _ in m["outs"] if a == addr)
         sent = sum(v for v, a, _ in m["ins"] if a == addr)
+        rv = [v for v, a, _ in m["outs"] if a == addr]
+        anon = coin_anon(m, max(rv)) if (recv > sent and rv) else None    # anon-set of the received coin
         st = tx.get("status", {}) or {}
-        txrows.append(dict(txid=m["txid"], net=recv-sent, cj=classify_cj(m)[0],
+        txrows.append(dict(txid=m["txid"], net=recv-sent, cj=classify_cj(m)[0], anon=anon,
                            height=st.get("block_height"), confirmed=st.get("confirmed", False)))
     return dict(addr=addr, balance=balance, funded=funded, spent=spent, txcount=txcount,
-                utxos=utxos, prov=prov, npriv=npriv, nnon=nnon, warns=warns, txrows=txrows)
+                utxos=utxos, prov=provmeta, npriv=npriv, nnon=nnon, warns=warns, txrows=txrows)
 
 def explore_address(addr, base, source):
     print(f"analyzing privacy of {addr[:18]}... ...", file=sys.stderr)
@@ -848,14 +961,16 @@ def explore_address(addr, base, source):
                 put(ch,col,LIST-1,20,f"UTXOS ({len(utxos)})   ·   w/s select   ·   space open funding tx",GREY)
                 for i, u in enumerate(utxos[off:off+VIS]):
                     y = LIST + i; gi = off + i; selrow = (gi == sel)
-                    p = prov.get(u.get("txid"))
-                    plab, pcol = ("private (coinjoin)", GREEN) if p is True else (("non-private", ORANGE) if p is False else ("?", GREY))
+                    a = coin_anon(prov.get(u.get("txid")), u.get("value", 0))
+                    if   a is None: plab, pcol = "anon ?", GREY
+                    elif a > 1:     plab, pcol = f"anon {a} · coinjoin", GREEN
+                    else:           plab, pcol = "anon 1 · non-private", ORANGE
                     stt = u.get("status", {}) or {}
                     conf = f"block {stt.get('block_height'):,}" if stt.get("confirmed") else "unconfirmed"
                     bc = WHITE if selrow else lerp(BRAND, WHITE, .15)
                     put(ch,col,y,20, ("▸ " if selrow else "  ") + f"{fmt(u.get('value',0)):<16}", bc)
                     put(ch,col,y,42, plab, pcol)
-                    put(ch,col,y,62, short(u.get("txid",""))+f":{u.get('vout',0)}", lerp(bc,GREY,.3))
+                    put(ch,col,y,64, short(u.get("txid",""))+f":{u.get('vout',0)}", lerp(bc,GREY,.3))
                     rput(ch,col,y,W-2, conf, GREY)
             else:                                        # empty address: scroll its tx history
                 cap = f" of {r['txcount']:,}" if r["txcount"] > len(txrows) else ""
@@ -868,8 +983,10 @@ def explore_address(addr, base, source):
                     conf = f"block {t['height']:,}" if (t.get("confirmed") and t.get("height")) else "unconfirmed"
                     bc = WHITE if selrow else lerp(BRAND, WHITE, .15)
                     put(ch,col,y,20, ("▸ " if selrow else "  ") + dlab, WHITE if selrow else dcol)
-                    if t["cj"]: put(ch,col,y,48, "◆ "+SHORT_CJ.get(t["cj"], t["cj"]), GREEN)
-                    put(ch,col,y,62, short(t["txid"]), lerp(bc,GREY,.3))
+                    if t["cj"]: put(ch,col,y,46, "◆ "+SHORT_CJ.get(t["cj"], t["cj"]), GREEN)
+                    if t.get("anon") is not None:             # anon-set of the received coin
+                        put(ch,col,y,58, f"anon {t['anon']}", GREEN if t["anon"] > 1 else GREY)
+                    put(ch,col,y,70, short(t["txid"]), lerp(bc,GREY,.3))
                     rput(ch,col,y,W-2, conf, GREY)
             hint = ("w/s select UTXO    space open funding tx    q back to tx" if mode == "utxo"
                     else "w/s select tx    space open tx    q back to tx")
@@ -1202,7 +1319,8 @@ def main():
             sys.exit(f"mempool returned HTTP {e.code} - is the txid correct / known to {base}?")
         except Exception as e:
             sys.exit(f"could not build graph: {e}")
-        animate_graph(G, base.split("//")[-1], a.frames)
+        try: animate_graph(G, base.split("//")[-1], a.frames)
+        except Exception as e: sys.exit(f"graph view error: {e}")
         return
     if a.file:                                        # offline playback
         try: meta = parse_tx(json.load(open(a.file, encoding="utf-8")))
