@@ -278,131 +278,265 @@ def animate(meta, viz, source, frames):              # non-interactive playback
     finally:
         o("\x1b[?2026l\x1b[?25h\x1b[?1049l\x1b[0m\n")
 
-# ---- multi-tx graph (--depth) -----------------------------------------------------
-def build_graph(main_txid, base, depth, capn, log):
-    raw, parsed = {}, {}
-    def graw(t):
-        if t not in raw: raw[t] = fetch_tx(t, base)
-        return raw[t]
-    def gp(t):
-        if t not in parsed: parsed[t] = parse_tx(graw(t)); log(len(parsed))
-        return parsed[t]
-    gp(main_txid)
-    placed = {main_txid: 0}; edges = set()
-    frontier = [main_txid]                            # walk backward over funding txs
-    for d in range(1, depth+1):
-        cand = {}
-        for t in frontier:
-            for vin in graw(t).get("vin", []):
-                if vin.get("is_coinbase"): continue
-                p = vin.get("txid")
-                if not p: continue
-                edges.add((p, t))
-                if p not in placed:
-                    cand[p] = cand.get(p, 0) + ((vin.get("prevout") or {}).get("value", 0))
-        keep = sorted(cand, key=lambda k: cand[k], reverse=True)[:capn]
-        for p in keep: placed[p] = -d; gp(p)
-        frontier = keep
-        if not keep: break
-    frontier = [main_txid]                            # walk forward over spending txs
-    for d in range(1, depth+1):
-        cand = {}
-        for t in frontier:
-            try: osp = fetch_json(f"{base}/api/tx/{t}/outspends")
-            except Exception: osp = []
-            outs = gp(t)["outs"]
-            for i, o in enumerate(osp or []):
-                if o and o.get("spent") and o.get("txid"):
-                    s = o["txid"]; edges.add((t, s))
-                    if s not in placed:
-                        cand[s] = cand.get(s, 0) + (outs[i][0] if i < len(outs) else 0)
-        keep = sorted(cand, key=lambda k: cand[k], reverse=True)[:capn]
-        for s in keep: placed[s] = d; gp(s)
-        frontier = keep
-        if not keep: break
-    edges = {(a, b) for (a, b) in edges if a in placed and b in placed}
-    return placed, parsed, edges
+# ---- multi-tx graph (--depth; e/f expand/contract; per-column scroll-to-reveal) ----
+def _g_raw(G, t):
+    if t not in G["raw"]: G["raw"][t] = fetch_tx(t, G["base"])
+    return G["raw"][t]
+def _g_parsed(G, t):
+    if t not in G["parsed"]:
+        G["parsed"][t] = parse_tx(_g_raw(G, t))
+        if G.get("log"): G["log"](len(G["parsed"]))
+    return G["parsed"][t]
+def _g_osp(G, t):
+    if t not in G["osp"]:
+        try: G["osp"][t] = fetch_json(f"{G['base']}/api/tx/{t}/outspends")
+        except Exception: G["osp"][t] = []
+    return G["osp"][t]
+def _g_cj(G, t):
+    if t not in G["cj"]: G["cj"][t] = is_cj(G["parsed"][t])
+    return G["cj"][t]
 
-def animate_graph(placed, parsed, edges, main_txid, source, depth, frames):
-    GT, GB = 14, 35                                   # node band (leaves room for labels)
+def _g_expand_back(G):                               # one more ancestor level from the frontier
+    d = G["bdepth"] + 1; cand = {}
+    for t in [t for t, lv in G["placed"].items() if lv == -(d-1)]:
+        for vin in _g_raw(G, t).get("vin", []):
+            if vin.get("is_coinbase"): continue
+            p = vin.get("txid")
+            if not p: continue
+            G["edges"].add((p, t))
+            if p not in G["placed"]: cand[p] = cand.get(p, 0) + ((vin.get("prevout") or {}).get("value", 0))
+    ranked = sorted(cand, key=lambda k: cand[k], reverse=True)
+    for p in ranked[:G["capn"]]: G["placed"][p] = -d; _g_parsed(G, p)
+    G["overflow"][-d] = ranked[G["capn"]:]
+    if ranked: G["bdepth"] = d
+    return bool(ranked)
+
+def _g_expand_fwd(G):                                # one more descendant level from the frontier
+    d = G["fdepth"] + 1; cand = {}
+    for t in [t for t, lv in G["placed"].items() if lv == (d-1)]:
+        outs = _g_parsed(G, t)["outs"]
+        for i, o in enumerate(_g_osp(G, t) or []):
+            if o and o.get("spent") and o.get("txid"):
+                s = o["txid"]; G["edges"].add((t, s))
+                if s not in G["placed"]: cand[s] = cand.get(s, 0) + (outs[i][0] if i < len(outs) else 0)
+    ranked = sorted(cand, key=lambda k: cand[k], reverse=True)
+    for s in ranked[:G["capn"]]: G["placed"][s] = d; _g_parsed(G, s)
+    G["overflow"][d] = ranked[G["capn"]:]
+    if ranked: G["fdepth"] = d
+    return bool(ranked)
+
+def _g_expand(G):  return _g_expand_back(G) | _g_expand_fwd(G)     # 'e'
+def _g_contract(G):                                  # 'f' : drop the outermost level both ways
+    d = max(G["bdepth"], G["fdepth"])
+    if d <= 0: return False
+    for t in [t for t, lv in G["placed"].items() if abs(lv) == d]: del G["placed"][t]
+    G["overflow"].pop(d, None); G["overflow"].pop(-d, None)
+    G["bdepth"] = max((-lv for lv in G["placed"].values() if lv < 0), default=0)
+    G["fdepth"] = max((lv for lv in G["placed"].values() if lv > 0), default=0)
+    return True
+def _g_reveal(G, lv):                                # scroll past a column edge -> fetch one overflow tx
+    of = G["overflow"].get(lv) or []
+    if not of: return None
+    t = of.pop(0); G["placed"][t] = lv; _g_parsed(G, t); return t
+
+def build_graph(main_txid, base, depth, capn, log):
+    G = dict(base=base, main=main_txid, capn=capn, raw={}, parsed={}, osp={}, cj={},
+             placed={main_txid: 0}, edges=set(), overflow={}, bdepth=0, fdepth=0, log=log)
+    _g_parsed(G, main_txid)
+    for _ in range(depth): _g_expand_back(G)
+    for _ in range(depth): _g_expand_fwd(G)
+    return G
+
+def animate_graph(G, source, frames):
+    main_txid = G["main"]; base = G["base"]
+    GT, GB, FITS = 16, 34, 10                          # node band; max nodes shown per column
     def gy(n): return [(GT+GB)//2] if n<=1 else [round(GT+(GB-GT)*i/(n-1)) for i in range(n)]
-    levels = {}
-    for t, lv in placed.items(): levels.setdefault(lv, []).append(t)
-    lvs = sorted(levels)
-    XL, XR = 8, W-9
-    xs = {lv: round(XL + (XR-XL)*(i/max(len(lvs)-1, 1))) for i, lv in enumerate(lvs)}
-    pos, cjset = {}, set()
-    for lv in lvs:
-        ts = sorted(levels[lv], key=lambda t: parsed[t]["total_out"], reverse=True)
-        for t, y in zip(ts, gy(len(ts))):
-            pos[t] = (xs[lv], y)
-            if is_cj(parsed[t]): cjset.add(t)
-    elist = [(a, b) for (a, b) in edges if a in pos and b in pos]
-    ew = [max(parsed[a]["total_out"], 1) for (a, b) in elist] or [1]
-    m = parsed[main_txid]
-    parts = []; o = sys.stdout.write
+    from collections import Counter, defaultdict, deque
+    loff = defaultdict(int); sel = [main_txid]
+    interactive = (frames == 0 and sys.stdin.isatty())
+    getkey, restore = make_keyreader() if interactive else ((lambda: None), (lambda: None))
+    HINT = "w/a/s/d move    Tab cycle    e/f expand/contract    space open tx    q quit"
+    parts = []; o = sys.stdout.write; flash, flasht = "", 0
     o("\x1b[?1049h\x1b[?25l\x1b[2J")
+    def layout():                                      # value-order per level + scrollable window
+        placed, parsed = G["placed"], G["parsed"]
+        if sel[0] not in placed: sel[0] = main_txid
+        levels = defaultdict(list)
+        for t, lv in placed.items(): levels[lv].append(t)
+        lvs = sorted(levels)
+        ov = {lv: sorted(levels[lv], key=lambda t: parsed[t]["total_out"], reverse=True) for lv in lvs}
+        XL, XR = 8, W-9
+        xs = {lv: round(XL + (XR-XL)*(i/max(len(lvs)-1, 1))) for i, lv in enumerate(lvs)}
+        for lv in lvs: loff[lv] = max(0, min(loff[lv], max(0, len(ov[lv])-FITS)))
+        slv = placed[sel[0]]; sr = ov[slv].index(sel[0])      # keep selection inside its window
+        if sr < loff[slv]: loff[slv] = sr
+        elif sr >= loff[slv]+FITS: loff[slv] = sr-FITS+1
+        pos, vis = {}, {}
+        for lv in lvs:
+            win = ov[lv][loff[lv]:loff[lv]+FITS]; vis[lv] = win
+            for t, y in zip(win, gy(len(win))): pos[t] = (xs[lv], y)
+        cjset = {t for t in placed if _g_cj(G, t)}
+        return placed, parsed, lvs, ov, xs, pos, vis, cjset
     try:
         f = 0
         while frames == 0 or f < frames:
+            placed, parsed, lvs, ov, xs, pos, vis, cjset = layout()
+            k = getkey()
+            if k == "QUIT": break
+            elif k == "SPACE":                         # open the selected tx in the explorer
+                restore()
+                try: explore(sel[0], base, source)
+                except Exception as e: flash, flasht = f"could not open {sel[0][:10]}...: {e}", 40
+                getkey, restore = make_keyreader() if interactive else ((lambda: None), (lambda: None))
+                o("\x1b[?1049h\x1b[?25l\x1b[2J"); parts.clear()
+            elif k == "EXPAND":
+                if len(placed) > 160: flash, flasht = "graph is large - contract (f) before expanding further", 36
+                elif _g_expand(G): flash, flasht = "expanded one level each direction", 24
+                else: flash, flasht = "no more connected transactions to load", 24
+            elif k == "CONTRACT":
+                if _g_contract(G): flash, flasht = "contracted the outermost level", 24
+                else: flash, flasht = "nothing to contract - only the central tx", 24
+            elif k in ("LEFT", "RIGHT"):
+                back = (k == "LEFT"); lv = placed[sel[0]]
+                side = [L for L in lvs if (L < lv if back else L > lv)]
+                if side:                                   # move to the adjacent level
+                    L = max(side) if back else min(side)
+                    sr = ov[lv].index(sel[0]); sel[0] = ov[L][min(sr, len(ov[L])-1)]
+                elif len(placed) > 160:
+                    flash, flasht = "graph is large - contract (f) before expanding further", 36
+                elif (_g_expand_back(G) if back else _g_expand_fwd(G)):   # at the edge -> expand this way
+                    nlv = -G["bdepth"] if back else G["fdepth"]
+                    new = sorted([t for t, l in G["placed"].items() if l == nlv],
+                                 key=lambda t: G["parsed"][t]["total_out"], reverse=True)
+                    if new:
+                        sr = ov[lv].index(sel[0]); sel[0] = new[min(sr, len(new)-1)]
+                    flash, flasht = ("expanded one level earlier  ←" if back else "expanded one level later  →"), 24
+                else:
+                    flash, flasht = ("no earlier funding txs to load" if back else "no later spending txs to load"), 18
+            elif k in ("UP", "DOWN"):
+                lv = placed[sel[0]]; lst = ov[lv]; i = lst.index(sel[0])
+                if k == "DOWN" and i == len(lst)-1:                 # scroll past the column edge
+                    rv = _g_reveal(G, lv)
+                    if rv: sel[0] = rv; flash, flasht = "revealed another tx at this level", 20
+                    else: flash, flasht = "no more transactions at this level", 18
+                else:
+                    sel[0] = lst[max(0, min(len(lst)-1, i + (-1 if k == "UP" else 1)))]
+            elif k == "TAB":
+                alln = [t for lv in lvs for t in vis[lv]]
+                if sel[0] in alln: sel[0] = alln[(alln.index(sel[0])+1) % len(alln)]
+            placed, parsed, lvs, ov, xs, pos, vis, cjset = layout()    # reflect any mutation now
+            elist = [(a, b) for (a, b) in G["edges"] if a in pos and b in pos]
+            adj = defaultdict(list)
+            for (a, b) in elist: adj[a].append(b); adj[b].append(a)
+            def lineage(node):
+                if node == main_txid or node not in adj: return {node}, set()
+                prev = {node: None}; q = deque([node])
+                while q:
+                    u = q.popleft()
+                    if u == main_txid: break
+                    for v in adj[u]:
+                        if v not in prev: prev[v] = u; q.append(v)
+                if main_txid not in prev: return {node}, set()
+                nodes, pe, u = set(), set(), main_txid
+                while u is not None:
+                    nodes.add(u); p = prev[u]
+                    if p is not None: pe.add(frozenset((u, p)))
+                    u = p
+                return nodes, pe
+            anon = defaultdict(int); arounds = defaultdict(int); aper = defaultdict(list)
+            for t in cjset:
+                for v, c in Counter(vv for vv,_,_ in parsed[t]["outs"] if vv > 0).items():
+                    if c >= 2: anon[v] += c; arounds[v] += 1; aper[v].append(c)
+            anon_rows = sorted(anon.items(), key=lambda kv: kv[1], reverse=True)[:5]
+            maxan = max((a for _, a in anon_rows), default=1)
+            m = parsed[main_txid]
             ch, col = blank(); sweep = (f*0.7) % 28 - 4
-            for (a, b) in elist:                       # faint connecting ribbons
+            pnodes, pedges = lineage(sel[0])           # the selected node's path back to the central tx
+            hops = max(0, len(pnodes)-1); cjhops = sum(1 for t in pnodes if t in cjset)
+            for (a, b) in elist:                       # ribbons: lineage glows green, rest dimmed
+                on = frozenset((a, b)) in pedges
+                ec = clamp8(lerp(BG, GREEN, .55)) if on else clamp8(lerp(BG, BRAND, .12))
                 ax, ay = pos[a]; bx, by = pos[b]; n = max(abs(bx-ax), abs(by-ay)) or 1
                 for s in range(n+1):
-                    tt = s/n; dot(ch, col, ay+(by-ay)*tt, ax+(bx-ax)*tt, "·", DIM)
-            if elist:                                  # coins flowing left -> right
-                for _ in range(10):
-                    a, b = elist[random.choices(range(len(elist)), weights=ew)[0]]
-                    parts.append([0.0, random.uniform(.02,.035), pos[a], pos[b],
-                                  GREEN if (a in cjset or b in cjset) else BRAND])
+                    tt = s/n; dot(ch, col, ay+(by-ay)*tt, ax+(bx-ax)*tt, "·", ec)
+            flowset = [e for e in elist if frozenset(e) in pedges] or elist
+            fw = [max(parsed[a]["total_out"], 1) for (a, b) in flowset]
+            for _ in range(8):                         # coins flow along the lineage path
+                a, b = flowset[random.choices(range(len(flowset)), weights=fw)[0]]
+                parts.append([0.0, random.uniform(.02,.035), pos[a], pos[b], GREEN])
             parts = [p for p in parts if (p.__setitem__(0, p[0]+p[1]) or p[0] < 1.05)]
             for t, sp, (ax, ay), (bx, by), pc in parts:
-                for k in range(3):
-                    tt = t - k*0.05
+                for k2 in range(3):
+                    tt = t - k2*0.05
                     if tt <= 0 or tt >= 1: continue
-                    dot(ch, col, ay+(by-ay)*tt, ax+(bx-ax)*tt, "●" if k==0 else "·", clamp8(lerp(BG, pc, 1.0-k*0.33)))
-            for t, (x, y) in pos.items():              # tx nodes
-                cjn = t in cjset; main = (t == main_txid)
-                base = lerp(GREEN if cjn else BRAND, WHITE, .35 if main else 0)
-                h = 2 if main else 1
-                for dy in range(-h, h+1):
-                    if 0 <= y+dy < H: ch[y+dy][x] = "█"; col[y+dy][x] = clamp8(base)
-                lab = cfmt(parsed[t]["total_out"])
-                put(ch, col, y+h+1, x-len(lab)//2, lab, lerp(base, WHITE, .3))
-                if cjn and not main: put(ch, col, y-h-1, x-1, "cj", GREEN)
-                if main:
-                    tg = "» " + ("COINJOIN" if cjn else "TRANSACTION") + " «"
-                    put(ch, col, y-h-1, x-len(tg)//2, tg, ORANGE)
+                    dot(ch, col, ay+(by-ay)*tt, ax+(bx-ax)*tt, "●" if k2==0 else "·", clamp8(lerp(BG, pc, 1.0-k2*0.33)))
+            for t, (x, y) in pos.items():              # tx nodes (green = coinjoin; labels on side)
+                cjn = t in cjset; selnode = (t == sel[0]); mainnode = (t == main_txid)
+                c = GREEN if cjn else BRAND
+                if selnode:
+                    bc = clamp8(lerp(c, WHITE, .8))
+                    for dy in (-1, 0, 1):
+                        if 0 <= y+dy < H: ch[y+dy][x] = "█"; col[y+dy][x] = bc
+                    rput(ch, col, y, x-3, "» " + ("COINJOIN" if cjn else "TX") + " «", ORANGE)
+                    put(ch, col, y, x+3, cfmt(parsed[t]["total_out"]), WHITE)
+                else:
+                    bb = .4 if mainnode else (.32 if t in pnodes else 0.0)
+                    ch[y][x] = "█"; col[y][x] = clamp8(lerp(c, WHITE, bb))
+                    if mainnode: put(ch, col, y, x+2, "main", GREY)
+            for lv in lvs:                             # per-column scroll cues (hidden + revealable txs)
+                x = xs[lv]; above = loff[lv]
+                below = (len(ov[lv]) - loff[lv] - len(vis[lv])) + len(G["overflow"].get(lv, []))
+                if above > 0: put(ch, col, GT-1, x-1, f"▲{above}", GREY)
+                if below > 0: put(ch, col, GB+1, x-1, f"▼{below}", GREY)
             for r, row in enumerate(LOGO):             # shimmering shield + header
                 bs = lerp(BRAND, WHITE, 0.45 - 0.42*(r/(len(LOGO)-1)))
-                for c, k in enumerate(row):
-                    if k != " ":
+                for c, kk in enumerate(row):
+                    if kk != " ":
                         sh = M.exp(-((c + r*0.6 - sweep)**2)/8.0)
-                        ch[r][c] = k; col[r][c] = clamp8(lerp(bs, (255,255,255), 0.65*sh))
+                        ch[r][c] = kk; col[r][c] = clamp8(lerp(bs, (255,255,255), 0.65*sh))
             put(ch,col,0,20,"CoinJoin",lerp(BRAND,WHITE,.45)); put(ch,col,0,29,"tx flow",GREY)
             rput(ch,col,0,W-2,"via "+source,GREY)
-            put(ch,col,1,20,f"transaction graph  ·  depth {depth}  ·  {len(pos)} txs",lerp(BRAND,WHITE,.2))
+            put(ch,col,1,20,f"transaction graph  ·  depth -{G['bdepth']}/+{G['fdepth']}  ·  {len(placed)} txs",lerp(BRAND,WHITE,.2))
             rput(ch,col,1,W-2,"← earlier        later →",GREY)
-            put(ch,col,3,20,"main  "+main_txid,lerp(BRAND,WHITE,.1))
-            put(ch,col,4,20,f"{fmt(m['total_in'])} in  ·  {fmt(m['total_out'])} out  ·  fee {m['fee']:,} sats ({m['feerate']:.1f} sat/vB)",lerp(BRAND,WHITE,.25))
+            ms = parsed.get(sel[0], m); cjl = classify_cj(ms)[0]
+            put(ch,col,3,20,"selected  "+sel[0],lerp(BRAND,WHITE,.1))
+            info = f"{fmt(ms['total_in'])} in  ·  {fmt(ms['total_out'])} out  ·  fee {ms['fee']:,} sats ({ms['feerate']:.1f} sat/vB)"
+            put(ch,col,4,20,info,lerp(BRAND,WHITE,.25))
+            if cjl: put(ch,col,4,20+len(info)+3,"◆ "+cjl,GREEN)
+            if sel[0] == main_txid:
+                put(ch,col,5,20,"this is the central transaction",lerp(GREEN,WHITE,.35))
+            else:
+                put(ch,col,5,20,f"lineage  {hops} hop{'s' if hops!=1 else ''} to central tx  ·  "
+                    f"{cjhops} coinjoin round{'s' if cjhops!=1 else ''} on this path",lerp(GREEN,WHITE,.35))
+            if anon_rows:                              # cumulative anonymity-set across all rounds
+                nr = len(cjset)
+                put(ch,col,6,20,"CUMULATIVE ANONYMITY SET",lerp(GREEN,WHITE,.4))
+                put(ch,col,6,46,f"·  {nr} coinjoin round{'s' if nr!=1 else ''} in view  ·  green nodes = coinjoins",GREY)
+                put(ch,col,7,20,"denomination",GREY); put(ch,col,7,38,"rounds",GREY)
+                put(ch,col,7,52,"per-round = total",GREY); put(ch,col,7,74,"combined anon-set",GREY)
+                sel_vc = Counter(vv for vv,_,_ in ms["outs"] if vv > 0) if sel[0] in cjset else {}
+                for i, (v, a) in enumerate(anon_rows):
+                    y = 8+i
+                    put(ch,col,y,20, fmt(v), lerp(GREEN,WHITE,.3))
+                    put(ch,col,y,38, f"{arounds[v]}x", GREY)
+                    bd = "+".join(str(x) for x in sorted(aper[v], reverse=True)[:4]) + ("+…" if len(aper[v])>4 else "")
+                    put(ch,col,y,52, f"{bd} = {a}", lerp(GREEN,WHITE,.35))
+                    bx = 74; w = max(1, round(28*a/maxan))
+                    for j in range(w): put(ch,col,y,bx+j,"█", lerp(GLOW,GREEN, j/max(w-1,1)))
+                    cc = sel_vc.get(v, 0)
+                    if cc: put(ch,col,y,bx+w+1, f"+{cc} this round", WHITE)
+            if interactive:
+                hb = flash if flasht > 0 else HINT
+                put(ch,col,H-2,(W-len(hb))//2,hb,lerp(BRAND,WHITE,.4))
+                if flasht > 0: flasht -= 1
             tag = "coinjoin.nl    ·    privacy for cheap mining fees"
             put(ch,col,H-1,(W-len(tag))//2,tag,lerp(BRAND,WHITE,.25))
-            out = ["\x1b[?2026h\x1b[H"]
-            for r in range(H):
-                last = None; line = []
-                for c in range(W):
-                    g = ch[r][c]
-                    if g == " ": line.append(" "); continue
-                    cc = col[r][c]
-                    if cc != last: line.append("\x1b[38;2;%d;%d;%dm" % cc); last = cc
-                    line.append(g)
-                out.append("".join(line)+"\x1b[0m")
-            o("\n".join(out)+"\x1b[?2026l"); sys.stdout.flush()
+            emit(o, ch, col)
             time.sleep(0.05); f += 1
     except KeyboardInterrupt:
         pass
     finally:
-        o("\x1b[?2026l\x1b[?25h\x1b[?1049l\x1b[0m\n")
+        restore(); o("\x1b[?2026l\x1b[?25h\x1b[?1049l\x1b[0m\n")
 
 # ---- interactive explorer (w/a/s/d) -----------------------------------------------
 def parent_of(raw):                                  # funding tx of the largest input
@@ -424,7 +558,8 @@ def child_of(txid, gosp, gmeta):                     # spending tx of the larges
 def make_keyreader():                                # non-blocking w/a/s/d controls
     KEYS = {"w":"UP","a":"LEFT","s":"DOWN","d":"RIGHT",
             "W":"UP","A":"LEFT","S":"DOWN","D":"RIGHT",
-            "\t":"TAB","q":"QUIT","Q":"QUIT","\x1b":"QUIT"}
+            "e":"EXPAND","E":"EXPAND","f":"CONTRACT","F":"CONTRACT",
+            "\t":"TAB"," ":"SPACE","q":"QUIT","Q":"QUIT","\x1b":"QUIT"}
     for _d in "123456789": KEYS[_d] = _d
     if os.name == "nt":
         import msvcrt
@@ -462,7 +597,7 @@ def explore(txid, base, source):
     cur, io_off, sel = txid, 0, 0
     meta = gmeta(cur)                                 # initial fetch (may raise -> caught in main)
     getkey, restore = make_keyreader()
-    HINT = "a/d walk chain    w/s scroll value    1-9/Tab pick branch (◂▸)    q quit"
+    HINT = "a/d walk    w/s move ◂▸    e graph view    space address    q quit"
     o = sys.stdout.write; o("\x1b[?1049h\x1b[?25l\x1b[2J")
     parts = []; viz = build(meta, io_off); flash, flasht = "", 0
     def back_targets():                               # funding txids, largest input first
@@ -482,37 +617,177 @@ def explore(txid, base, source):
         while True:
             k = getkey()
             if k == "QUIT": break
-            elif k in ("UP", "DOWN"):
-                mx = max(0, max(len(meta["ins"]), len(meta["outs"])) - MAXN, ndenoms(meta) - 6)
-                no = max(0, min(mx, io_off + (-1 if k == "UP" else 1)))
+            elif k in ("UP", "DOWN"):                     # move the ◂▸ cursor; window follows it
+                maxtotal = max(len(meta["ins"]), len(meta["outs"]))
+                sel = max(0, min(maxtotal-1, sel + (-1 if k == "UP" else 1)))
+                no = io_off
+                if sel < io_off: no = sel
+                elif sel >= io_off + MAXN: no = sel - MAXN + 1
+                no = max(0, min(no, max(0, maxtotal - MAXN, ndenoms(meta) - 6)))
                 if no != io_off: io_off = no; viz = build(meta, io_off); parts.clear()
-            elif k == "TAB":
-                sel = (sel + 1) % max(len(viz["nin"]), len(viz["nout"]), 1)
-            elif k and k.isdigit():
-                i = int(k) - 1
-                if i < max(len(viz["nin"]), len(viz["nout"])): sel = i
             elif k == "LEFT":
-                tg = back_targets(); i = viz["ai"] + sel
+                tg = back_targets(); i = sel
                 p = tg[i] if 0 <= i < len(tg) else (tg[0] if tg else None)
                 try: p and gmeta(p)
                 except Exception: p = None
                 if p: cur, io_off, sel = p, 0, 0; meta = gmeta(cur); viz = build(meta, io_off); parts.clear(); flash, flasht = "◀  walked back through input #%d" % (i+1), 30
-                else: flash, flasht = "no funding tx for that input (coinbase or unavailable)", 24
+                else: flash, flasht = "no input at this row (coinbase / out of range)", 24
             elif k == "RIGHT":
-                tg = fwd_targets(); i = viz["ao"] + sel
+                tg = fwd_targets(); i = sel
                 c = tg[i] if 0 <= i < len(tg) else None
                 try: c and gmeta(c)
                 except Exception: c = None
                 if c: cur, io_off, sel = c, 0, 0; meta = gmeta(cur); viz = build(meta, io_off); parts.clear(); flash, flasht = "walked forward through output #%d  ▶" % (i+1), 30
                 else: flash, flasht = "that output isn't spent yet (tip of the chain)", 24
+            elif k == "SPACE":                            # dive into the selected address view
+                addr = None
+                if sel < len(viz["nout"]): addr = viz["nout"][sel][2][1]
+                if not addr and sel < len(viz["nin"]): addr = viz["nin"][sel][2][1]
+                if addr and addr[:3] in ("bc1","tb1","bcr") or (addr and addr[:1] in ("1","3")):
+                    restore()
+                    try: explore_address(addr, base, source)
+                    except Exception as e: flash, flasht = f"address view failed: {e}", 40
+                    getkey, restore = make_keyreader(); o("\x1b[?1049h\x1b[?25l\x1b[2J"); parts.clear()
+                else:
+                    flash, flasht = "no address on this output (op_return / coinbase?)", 24
+            elif k == "EXPAND":                           # zoom out to the connected-tx graph
+                restore()
+                o("\x1b[2J\x1b[H\x1b[38;2;176;186;236mbuilding transaction graph from this tx ...\x1b[0m"); sys.stdout.flush()
+                try: animate_graph(build_graph(cur, base, 1, 8, lambda n: None), source, 0)
+                except Exception as e: flash, flasht = f"graph view failed: {e}", 40
+                getkey, restore = make_keyreader(); o("\x1b[?1049h\x1b[?25l\x1b[2J"); parts.clear()
             ch, col = blank()
-            isel = sel if sel < len(viz["nin"]) else None
-            osel = sel if sel < len(viz["nout"]) else None
+            vsel = sel - io_off                            # cursor row inside the visible window
+            isel = vsel if 0 <= vsel < len(viz["nin"]) else None
+            osel = vsel if 0 <= vsel < len(viz["nout"]) else None
             render_tx(ch, col, meta, viz, source, f, parts,
                       hint=(flash if flasht > 0 else HINT), isel=isel, osel=osel, den_off=io_off)
             emit(o, ch, col)
             if flasht > 0: flasht -= 1
             time.sleep(0.05); f += 1
+    except KeyboardInterrupt:
+        pass
+    finally:
+        restore(); o("\x1b[?2026l\x1b[?25h\x1b[?1049l\x1b[0m\n")
+
+# ---- address privacy view (space-dive from a tx output) ---------------------------
+WARN = (255, 92, 92)                                 # vivid red for privacy warnings
+
+def address_report(addr, base):
+    info = fetch_json(f"{base}/api/address/{addr}")
+    cs = info.get("chain_stats", {}) or {}; mp = info.get("mempool_stats", {}) or {}
+    def s(k): return cs.get(k, 0) + mp.get(k, 0)
+    funded, spent, txcount = s("funded_txo_count"), s("spent_txo_count"), s("tx_count")
+    balance = s("funded_txo_sum") - s("spent_txo_sum")
+    try: utxos = sorted(fetch_json(f"{base}/api/address/{addr}/utxo") or [], key=lambda u: u.get("value",0), reverse=True)
+    except Exception: utxos = []
+    try: atxs = fetch_json(f"{base}/api/address/{addr}/txs") or []
+    except Exception: atxs = []
+    prov = {}                                        # txid -> is the funding tx a coinjoin (private)?
+    def is_private(txid):
+        if txid not in prov:
+            try: prov[txid] = is_cj(parse_tx(fetch_json(f"{base}/api/tx/{txid}")))
+            except Exception: prov[txid] = None
+        return prov[txid]
+    npriv = nnon = 0
+    for u in utxos[:12]:                             # bounded provenance classification
+        p = is_private(u.get("txid"))
+        if p is True: npriv += 1
+        elif p is False: nnon += 1
+    consol = sum(1 for tx in atxs[:12]                # txs that spent this addr merged with others
+                 if any(((vin.get("prevout") or {}).get("scriptpubkey_address") == addr) for vin in tx.get("vin", []))
+                 and len(tx.get("vin", [])) >= 3)
+    warns = []
+    if funded > 1: warns.append(f"ADDRESS REUSE - received {funded} times to one address; links those payments")
+    if npriv > 0 and nnon > 0: warns.append(f"MIXED COINS - holds {npriv} private (coinjoin) + {nnon} non-private UTXOs; consolidating delinks your mix")
+    if consol > 0: warns.append(f"CONSOLIDATION - {consol} tx merged this address with other inputs; ties identities together")
+    if len(utxos) > 1 and funded <= 1: warns.append(f"{len(utxos)} UTXOs on one address - spending them together links them")
+    txrows = []                                      # recent history (already fetched; ~50 max, no extra calls)
+    for tx in atxs:
+        m = parse_tx(tx)
+        recv = sum(v for v, a, _ in m["outs"] if a == addr)
+        sent = sum(v for v, a, _ in m["ins"] if a == addr)
+        st = tx.get("status", {}) or {}
+        txrows.append(dict(txid=m["txid"], net=recv-sent, cj=classify_cj(m)[0],
+                           height=st.get("block_height"), confirmed=st.get("confirmed", False)))
+    return dict(addr=addr, balance=balance, funded=funded, spent=spent, txcount=txcount,
+                utxos=utxos, prov=prov, npriv=npriv, nnon=nnon, warns=warns, txrows=txrows)
+
+def explore_address(addr, base, source):
+    print(f"analyzing privacy of {addr[:18]}... ...", file=sys.stderr)
+    r = address_report(addr, base)                   # one-shot fetch + analysis (may raise -> caller)
+    utxos = r["utxos"]; prov = r["prov"]; warns = r["warns"]; txrows = r["txrows"]
+    mode = "utxo" if utxos else "tx"                  # empty address -> browse its tx history instead
+    items = utxos if utxos else txrows
+    getkey, restore = make_keyreader()
+    o = sys.stdout.write; o("\x1b[?1049h\x1b[?25l\x1b[2J")
+    LIST = 12; VIS = H - 3 - LIST; sel = 0; off = 0
+    try:
+        f = 0
+        while True:
+            k = getkey()
+            if k == "QUIT": break
+            elif k == "DOWN" and items: sel = min(len(items)-1, sel+1)
+            elif k == "UP" and items: sel = max(0, sel-1)
+            elif k == "SPACE" and items:
+                tid = items[sel].get("txid")
+                if tid:
+                    restore()
+                    try: explore(tid, base, source)
+                    except Exception: pass
+                    getkey, restore = make_keyreader(); o("\x1b[?1049h\x1b[?25l\x1b[2J")
+            off = max(0, min(off, sel)) if sel < off+VIS else sel-VIS+1
+            if sel < off: off = sel
+            ch, col = blank(); sweep = (f*0.7) % 28 - 4
+            for rr, row in enumerate(LOGO):              # shimmering shield
+                bs = lerp(BRAND, WHITE, 0.45 - 0.42*(rr/(len(LOGO)-1)))
+                for c, kk in enumerate(row):
+                    if kk != " ":
+                        sh = M.exp(-((c + rr*0.6 - sweep)**2)/8.0)
+                        ch[rr][c] = kk; col[rr][c] = clamp8(lerp(bs, (255,255,255), 0.65*sh))
+            put(ch,col,0,20,"CoinJoin",lerp(BRAND,WHITE,.45)); put(ch,col,0,29,"address privacy",GREY)
+            rput(ch,col,0,W-2,"via "+source,GREY)
+            put(ch,col,1,20,r["addr"],lerp(BRAND,WHITE,.15))
+            put(ch,col,3,20,f"balance {fmt(r['balance'])}  ·  {r['txcount']} txs  ·  {len(utxos)} UTXOs  "
+                            f"·  received {r['funded']}x  ·  spent {r['spent']}x",lerp(BRAND,WHITE,.25))
+            if warns:                                    # RED privacy warnings
+                put(ch,col,5,20,"PRIVACY WARNINGS",WARN)
+                for i, wn in enumerate(warns[:4]): put(ch,col,6+i,20,"!  "+wn,WARN)
+            else:
+                put(ch,col,5,20,"OK   no obvious privacy leaks - single-use, no mixed-coin consolidation",GREEN)
+            if mode == "utxo":
+                put(ch,col,LIST-1,20,f"UTXOS ({len(utxos)})   ·   w/s select   ·   space open funding tx",GREY)
+                for i, u in enumerate(utxos[off:off+VIS]):
+                    y = LIST + i; gi = off + i; selrow = (gi == sel)
+                    p = prov.get(u.get("txid"))
+                    plab, pcol = ("private (coinjoin)", GREEN) if p is True else (("non-private", ORANGE) if p is False else ("?", GREY))
+                    stt = u.get("status", {}) or {}
+                    conf = f"block {stt.get('block_height'):,}" if stt.get("confirmed") else "unconfirmed"
+                    bc = WHITE if selrow else lerp(BRAND, WHITE, .15)
+                    put(ch,col,y,20, ("▸ " if selrow else "  ") + f"{fmt(u.get('value',0)):<16}", bc)
+                    put(ch,col,y,42, plab, pcol)
+                    put(ch,col,y,62, short(u.get("txid",""))+f":{u.get('vout',0)}", lerp(bc,GREY,.3))
+                    rput(ch,col,y,W-2, conf, GREY)
+            else:                                        # empty address: scroll its tx history
+                cap = f" of {r['txcount']:,}" if r["txcount"] > len(txrows) else ""
+                put(ch,col,LIST-1,20,f"RECENT TXS ({len(txrows)}{cap})   ·   w/s select   ·   space open tx",GREY)
+                if not txrows: put(ch,col,LIST,20,"no transactions found for this address",GREY)
+                for i, t in enumerate(txrows[off:off+VIS]):
+                    y = LIST + i; gi = off + i; selrow = (gi == sel); net = t["net"]
+                    dlab, dcol = (("+ "+fmt(net)+" received"), GREEN) if net > 0 else \
+                                 ((("- "+fmt(-net)+" sent"), ORANGE) if net < 0 else ("self-transfer", GREY))
+                    conf = f"block {t['height']:,}" if (t.get("confirmed") and t.get("height")) else "unconfirmed"
+                    bc = WHITE if selrow else lerp(BRAND, WHITE, .15)
+                    put(ch,col,y,20, ("▸ " if selrow else "  ") + dlab, WHITE if selrow else dcol)
+                    if t["cj"]: put(ch,col,y,48, "◆ "+SHORT_CJ.get(t["cj"], t["cj"]), GREEN)
+                    put(ch,col,y,62, short(t["txid"]), lerp(bc,GREY,.3))
+                    rput(ch,col,y,W-2, conf, GREY)
+            hint = ("w/s select UTXO    space open funding tx    q back to tx" if mode == "utxo"
+                    else "w/s select tx    space open tx    q back to tx")
+            put(ch,col,H-2,(W-len(hint))//2,hint,lerp(BRAND,WHITE,.4))
+            tag = "coinjoin.nl    ·    one address, one use    ·    never mix private + non-private"
+            put(ch,col,H-1,(W-len(tag))//2,tag,lerp(BRAND,WHITE,.25))
+            emit(o, ch, col); time.sleep(0.05); f += 1
     except KeyboardInterrupt:
         pass
     finally:
@@ -802,6 +1077,7 @@ def main():
     ap.add_argument("--file", help="load tx JSON from a file instead of fetching")
     ap.add_argument("--frames", type=int, default=0, help="frames to run (0 = forever)")
     ap.add_argument("--depth", type=int, default=0, help="also load N levels of connected txs (graph mode)")
+    ap.add_argument("--width", type=int, default=8, help="max txs plotted per graph level (4-10)")
     ap.add_argument("--watch", action="store_true", help="live mempool dashboard (default when no txid)")
     ap.add_argument("--export", metavar="FILE", help="render to FILE (.gif/.png/.svg) instead of live view")
     a = ap.parse_args()
@@ -824,16 +1100,16 @@ def main():
         if a.file: ap.error("--depth needs live data; drop --file")
         if not a.txid or len(a.txid)!=64 or any(c not in "0123456789abcdefABCDEF" for c in a.txid):
             ap.error("provide a valid 64-hex-char txid for --depth")
-        depth = min(a.depth, 5)
-        print(f"building tx graph (depth {depth}) from {base} - this fetches many txs ...", file=sys.stderr)
+        depth = min(a.depth, 5); width = min(max(a.width, 4), 10)
+        print(f"building tx graph (depth {depth}, width {width}) from {base} - this fetches many txs ...", file=sys.stderr)
         try:
-            placed, parsed, edges = build_graph(a.txid, base, depth, 5,
+            G = build_graph(a.txid, base, depth, width,
                 lambda n: print(f"  fetched {n} txs...", file=sys.stderr))
         except urllib.error.HTTPError as e:
             sys.exit(f"mempool returned HTTP {e.code} - is the txid correct / known to {base}?")
         except Exception as e:
             sys.exit(f"could not build graph: {e}")
-        animate_graph(placed, parsed, edges, a.txid, base.split("//")[-1], depth, a.frames)
+        animate_graph(G, base.split("//")[-1], a.frames)
         return
     if a.file:                                        # offline playback
         try: meta = parse_tx(json.load(open(a.file, encoding="utf-8")))
