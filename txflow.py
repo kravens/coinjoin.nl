@@ -6,8 +6,9 @@
 #  Interactive: a/d walk chain, w/s scroll, 1-9/Tab pick branch, q quit.      #
 #   txflow.py [txid] [--watch] [--depth N] [--export out.gif] [--mempool URL]  #
 ###############################################################################
-import sys, os, time, math, random, json, argparse, urllib.request
+import sys, os, time, math, random, json, argparse, shutil, urllib.request
 M = math
+FRAME = 1/21                                         # 21 FPS - one for every million bitcoin
 os.system("")
 try: sys.stdout.reconfigure(encoding="utf-8")
 except Exception: pass
@@ -95,12 +96,23 @@ def ndenoms(meta):                                   # distinct equal-output den
 SHORT_CJ = {"Whirlpool 5x5":"Whirlpool", "Wasabi/WabiSabi":"Wasabi", "Wasabi 1.x":"Wasabi1",
             "JoinMarket":"JoinMkt", "equal-output mix":"mix"}
 
-# ---- layout -----------------------------------------------------------------------
-W,H = 118, 40
-X_IN, X_MIX, X_OUT = 26, 59, 92
-TOP, BOT = 12, 37
-CY = (TOP+BOT)/2
-MAXN = 14
+# ---- layout (canvas scales to the terminal; sensible 118x40 default) ---------------
+W = H = X_IN = X_MIX = X_OUT = TOP = BOT = MAXN = 0; CY = 0.0
+def apply_canvas(w, h):
+    global W, H, X_IN, X_MIX, X_OUT, TOP, BOT, CY, MAXN
+    W, H = w, h
+    X_IN = 26; X_OUT = W - 26; X_MIX = (X_IN + X_OUT) // 2
+    TOP, BOT = 12, H - 3; CY = (TOP + BOT) / 2
+    MAXN = max(8, (H - 14) * 9 // 16)                # inputs/outputs shown; grows with height
+def term_canvas(interactive=True):                   # clamped terminal size, or the default
+    if not interactive: return 118, 40
+    try: c, l = shutil.get_terminal_size((118, 40))
+    except Exception: c, l = 118, 40
+    # reserve the terminal's bottom row: filling the last row (and the bottom-right cell)
+    # makes some terminals (e.g. VS Code) scroll up by one line -> 1-row flicker.
+    # caps sized to fill a 6K terminal (~760x216); ~15ms/frame, well inside the 21fps budget.
+    return max(100, min(c, 760)), max(30, min(l - 1, 216))
+apply_canvas(118, 40)                                # default until an interactive view sizes it
 
 # CoinJoin shield: a "C" (top bar / left side / middle bars) flowing into a "J" point
 LOGO = [
@@ -272,7 +284,7 @@ def animate(meta, viz, source, frames):              # non-interactive playback
         f=0
         while frames==0 or f<frames:
             ch,col=blank(); render_tx(ch,col,meta,viz,source,f,parts)
-            emit(o,ch,col); time.sleep(0.05); f+=1
+            emit(o,ch,col); time.sleep(FRAME); f+=1
     except KeyboardInterrupt:
         pass
     finally:
@@ -349,16 +361,19 @@ def build_graph(main_txid, base, depth, capn, log):
 
 def animate_graph(G, source, frames):
     main_txid = G["main"]; base = G["base"]
-    GT, GB, FITS = 16, 34, 10                          # node band; max nodes shown per column
-    def gy(n): return [(GT+GB)//2] if n<=1 else [round(GT+(GB-GT)*i/(n-1)) for i in range(n)]
     from collections import Counter, defaultdict, deque
     loff = defaultdict(int); sel = [main_txid]
     interactive = (frames == 0 and sys.stdin.isatty())
+    apply_canvas(*term_canvas(interactive))
     getkey, restore = make_keyreader() if interactive else ((lambda: None), (lambda: None))
-    HINT = "w/a/s/d move    Tab cycle    e/f expand/contract    space open tx    q quit"
+    HINT = "w/a/s/d move    Tab/S-Tab page    e/f expand/contract    space open tx    q quit"
     parts = []; o = sys.stdout.write; flash, flasht = "", 0
     o("\x1b[?1049h\x1b[?25l\x1b[2J")
-    def layout():                                      # value-order per level + scrollable window
+    def layout():                                      # band + value-order per level + scroll window
+        GT = 16; GB = H - 6; band = GB - GT          # node band; packs denser as it grows
+        SP = 2.0 if band < 40 else max(1.0, 2.0 - (band-40)/50.0)   # ~2-row spacing -> ~1-row on big screens
+        FITS = max(4, int(band / SP) + 1)
+        def gy(n): return [(GT+GB)//2] if n<=1 else [round(GT+(GB-GT)*i/(n-1)) for i in range(n)]
         placed, parsed = G["placed"], G["parsed"]
         if sel[0] not in placed: sel[0] = main_txid
         levels = defaultdict(list)
@@ -376,11 +391,13 @@ def animate_graph(G, source, frames):
             win = ov[lv][loff[lv]:loff[lv]+FITS]; vis[lv] = win
             for t, y in zip(win, gy(len(win))): pos[t] = (xs[lv], y)
         cjset = {t for t in placed if _g_cj(G, t)}
-        return placed, parsed, lvs, ov, xs, pos, vis, cjset
+        return placed, parsed, lvs, ov, xs, pos, vis, cjset, GT, GB
     try:
         f = 0
         while frames == 0 or f < frames:
-            placed, parsed, lvs, ov, xs, pos, vis, cjset = layout()
+            nw, nh = term_canvas(interactive)          # adapt to a terminal resize
+            if (nw, nh) != (W, H): apply_canvas(nw, nh); o("\x1b[2J")
+            placed, parsed, lvs, ov, xs, pos, vis, cjset, GT, GB = layout()
             k = getkey()
             if k == "QUIT": break
             elif k == "SPACE":                         # open the selected tx in the explorer
@@ -421,10 +438,20 @@ def animate_graph(G, source, frames):
                     else: flash, flasht = "no more transactions at this level", 18
                 else:
                     sel[0] = lst[max(0, min(len(lst)-1, i + (-1 if k == "UP" else 1)))]
-            elif k == "TAB":
-                alln = [t for lv in lvs for t in vis[lv]]
-                if sel[0] in alln: sel[0] = alln[(alln.index(sel[0])+1) % len(alln)]
-            placed, parsed, lvs, ov, xs, pos, vis, cjset = layout()    # reflect any mutation now
+            elif k in ("TAB", "STAB"):                 # page through the column (reveal more going down)
+                lv = placed[sel[0]]; step = max(1, len(vis[lv])); cur = ov[lv]; i = cur.index(sel[0])
+                if k == "STAB":
+                    sel[0] = cur[max(0, i - step)]
+                else:
+                    target = i + step; cnt = len(cur); rv = 0
+                    while target >= cnt and rv < 20:   # reveal overflow to land a page lower
+                        if not _g_reveal(G, lv): break
+                        cnt += 1; rv += 1
+                    lst2 = sorted([t for t, l in G["placed"].items() if l == lv],
+                                  key=lambda t: G["parsed"][t]["total_out"], reverse=True)
+                    sel[0] = lst2[min(target, len(lst2)-1)]
+                    if rv: flash, flasht = "revealed %d more tx at this level" % rv, 20
+            placed, parsed, lvs, ov, xs, pos, vis, cjset, GT, GB = layout()   # reflect any mutation now
             elist = [(a, b) for (a, b) in G["edges"] if a in pos and b in pos]
             adj = defaultdict(list)
             for (a, b) in elist: adj[a].append(b); adj[b].append(a)
@@ -470,12 +497,13 @@ def animate_graph(G, source, frames):
                     tt = t - k2*0.05
                     if tt <= 0 or tt >= 1: continue
                     dot(ch, col, ay+(by-ay)*tt, ax+(bx-ax)*tt, "●" if k2==0 else "·", clamp8(lerp(BG, pc, 1.0-k2*0.33)))
+            selh = 1 if (GB - GT) < 40 else 0          # selected node 3-tall when sparse, 1-tall when dense
             for t, (x, y) in pos.items():              # tx nodes (green = coinjoin; labels on side)
                 cjn = t in cjset; selnode = (t == sel[0]); mainnode = (t == main_txid)
                 c = GREEN if cjn else BRAND
                 if selnode:
                     bc = clamp8(lerp(c, WHITE, .8))
-                    for dy in (-1, 0, 1):
+                    for dy in range(-selh, selh+1):
                         if 0 <= y+dy < H: ch[y+dy][x] = "█"; col[y+dy][x] = bc
                     rput(ch, col, y, x-3, "» " + ("COINJOIN" if cjn else "TX") + " «", ORANGE)
                     put(ch, col, y, x+3, cfmt(parsed[t]["total_out"]), WHITE)
@@ -532,7 +560,7 @@ def animate_graph(G, source, frames):
             tag = "coinjoin.nl    ·    privacy for cheap mining fees"
             put(ch,col,H-1,(W-len(tag))//2,tag,lerp(BRAND,WHITE,.25))
             emit(o, ch, col)
-            time.sleep(0.05); f += 1
+            time.sleep(FRAME); f += 1
     except KeyboardInterrupt:
         pass
     finally:
@@ -561,23 +589,69 @@ def make_keyreader():                                # non-blocking w/a/s/d cont
             "e":"EXPAND","E":"EXPAND","f":"CONTRACT","F":"CONTRACT",
             "\t":"TAB"," ":"SPACE","q":"QUIT","Q":"QUIT","\x1b":"QUIT"}
     for _d in "123456789": KEYS[_d] = _d
+    def consume(nextc):                              # we just read ESC; swallow the whole sequence
+        a = nextc()
+        if a == "": return "QUIT"                    # bare Esc
+        if a != "[":
+            if a == "O": nextc()                     # SS3 function key
+            return None
+        seq = ""                                     # CSI: read params until a final byte @..~
+        while True:
+            c = nextc()
+            if c == "": break
+            seq += c
+            if "\x40" <= c <= "\x7e": break
+        if seq == "Z": return "STAB"                 # Shift+Tab (back-tab)
+        if seq == "M": nextc(); nextc(); nextc()     # X10 mouse: 3 coordinate bytes follow
+        if seq == "200~":                            # bracketed paste: swallow until 201~
+            buf = ""
+            while True:
+                c = nextc()
+                if c == "": break
+                buf += c
+                if buf.endswith("\x1b[201~"): break
+        return None                                  # arrows / mouse / pastes -> ignore
+    def first_key(chars):                            # first real key in a small (non-paste) burst
+        i = [0]
+        def nx():
+            if i[0] < len(chars): i[0] += 1; return chars[i[0]-1]
+            return ""
+        while i[0] < len(chars):
+            ch = nx()
+            if ch in ("\x00", "\xe0"):               # extended key: scancode follows
+                if nx() == "\x0f": return "STAB"     # Shift+Tab = back-tab
+                continue
+            if ch == "\x1b":
+                t = consume(nx)
+                if t: return t
+                continue
+            k = KEYS.get(ch)
+            if k: return k
+        return None
+    PASTE = 8                                        # >8 chars buffered in one tick = a paste, ignore
+    sys.stdout.write("\x1b[?2004h"); sys.stdout.flush()   # bracketed paste on (belt-and-suspenders)
     if os.name == "nt":
         import msvcrt
         def get():
             if not msvcrt.kbhit(): return None
-            ch = msvcrt.getwch()
-            if ch in ("\x00", "\xe0"):               # arrow/function key: consume code, ignore
-                msvcrt.getwch(); return None
-            return KEYS.get(ch)
-        return get, (lambda: None)
+            chars = []                               # drain everything buffered this tick
+            while msvcrt.kbhit() and len(chars) < 256: chars.append(msvcrt.getwch())
+            return None if len(chars) > PASTE else first_key(chars)
+        def restore(): sys.stdout.write("\x1b[?2004l"); sys.stdout.flush()
+        return get, restore
     try:
         import termios, tty, select
         fd = sys.stdin.fileno(); old = termios.tcgetattr(fd); tty.setcbreak(fd)
         def get():
-            if select.select([sys.stdin], [], [], 0)[0]:
-                return KEYS.get(sys.stdin.read(1))
-            return None
-        return get, (lambda: termios.tcsetattr(fd, termios.TCSADRAIN, old))
+            chars = []
+            while select.select([sys.stdin], [], [], 0)[0] and len(chars) < 256:
+                chars.append(sys.stdin.read(1))
+            if not chars: return None
+            return None if len(chars) > PASTE else first_key(chars)
+        def restore():
+            sys.stdout.write("\x1b[?2004l"); sys.stdout.flush()
+            termios.tcsetattr(fd, termios.TCSADRAIN, old)
+        return get, restore
     except Exception:
         return (lambda: None), (lambda: None)
 
@@ -596,8 +670,9 @@ def explore(txid, base, source):
         return ospc[t]
     cur, io_off, sel = txid, 0, 0
     meta = gmeta(cur)                                 # initial fetch (may raise -> caught in main)
+    interactive = sys.stdin.isatty(); apply_canvas(*term_canvas(interactive))
     getkey, restore = make_keyreader()
-    HINT = "a/d walk    w/s move ◂▸    e graph view    space address    q quit"
+    HINT = "a/d walk    w/s move ◂▸    Tab/S-Tab page    e graph    space address    q quit"
     o = sys.stdout.write; o("\x1b[?1049h\x1b[?25l\x1b[2J")
     parts = []; viz = build(meta, io_off); flash, flasht = "", 0
     def back_targets():                               # funding txids, largest input first
@@ -612,6 +687,13 @@ def explore(txid, base, source):
             oo = osp[i] if i < len(osp) else None
             res.append(oo["txid"] if (oo and oo.get("spent") and oo.get("txid")) else None)
         return res
+    def follow():                                     # scroll the window to keep the cursor visible
+        nonlocal io_off, viz
+        no = io_off
+        if sel < io_off: no = sel
+        elif sel >= io_off + MAXN: no = sel - MAXN + 1
+        no = max(0, min(no, max(0, max(len(meta["ins"]), len(meta["outs"])) - MAXN, ndenoms(meta) - 6)))
+        if no != io_off: io_off = no; viz = build(meta, io_off); parts.clear()
     try:
         f = 0
         while True:
@@ -619,12 +701,13 @@ def explore(txid, base, source):
             if k == "QUIT": break
             elif k in ("UP", "DOWN"):                     # move the ◂▸ cursor; window follows it
                 maxtotal = max(len(meta["ins"]), len(meta["outs"]))
-                sel = max(0, min(maxtotal-1, sel + (-1 if k == "UP" else 1)))
-                no = io_off
-                if sel < io_off: no = sel
-                elif sel >= io_off + MAXN: no = sel - MAXN + 1
-                no = max(0, min(no, max(0, maxtotal - MAXN, ndenoms(meta) - 6)))
-                if no != io_off: io_off = no; viz = build(meta, io_off); parts.clear()
+                sel = max(0, min(maxtotal-1, sel + (-1 if k == "UP" else 1))); follow()
+            elif k == "TAB":                              # page forward through inputs/outputs
+                maxtotal = max(len(meta["ins"]), len(meta["outs"]))
+                if maxtotal > MAXN: sel = (sel + MAXN) % maxtotal; follow()
+            elif k == "STAB":                             # Shift+Tab: page backward
+                maxtotal = max(len(meta["ins"]), len(meta["outs"]))
+                if maxtotal > MAXN: sel = (sel - MAXN) % maxtotal; follow()
             elif k == "LEFT":
                 tg = back_targets(); i = sel
                 p = tg[i] if 0 <= i < len(tg) else (tg[0] if tg else None)
@@ -656,6 +739,8 @@ def explore(txid, base, source):
                 try: animate_graph(build_graph(cur, base, 1, 8, lambda n: None), source, 0)
                 except Exception as e: flash, flasht = f"graph view failed: {e}", 40
                 getkey, restore = make_keyreader(); o("\x1b[?1049h\x1b[?25l\x1b[2J"); parts.clear()
+            nw, nh = term_canvas(interactive)             # terminal resized -> resize the canvas
+            if (nw, nh) != (W, H): apply_canvas(nw, nh); o("\x1b[2J"); viz = build(meta, io_off); parts.clear()
             ch, col = blank()
             vsel = sel - io_off                            # cursor row inside the visible window
             isel = vsel if 0 <= vsel < len(viz["nin"]) else None
@@ -664,7 +749,7 @@ def explore(txid, base, source):
                       hint=(flash if flasht > 0 else HINT), isel=isel, osel=osel, den_off=io_off)
             emit(o, ch, col)
             if flasht > 0: flasht -= 1
-            time.sleep(0.05); f += 1
+            time.sleep(FRAME); f += 1
     except KeyboardInterrupt:
         pass
     finally:
@@ -719,9 +804,10 @@ def explore_address(addr, base, source):
     utxos = r["utxos"]; prov = r["prov"]; warns = r["warns"]; txrows = r["txrows"]
     mode = "utxo" if utxos else "tx"                  # empty address -> browse its tx history instead
     items = utxos if utxos else txrows
+    interactive = sys.stdin.isatty(); apply_canvas(*term_canvas(interactive))
     getkey, restore = make_keyreader()
     o = sys.stdout.write; o("\x1b[?1049h\x1b[?25l\x1b[2J")
-    LIST = 12; VIS = H - 3 - LIST; sel = 0; off = 0
+    LIST = 12; sel = 0; off = 0
     try:
         f = 0
         while True:
@@ -736,6 +822,9 @@ def explore_address(addr, base, source):
                     try: explore(tid, base, source)
                     except Exception: pass
                     getkey, restore = make_keyreader(); o("\x1b[?1049h\x1b[?25l\x1b[2J")
+            nw, nh = term_canvas(interactive)             # resize -> grow the visible list
+            if (nw, nh) != (W, H): apply_canvas(nw, nh); o("\x1b[2J")
+            VIS = H - 3 - LIST                            # rows shown; scales with terminal height
             off = max(0, min(off, sel)) if sel < off+VIS else sel-VIS+1
             if sel < off: off = sel
             ch, col = blank(); sweep = (f*0.7) % 28 - 4
@@ -787,7 +876,7 @@ def explore_address(addr, base, source):
             put(ch,col,H-2,(W-len(hint))//2,hint,lerp(BRAND,WHITE,.4))
             tag = "coinjoin.nl    ·    one address, one use    ·    never mix private + non-private"
             put(ch,col,H-1,(W-len(tag))//2,tag,lerp(BRAND,WHITE,.25))
-            emit(o, ch, col); time.sleep(0.05); f += 1
+            emit(o, ch, col); time.sleep(FRAME); f += 1
     except KeyboardInterrupt:
         pass
     finally:
@@ -885,9 +974,10 @@ def watch(base, source, frames):                     # returns a txid to inspect
                 state["err"] = str(e)
             stop.wait(3)
     threading.Thread(target=poll, daemon=True).start()
+    interactive = sys.stdin.isatty(); apply_canvas(*term_canvas(interactive))
     getkey, restore = make_keyreader()
     o = sys.stdout.write; o("\x1b[?1049h\x1b[?25l\x1b[2J")
-    parts = []; chosen = None; lastver = -1; BARX = X_MIX; lastheight = None; nbflash = 0; slide = 0.0
+    parts = []; chosen = None; lastver = -1; lastheight = None; nbflash = 0; slide = 0.0
     def fr_of(t): return t.get("fee",0)/max(t.get("vsize",1),1)
     try:
         f = 0
@@ -898,6 +988,9 @@ def watch(base, source, frames):                     # returns a txid to inspect
                 i = int(k) - 1
                 shown = sorted(state["recent"], key=fr_of, reverse=True)
                 if i < len(shown): chosen = shown[i]["txid"]; break
+            nw, nh = term_canvas(interactive)             # adapt to a terminal resize
+            if (nw, nh) != (W, H): apply_canvas(nw, nh); o("\x1b[2J")
+            BARX = X_MIX                                   # mempool bar tracks the (resizable) centre
             ch, col = blank(); pulse = 0.5 + 0.5*M.sin(f*0.12)
             height = state.get("height"); projected = state.get("projected") or []
             if lastheight is not None and height is not None and height != lastheight:
@@ -992,7 +1085,7 @@ def watch(base, source, frames):                     # returns a txid to inspect
                                (0.45+0.45*pulse) if bi==0 else 0.18, cap, GREY, xmin=19)
             tag = "coinjoin.nl    ·    mix to break the link    ·    press q to quit"
             put(ch,col,H-1,(W-len(tag))//2,tag,lerp(BRAND,WHITE,.25))
-            emit(o, ch, col); time.sleep(0.05); f += 1
+            emit(o, ch, col); time.sleep(FRAME); f += 1
     except KeyboardInterrupt:
         pass
     finally:
