@@ -197,7 +197,7 @@ def term_canvas(interactive=True):                   # clamped terminal size, or
     # reserve the terminal's bottom row: filling the last row (and the bottom-right cell)
     # makes some terminals (e.g. VS Code) scroll up by one line -> 1-row flicker.
     # caps sized to fill a 6K terminal (~760x216); ~15ms/frame, well inside the 21fps budget.
-    return max(100, min(c, 760)), max(30, min(l - 1, 216))
+    return max(100, min(c, 760)), max(29, min(l - 1, 216))
 apply_canvas(118, 40)                                # default until an interactive view sizes it
 
 # CoinJoin shield: a "C" (top bar / left side / middle bars) flowing into a "J" point
@@ -1392,13 +1392,10 @@ def watch(base, source, frames, liquisabi=LIQUISABI_API):   # returns a txid to 
                 for bi in range(min(len(projected), 3)):
                     x = x_tip - (bi+1)*PITCH + xo
                     pb = projected[bi]
-                    if pb.get("ntx") and pb.get("size"):
-                        n = pb["ntx"]; ktx = f"{n/1000:.1f}k" if n >= 1000 else str(n)
-                        l4 = f"{ktx} tx · {pb['size']/1e6:.2f} MB"
-                    elif pb.get("size"): l4 = f"{pb['size']/1e6:.2f} MB"
-                    else:                l4 = f"{pb['vsize']/1e6:.2f} MvB"
-                    lines = [f"~{pb['med']:.0f} sat/vB", f"{ff(pb['lo'])} - {ff(pb['hi'])} sat/vB",
-                             f"{pb['fee']/1e8:.3f} BTC", l4]
+                    if pb.get("size"): sz = f"{pb['size']/1e6:.2f} MB"
+                    else:              sz = f"{pb['vsize']/1e6:.2f} MvB"
+                    lines = [f"~{pb['med']:.1f} sat/vB", f"{ff(pb['lo'])} - {ff(pb['hi'])} sat/vB",
+                             sz, ""]
                     cap = "next block" if bi==0 else f"in ~{(bi+1)*10} min"
                     draw_block(ch,col,x,YB,BW,BH, lines, feecol(pb['med']),
                                (0.45+0.45*pulse) if bi==0 else 0.18, cap, GREY, xmin=19)
