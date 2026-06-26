@@ -80,6 +80,7 @@ def parse_tx(tx):
     vin = tx.get("vin",[]) or []; vout = tx.get("vout",[]) or []
     coinbase = any(i.get("is_coinbase") for i in vin)
     ins=[(((i.get("prevout") or {}).get("value",0)), (i.get("prevout") or {}).get("scriptpubkey_address"), bool(i.get("is_coinbase"))) for i in vin]
+    intypes=[((i.get("prevout") or {}).get("scriptpubkey_type","")) for i in vin]
     outs=[(o.get("value",0), o.get("scriptpubkey_address"), o.get("scriptpubkey_type","")) for o in vout]
     fee = tx.get("fee",0) or 0
     weight = tx.get("weight",0) or 0
@@ -88,7 +89,7 @@ def parse_tx(tx):
     total_in = sum(v for v,_,_ in ins) if not coinbase else total_out+fee
     if coinbase: ins=[(total_in,"coinbase (newly minted)",True)]
     st = tx.get("status",{}) or {}
-    return dict(txid=tx.get("txid",""), ins=ins, outs=outs, fee=fee, vsize=vsize,
+    return dict(txid=tx.get("txid",""), ins=ins, intypes=intypes, outs=outs, fee=fee, vsize=vsize,
                 feerate=(fee/vsize if vsize else 0), confirmed=st.get("confirmed",False),
                 height=st.get("block_height"), total_in=total_in, total_out=total_out, coinbase=coinbase)
 
@@ -149,6 +150,26 @@ def is_payjoin(meta):                                # heuristic candidate: rece
     (v0,t0),(v1,t1) = outs
     if not (v0 != v1 and bool(t0) and t0 == t1): return False   # 2 unequal same-type outs (pay + change)
     return max(v0, v1) > max(ins)                    # an output exceeds any single input (inputs combined)
+
+def peel_ratio(meta):                                # peel chain: one output carries the bulk forward
+    if meta.get("coinbase") or is_cj(meta): return 0.0
+    outs = sorted((v for v,_,_ in meta["outs"] if v > 0), reverse=True)
+    if len(outs) != 2 or len(meta["ins"]) > 2: return 0.0    # 1 payment + 1 large "change" carried on
+    tot = sum(outs)
+    return outs[0]/tot if tot else 0.0
+def is_peel(meta): return peel_ratio(meta) >= 0.90
+
+def lightning_hint(meta):                            # heuristic L2 channel open/close (P2WSH 2-of-2)
+    if meta.get("coinbase") or is_cj(meta): return None
+    outs = [(v,t) for v,_,t in meta["outs"] if v > 0]
+    if not outs: return None
+    wsh_out = [v for v,t in outs if t == "v0_p2wsh"]
+    wsh_in  = sum(1 for t in meta.get("intypes", []) if t == "v0_p2wsh")
+    if wsh_out and wsh_in == 0 and len(outs) <= 2:   # funding output + maybe change = channel open
+        return ("open", max(wsh_out))
+    if wsh_in >= 1 and not wsh_out and len(outs) <= 2:   # spends the 2-of-2 back to single-sig = close
+        return ("close", None)
+    return None
 
 def coin_anon(fm, value):                            # anon-set of a `value` coin from its funding tx fm
     if not fm: return None                           # N equal outputs if coinjoin, else 1 (non-private)
@@ -288,8 +309,11 @@ def render_tx(ch, col, meta, viz, source, f, parts, hint=None, isel=None, osel=N
     if not nin or not nout: return
     inw=[max(n[2][0],1) for n in nin]; outw=[max(n[2][0],1) for n in nout]
     center=viz["center"]; cj=viz["cj"]
-    batched=(not cj) and is_batched(meta); payjoin=(not cj) and (not batched) and is_payjoin(meta)
-    label="COINJOIN" if cj else ("BATCHED" if batched else "TRANSACTION")
+    ln=(not cj) and lightning_hint(meta); peel=(not cj) and (not ln) and is_peel(meta)
+    batched=(not cj) and (not ln) and (not peel) and is_batched(meta)
+    payjoin=(not cj) and (not ln) and (not peel) and (not batched) and is_payjoin(meta)
+    label=("COINJOIN" if cj else "LIGHTNING" if ln else "PEEL CHAIN" if peel
+           else "BATCHED" if batched else "TRANSACTION")
     pulse=0.5+0.5*M.sin(f*0.12)
     for (yi,_,_) in nin:                               # faint sankey ribbons
         for k in range(0,36):
@@ -323,8 +347,9 @@ def render_tx(ch, col, meta, viz, source, f, parts, hint=None, isel=None, osel=N
                 elif tt<0.57: c=center
                 else:         c=ocl
             dot(ch,col,y,x,"●" if k==0 else "·",clamp8(lerp(BG,c,1.0-k*0.30)))
+    barbase=(22,104,68) if cj else (28,70,120) if ln else (96,66,30) if peel else (40,46,78)
     for r in range(TOP,BOT+1):                        # mixing/tx bar + vertical label
-        cg=clamp8(lerp((22,104,68) if cj else (40,46,78), center, 0.35+0.4*pulse))
+        cg=clamp8(lerp(barbase, center, 0.35+0.4*pulse))
         for cc in (X_MIX-1,X_MIX,X_MIX+1): ch[r][cc]="█"; col[r][cc]=cg
     for i,k in enumerate(label):
         put(ch,col,int(CY)-len(label)//2+i,X_MIX,k,WHITE)
@@ -394,6 +419,19 @@ def render_tx(ch, col, meta, viz, source, f, parts, hint=None, isel=None, osel=N
         if nd > 6:
             put(ch,col,10,VALX, f"▲ {doff} above    ▼ {nd-doff-len(win)} below    w/s scroll",
                 lerp(GREEN,GREY,.4))
+    elif ln:
+        rput(ch,col,6,LABX,"layer 2",GREY)
+        if ln[0] == "open":
+            put(ch,col,6,VALX, f"⚡ LIGHTNING CHANNEL (open?)  —  funds a 2-of-2 P2WSH, ~{fmt(ln[1])} capacity",
+                lerp(BLUE,WHITE,.3))
+        else:
+            put(ch,col,6,VALX, "⚡ LIGHTNING CHANNEL (close?)  —  spends a 2-of-2 P2WSH back to single-sig outputs",
+                lerp(BLUE,WHITE,.3))
+    elif peel:
+        pr = peel_ratio(meta)
+        rput(ch,col,6,LABX,"pattern",GREY)
+        put(ch,col,6,VALX, f"PEEL CHAIN  —  one output carries {pr*100:.0f}% forward; reusing this pattern "
+            "links each hop in the chain", lerp(ORANGE,WHITE,.25))
     elif batched:
         nbo = sum(1 for v,_,_ in meta["outs"] if v > 0)
         rput(ch,col,6,LABX,"type",GREY)
@@ -1007,6 +1045,44 @@ def explore(txid, base, source):
 # ---- address privacy view (space-dive from a tx output) ---------------------------
 WARN = (255, 92, 92)                                 # vivid red for privacy warnings
 
+def privacy_score(r):                                # 0-100 composite from the address's warnings
+    score = 100
+    for w in r["warns"]:
+        if   w.startswith("ADDRESS REUSE"): score -= min(45, 20 + 3*max(0, r["funded"]-2))
+        elif w.startswith("MIXED COINS"):   score -= 35
+        elif w.startswith("CONSOLIDATION"): score -= 25
+        else:                               score -= 10     # multiple UTXOs on one address
+    score = max(0, min(100, score))
+    if   score >= 85: verdict, vc = "EXCELLENT", GREEN
+    elif score >= 65: verdict, vc = "GOOD",      GREEN
+    elif score >= 40: verdict, vc = "FAIR",      ORANGE
+    else:             verdict, vc = "POOR",      WARN
+    return score, verdict, vc
+
+def coin_control_advice(u, fm, r):                   # spend-safety advisory for one UTXO
+    val = u.get("value", 0)
+    lines = [f"UTXO   {fmt(val)}   ({short(u.get('txid',''))}:{u.get('vout',0)})", ""]
+    if not fm:
+        lines.append("funding tx unavailable - can't analyse provenance.")
+        lines.append(""); lines.append("press c to close"); return lines
+    a = coin_anon(fm, val); naddr = len({ad for _,ad,_ in fm["ins"] if ad})
+    if is_cj(fm):
+        lines.append(f"origin: COINJOIN output   ·   anon-set {a} (hides among {a} equal coins)")
+        lines.append("to keep it private:  spend it ALONE, to a fresh address.")
+        lines.append("do NOT co-spend with non-private coins - that re-links the mix.")
+    else:
+        lines.append("origin: ordinary output   ·   anon-set 1 (non-private)")
+        lines.append(f"its funding tx pulled {len(fm['ins'])} input(s) from {naddr} address(es);")
+        lines.append("co-spending this UTXO drags all of that history into the new tx.")
+    extra = []
+    if r["funded"] > 1: extra.append(f"this address was reused {r['funded']}x - already linked on-chain.")
+    if r["npriv"] > 0 and r["nnon"] > 0: extra.append("you hold private + non-private coins here - never merge them.")
+    if extra:
+        lines.append("")
+        for e in extra: lines.append("!  " + e)
+    lines.append(""); lines.append("press c to close")
+    return lines
+
 def address_report(addr, base):
     info = fetch_json(f"{base}/api/address/{addr}")
     cs = info.get("chain_stats", {}) or {}; mp = info.get("mempool_stats", {}) or {}
@@ -1059,9 +1135,10 @@ def explore_address(addr, base, source):
     interactive = sys.stdin.isatty(); apply_canvas(*term_canvas(interactive))
     getkey, restore = make_keyreader()
     o = sys.stdout.write; o("\x1b[?1049h\x1b[?25l\x1b[2J")
-    LIST = 12; sel = 0; off = 0; helpon = False; flash, flasht = "", 0
+    LIST = 12; sel = 0; off = 0; helpon = False; flash, flasht = "", 0; advice = None
     HELP = ["w / s    select a UTXO / transaction in the list",
             "space    open the selected (funding) tx in the flow view",
+            "c        coin-control: spend-safety advice for this UTXO",
             "y        copy this address to the clipboard",
             "q        back to the transaction",
             "",
@@ -1071,8 +1148,18 @@ def explore_address(addr, base, source):
         while True:
             k = getkey()
             if k == "QUIT": break
-            elif k == "DOWN" and items: sel = min(len(items)-1, sel+1)
-            elif k == "UP" and items: sel = max(0, sel-1)
+            elif k == "DOWN" and items: sel = min(len(items)-1, sel+1); advice = None
+            elif k == "UP" and items: sel = max(0, sel-1); advice = None
+            elif k == "COINBASE":                         # coin-control advisory for the selected UTXO
+                if advice is not None: advice = None
+                elif mode == "utxo" and utxos:
+                    u = utxos[sel]; tid = u.get("txid"); fm = prov.get(tid)
+                    if fm is None:
+                        try: fm = parse_tx(fetch_json(f"{base}/api/tx/{tid}")); prov[tid] = fm
+                        except Exception: fm = None
+                    advice = coin_control_advice(u, fm, r)
+                else:
+                    flash, flasht = "coin control needs a UTXO (this address has none)", 24
             elif k == "YANK":
                 flash, flasht = ("copied address to clipboard" if clip_copy(addr) else "clipboard copy unavailable"), 24
             elif k == "HELP":
@@ -1101,6 +1188,12 @@ def explore_address(addr, base, source):
             put(ch,col,1,20,r["addr"],lerp(BRAND,WHITE,.15))
             put(ch,col,3,20,f"balance {fmt(r['balance'])}  ·  {r['txcount']} txs  ·  {len(utxos)} UTXOs  "
                             f"·  received {r['funded']}x  ·  spent {r['spent']}x",lerp(BRAND,WHITE,.25))
+            sc, vd, vc = privacy_score(r)                # privacy score gauge (top right)
+            rput(ch,col,2,W-2,"privacy score",GREY)
+            GW = 24; gx = W-2-GW; fillw = round(GW*sc/100)
+            for j in range(GW): put(ch,col,3,gx+j,"·",lerp(BG,vc,.3))
+            for j in range(fillw): put(ch,col,3,gx+j,"█",lerp(vc,WHITE,j/max(fillw-1,1)))
+            rput(ch,col,4,W-2,f"{sc}/100   {vd}",vc)
             if warns:                                    # RED privacy warnings
                 put(ch,col,5,20,"PRIVACY WARNINGS",WARN)
                 for i, wn in enumerate(warns[:4]): put(ch,col,6+i,20,"!  "+wn,WARN)
@@ -1137,12 +1230,13 @@ def explore_address(addr, base, source):
                         put(ch,col,y,58, f"anon {t['anon']}", GREEN if t["anon"] > 1 else GREY)
                     put(ch,col,y,70, short(t["txid"]), lerp(bc,GREY,.3))
                     rput(ch,col,y,W-2, conf, GREY)
-            hint = flash if flasht > 0 else ("w/s select   space open tx   y copy address   ? help   q back")
+            hint = flash if flasht > 0 else ("w/s select   space open tx   c coin control   y copy   ? help   q back")
             put(ch,col,H-2,(W-len(hint))//2,hint,lerp(BRAND,WHITE,.4))
             tag = "coinjoin.nl    ·    one address, one use    ·    never mix private + non-private"
             put(ch,col,H-1,(W-len(tag))//2,tag,lerp(BRAND,WHITE,.25))
             if flasht > 0: flasht -= 1
             if helpon: draw_help(ch, col, "ADDRESS PRIVACY  ·  keys", HELP)
+            elif advice: draw_help(ch, col, "COIN CONTROL  ·  spend safety", advice)
             emit(o, ch, col); time.sleep(FRAME); f += 1
     except KeyboardInterrupt:
         pass
@@ -1431,6 +1525,49 @@ def export_svg(meta, viz, source, out, frame=36):
     open(out, "w", encoding="utf-8").write("\n".join(svg))
     print(f"wrote {out}  ({W*cw}x{H*chh} svg, 1 frame)", file=sys.stderr)
 
+def _frame_html(ch, col):                            # one frame -> RLE-coloured HTML (spans)
+    rows = []
+    for r in range(H):
+        line = []; last = False; buf = []
+        def flush():
+            if not buf: return
+            txt = _xescape("".join(buf))
+            line.append(txt if last is None else f'<span style="color:rgb{last}">{txt}</span>')
+        for c in range(W):
+            g = ch[r][c]; cc = clamp8(col[r][c]) if g != " " else None
+            if cc != last:
+                flush(); buf = []; last = cc
+            buf.append(g)
+        flush(); rows.append("".join(line))
+    return "\n".join(rows)
+
+def export_html(meta, viz, source, out, nframes):    # self-contained animated HTML (no deps, shareable)
+    nframes = max(1, min(nframes, 120)); parts = []; frames = []
+    for f in range(nframes):
+        ch, col = blank(); render_tx(ch, col, meta, viz, source, f, parts)
+        frames.append(_frame_html(ch, col))
+    br, bg, bb = BG; data = json.dumps(frames, separators=(",", ":"))
+    title = f"tx flow · {(meta['txid'] or 'local')[:12]} · coinjoin.nl"
+    html = ("<!doctype html><html><head><meta charset=\"utf-8\">\n"
+        f"<title>{_xescape(title)}</title><style>\n"
+        f"html,body{{margin:0;background:rgb({br},{bg},{bb});}}\n"
+        "#wrap{display:flex;align-items:center;justify-content:center;min-height:100vh;}\n"
+        "#screen{font:14px/1.0 Consolas,Menlo,monospace;white-space:pre;"
+        f"color:#ecedf6;background:rgb({br},{bg},{bb});padding:10px;}}\n"
+        "a{color:#9aa6ec;text-decoration:none;}\n"
+        "</style></head><body><div id=\"wrap\"><div>\n"
+        "<pre id=\"screen\"></pre>\n"
+        "<div style=\"text-align:center;font:12px monospace;color:#6e7886;margin-top:6px\">"
+        "made with txflow · <a href=\"https://coinjoin.nl\">coinjoin.nl</a></div>\n"
+        "</div></div>\n<script>\n"
+        f"const F={data},S=document.getElementById('screen');let i=0;\n"
+        "function tick(){S.innerHTML=F[i];i=(i+1)%F.length;}\n"
+        f"tick();setInterval(tick,{round(1000/21)});\n"
+        "</script></body></html>")
+    open(out, "w", encoding="utf-8").write(html)
+    kb = os.path.getsize(out)//1024
+    print(f"wrote {out}  ({W}x{H}, {nframes} frames html, {kb} KB)", file=sys.stderr)
+
 def _xfont(size):
     from PIL import ImageFont
     for p in ("C:/Windows/Fonts/consola.ttf","C:/Windows/Fonts/cour.ttf",
@@ -1474,10 +1611,11 @@ def export_raster(meta, viz, source, out, nframes, gif):
 
 def export(meta, viz, source, out, nframes):
     ext = out.lower().rsplit(".", 1)[-1] if "." in out else ""
-    if   ext == "svg": export_svg(meta, viz, source, out)
-    elif ext == "png": export_raster(meta, viz, source, out, nframes, gif=False)
-    elif ext == "gif": export_raster(meta, viz, source, out, nframes, gif=True)
-    else: sys.exit("--export needs a .gif, .png, or .svg filename")
+    if   ext == "svg":  export_svg(meta, viz, source, out)
+    elif ext == "html": export_html(meta, viz, source, out, nframes)
+    elif ext == "png":  export_raster(meta, viz, source, out, nframes, gif=False)
+    elif ext == "gif":  export_raster(meta, viz, source, out, nframes, gif=True)
+    else: sys.exit("--export needs a .gif, .png, .svg, or .html filename")
 
 # ---- main -------------------------------------------------------------------------
 def main():
@@ -1491,7 +1629,7 @@ def main():
     ap.add_argument("--watch", action="store_true", help="live mempool dashboard (default when no txid)")
     ap.add_argument("--liquisabi", default=LIQUISABI_API, metavar="URL",
                     help="LiquiSabi (or self-hosted/compatible) JSON-RPC dashboard URL for the coinjoin list")
-    ap.add_argument("--export", metavar="FILE", help="render to FILE (.gif/.png/.svg) instead of live view")
+    ap.add_argument("--export", metavar="FILE", help="render to FILE (.gif/.png/.svg/.html) instead of live view")
     a = ap.parse_args()
     base = a.mempool.rstrip("/")
     if a.export:                                      # export mode (gif/png/svg)
