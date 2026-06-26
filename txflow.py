@@ -66,6 +66,48 @@ def fetch_coinjoins(n=10, api=LIQUISABI_API):        # latest n WabiSabi coinjoi
     return [dict(txid=(rd.get("TxId") or "").lower(), coord=coord_name(rd.get("CoordinatorEndpoint") or ""),
                  anon=rd.get("AverageStandardOutputsAnonSet"), ins=rd.get("InputCount")) for rd in rounds[:n]]
 
+CJNL_MONITOR = "https://coinjoin.nl/wabisabi/human-monitor"   # coinjoin.nl coordinator round status
+CJNL_STATUS  = "https://coinjoin.nl/wabisabi/status"          # full WabiSabi round params (incl. mining fee rate)
+def _rem_secs(s):                                    # "0d 0h 6m 43s" -> total seconds
+    tot = 0
+    for tok in (s or "").split():
+        if len(tok) >= 2 and tok[-1] in "dhms" and tok[:-1].isdigit():
+            tot += int(tok[:-1]) * {"d":86400,"h":3600,"m":60,"s":1}[tok[-1]]
+    return tot
+def _fmt_secs(t):                                    # seconds -> "6m 05s" (drops leading 0d/0h; padded so width is stable)
+    t = int(max(0, t)); d, t = divmod(t, 86400); h, t = divmod(t, 3600); m, s = divmod(t, 60)
+    if d: return f"{d}d {h}h {m:02d}m {s:02d}s"
+    if h: return f"{h}h {m:02d}m {s:02d}s"
+    return f"{m}m {s:02d}s"
+def fetch_cjnl_feerates(url=CJNL_STATUS):            # {round id -> announced mining fee rate (sat/vB)}
+    body = json.dumps({"RoundCheckpoints": []}).encode()
+    req = urllib.request.Request(url, data=body, headers={"User-Agent":"txflow/1.0 (coinjoin.nl)",
+        "Content-Type":"application/json", "Accept":"application/json"})
+    with urllib.request.urlopen(req, timeout=20) as r:
+        d = json.loads(r.read().decode())
+    out = {}
+    for rs in (d.get("roundStates") or []):
+        rid = (rs.get("id") or "").lower(); mfr = None
+        for ev in ((rs.get("coinjoinState") or {}).get("Events") or []):
+            rp = ev.get("RoundParameters")
+            if rp and rp.get("MiningFeeRate") is not None: mfr = rp["MiningFeeRate"]; break
+        if rid and mfr is not None: out[rid] = mfr/1000.0    # sat/vkB (FeePerK) -> sat/vB
+    return out
+
+def fetch_cjnl_rounds(url=CJNL_MONITOR):             # live coinjoin.nl rounds (WabiSabi human-monitor)
+    d = fetch_json(url)
+    out = []
+    for s in (d.get("RoundStates") or []):
+        out.append(dict(rid=(s.get("RoundId") or "").lower(), ins=s.get("InputCount") or 0,
+                        phase=s.get("Phase") or "?", maxamt=s.get("MaxSuggestedAmount"),
+                        blame=bool(s.get("IsBlameRound")), feerate=None,
+                        rem_secs=_rem_secs(s.get("InputRegistrationRemaining"))))
+    try:                                             # enrich with the announced mining fee rate
+        fr = fetch_cjnl_feerates()
+        for r in out: r["feerate"] = fr.get(r["rid"])
+    except Exception: pass
+    return out
+
 def clip_copy(text):                                 # copy to the OS clipboard (best effort)
     import subprocess
     try:
@@ -459,7 +501,7 @@ def animate(meta, viz, source, frames):              # non-interactive playback
             ch,col=blank(); render_tx(ch,col,meta,viz,source,f,parts)
             emit(o,ch,col); time.sleep(FRAME); f+=1
     except KeyboardInterrupt:
-        pass
+        raise                                        # Ctrl+C = exit the whole app (q/Esc only go back a page)
     finally:
         o("\x1b[?2026l\x1b[?25h\x1b[?1049l\x1b[0m\n")
 
@@ -795,7 +837,7 @@ def animate_graph(G, source, frames):
             emit(o, ch, col)
             time.sleep(FRAME); f += 1
     except KeyboardInterrupt:
-        pass
+        raise                                        # Ctrl+C = exit the whole app (q/Esc only go back a page)
     finally:
         restore(); o("\x1b[?2026l\x1b[?25h\x1b[?1049l\x1b[0m\n")
 
@@ -823,46 +865,51 @@ def make_keyreader():                                # non-blocking w/a/s/d cont
             "y":"YANK","Y":"YANK","?":"HELP","j":"JOINS","J":"JOINS",
             "\t":"TAB"," ":"SPACE","q":"QUIT","Q":"QUIT","\x1b":"QUIT"}
     for _d in "123456789": KEYS[_d] = _d
-    def consume(nextc):                              # we just read ESC; swallow the whole sequence
-        a = nextc()
-        if a == "": return "QUIT"                    # bare Esc
-        if a != "[":
-            if a == "O": nextc()                     # SS3 function key
-            return None
-        seq = ""                                     # CSI: read params until a final byte @..~
-        while True:
-            c = nextc()
-            if c == "": break
-            seq += c
-            if "\x40" <= c <= "\x7e": break
-        if seq == "Z": return "STAB"                 # Shift+Tab (back-tab)
-        if seq == "M": nextc(); nextc(); nextc()     # X10 mouse: 3 coordinate bytes follow
-        if seq == "200~":                            # bracketed paste: swallow until 201~
-            buf = ""
-            while True:
-                c = nextc()
-                if c == "": break
-                buf += c
-                if buf.endswith("\x1b[201~"): break
-        return None                                  # arrows / mouse / pastes -> ignore
-    def first_key(chars):                            # first real key in a small (non-paste) burst
-        i = [0]
-        def nx():
-            if i[0] < len(chars): i[0] += 1; return chars[i[0]-1]
-            return ""
-        while i[0] < len(chars):
-            ch = nx()
-            if ch in ("\x00", "\xe0"):               # extended key: scancode follows
-                if nx() == "\x0f": return "STAB"     # Shift+Tab = back-tab
-                continue
+    def parse(chars):                                # -> (key_or_None, leftover); leftover = an incomplete
+        n = len(chars); i = 0                         # escape seq to retry next tick (don't guess mid-sequence)
+        while i < n:
+            ch = chars[i]
+            if ch in ("\x00", "\xe0"):               # Windows extended key: scancode byte follows
+                if i+1 >= n: return (None, chars[i:])     # scancode not here yet -> wait
+                sc = chars[i+1]; i += 2
+                if sc == "\x0f": return ("STAB", [])      # Shift+Tab = back-tab
+                continue                              # arrows/fn keys -> ignore
             if ch == "\x1b":
-                t = consume(nx)
-                if t: return t
-                continue
+                if i+1 >= n: return (None, chars[i:])     # bare ESC: wait (split CSI, or a real Escape)
+                a = chars[i+1]
+                if a != "[":
+                    if a == "O":                     # SS3 function key: needs one more byte
+                        if i+2 >= n: return (None, chars[i:])
+                        if chars[i+2] == "Z": return ("STAB", [])   # SS3 back-tab (some terminals)
+                        i += 3; continue
+                    i += 2; continue                 # ESC + char (Alt-key) -> ignore
+                j = i+2; seq = ""                    # CSI: read params until a final byte @..~
+                while j < n:
+                    c = chars[j]; seq += c; j += 1
+                    if "\x40" <= c <= "\x7e": break
+                else:
+                    return (None, chars[i:])         # ran off the end -> incomplete, retry next tick
+                if seq == "Z": return ("STAB", [])   # Shift+Tab (back-tab)
+                if seq == "200~":                    # bracketed paste: swallow through 201~
+                    end = "".join(chars[j:]).find("\x1b[201~")
+                    if end < 0: return (None, chars[i:])
+                    j += end + 6
+                i = j; continue                      # arrows / mouse / paste -> ignore
             k = KEYS.get(ch)
-            if k: return k
-        return None
+            if k: return (k, [])
+            i += 1
+        return (None, [])
     PASTE = 8                                        # >8 chars buffered in one tick = a paste, ignore
+    pend = []                                        # trailing bytes of an unfinished escape sequence
+    def feed(new):                                   # called every tick (new may be empty)
+        if "\x03" in new: raise KeyboardInterrupt    # Ctrl+C as a raw byte (terminals with ISIG off) = exit
+        if not new:                                  # a whole tick passed with nothing to complete pend
+            if pend == ["\x1b"]: pend.clear(); return "QUIT"   # lone ESC that stayed lone = real Escape
+            pend.clear(); return None
+        chars = pend + new; pend.clear()
+        if len(chars) > PASTE: return None           # paste burst -> ignore
+        key, leftover = parse(chars); pend[:] = leftover
+        return key
     sys.stdout.write("\x1b[?2004h"); sys.stdout.flush()   # bracketed paste on (belt-and-suspenders)
     if os.name == "nt":
         import msvcrt
@@ -875,12 +922,11 @@ def make_keyreader():                                # non-blocking w/a/s/d cont
         except Exception:
             hin = mode0 = _k32 = None
         def get():
-            if not msvcrt.kbhit(): return None
             chars = []                               # drain everything buffered this tick
             while msvcrt.kbhit() and len(chars) < 256:
                 try: chars.append(msvcrt.getwch())
                 except Exception: break
-            return None if len(chars) > PASTE else first_key(chars)
+            return feed(chars)                       # feed([]) lets a pending ESC resolve to a real Escape
         def restore():
             sys.stdout.write("\x1b[?2004l"); sys.stdout.flush()
             if _k32 is not None and hin is not None and mode0 is not None:
@@ -891,11 +937,14 @@ def make_keyreader():                                # non-blocking w/a/s/d cont
         import termios, tty, select
         fd = sys.stdin.fileno(); old = termios.tcgetattr(fd); tty.setcbreak(fd)
         def get():
-            chars = []
-            while select.select([sys.stdin], [], [], 0)[0] and len(chars) < 256:
-                chars.append(sys.stdin.read(1))
-            if not chars: return None
-            return None if len(chars) > PASTE else first_key(chars)
+            data = b""                               # read the RAW fd (os.read), not buffered sys.stdin:
+            while select.select([fd], [], [], 0)[0] and len(data) < 4096:   # TextIOWrapper buffering hides
+                try: b = os.read(fd, 1024)           # the tail of an escape seq from select() -> a split
+                except (BlockingIOError, OSError): break    # \x1b[Z would look like a lone Esc -> false quit
+                if not b: break
+                data += b
+                if len(b) < 1024: break              # got everything buffered this tick
+            return feed(list(data.decode("utf-8", "replace")))   # feed([]) lets a pending ESC resolve
         def restore():
             sys.stdout.write("\x1b[?2004l"); sys.stdout.flush()
             termios.tcsetattr(fd, termios.TCSADRAIN, old)
@@ -1038,7 +1087,7 @@ def explore(txid, base, source):
             if flasht > 0: flasht -= 1
             time.sleep(FRAME); f += 1
     except KeyboardInterrupt:
-        pass
+        raise                                        # Ctrl+C = exit the whole app (q/Esc only go back a page)
     finally:
         restore(); o("\x1b[?2026l\x1b[?25h\x1b[?1049l\x1b[0m\n")
 
@@ -1239,7 +1288,7 @@ def explore_address(addr, base, source):
             elif advice: draw_help(ch, col, "COIN CONTROL  ·  spend safety", advice)
             emit(o, ch, col); time.sleep(FRAME); f += 1
     except KeyboardInterrupt:
-        pass
+        raise                                        # Ctrl+C = exit the whole app (q/Esc only go back a page)
     finally:
         restore(); o("\x1b[?2026l\x1b[?25h\x1b[?1049l\x1b[0m\n")
 
@@ -1309,10 +1358,14 @@ def watch(base, source, frames, liquisabi=LIQUISABI_API):   # returns a txid to 
     import threading
     stop = threading.Event(); seen = set()
     state = {"recent": [], "stats": None, "new": [], "err": "connecting...",
-             "ver": 0, "height": None, "projected": [], "coinjoins": []}
+             "ver": 0, "height": None, "projected": [], "coinjoins": [], "cjnl": [], "cjnl_t": 0.0}
     def poll():
-        last_lq = 0.0
+        last_lq = 0.0; last_nl = 0.0
         while not stop.is_set():
+            if time.monotonic() - last_nl >= 12:      # coinjoin.nl round status, every 12s
+                try: state["cjnl"], state["cjnl_t"] = fetch_cjnl_rounds(), time.monotonic()
+                except Exception: pass
+                last_nl = time.monotonic()
             if time.monotonic() - last_lq >= 30:      # LiquiSabi: gentle, every 30s (don't overload it)
                 try: state["coinjoins"] = fetch_coinjoins(10, liquisabi)
                 except Exception: pass
@@ -1353,6 +1406,7 @@ def watch(base, source, frames, liquisabi=LIQUISABI_API):   # returns a txid to 
             "",
             "live feed = mempool, biggest txs scanned for coinjoins",
             "◆ pulsing green = a coinjoin just detected in the mempool",
+            "top banner = coinjoin.nl's own live round (its coordinator)",
             "latest coinjoins (below) come from LiquiSabi"]
     def fr_of(t): return t.get("fee",0)/max(t.get("vsize",1),1)
     def cur_list(): return sorted(state["recent"], key=fr_of, reverse=True)
@@ -1471,9 +1525,32 @@ def watch(base, source, frames, liquisabi=LIQUISABI_API):   # returns a txid to 
                 put(ch,col,1,20, f"backlog {vb/1e6:.1f} vMB  ·  {tf/1e8:.3f} BTC in fees", lerp(BRAND,WHITE,.2))
                 put(ch,col,2,20, (f"chain tip  #{height:,}" if height else "chain tip  (loading)"), lerp(BRAND,WHITE,.3))
                 rput(ch,col,2,W-2, f"top {top:.0f}  ·  floor {flo:.1f} sat/vB", lerp(BRAND,WHITE,.2))
-                put(ch,col,3,20, "UPCOMING BLOCKS", GREY)
             else:
                 put(ch,col,1,20, state.get("err") or "loading live mempool ...", ORANGE)
+            # -- coinjoin.nl live round banner (its own coordinator's WabiSabi rounds) --------
+            nl = state.get("cjnl") or []; gp = 0.5 + 0.5*M.sin(f*0.22)
+            if nl:
+                rd = nl[0]; joining = rd["phase"].startswith("Input")
+                pc = GREEN if joining else ORANGE
+                live = rd["rem_secs"] - (time.monotonic() - state.get("cjnl_t", time.monotonic()))
+                rid = (rd["rid"][:8]+"…"+rd["rid"][-4:]) if rd["rid"] else "?"
+                core = f"COINJOIN.NL ROUND  ·  {rd['phase']}  ·  {rd['ins']} input{'s' if rd['ins']!=1 else ''}"
+                opt = []                                   # appended left-to-right if width allows (priority order)
+                if rd.get("feerate") is not None: opt.append((f"  ·  fee {rd['feerate']:.1f} sat/vB", AMBER))
+                if joining and live > 0: opt.append(("  ·  ends in "+_fmt_secs(live), pc))
+                if joining: opt.append(("   — JOIN NOW", clamp8(lerp(GREEN, WHITE, .3+.4*gp))))
+                if rd.get("blame"): opt.append(("  ·  blame round", ORANGE))
+                put(ch,col,3,20,"◆",clamp8(lerp(pc, WHITE, .5*gp)))
+                put(ch,col,3,22,core, clamp8(lerp(pc, WHITE, .25)))
+                endx = 22 + len(core)
+                for piece, pcol in opt:                    # fit each optional segment, keep the round id clear
+                    if endx + len(piece) <= W-2: put(ch,col,3,endx,piece,clamp8(lerp(pcol,WHITE,.2))); endx += len(piece)
+                if endx + len(rid) + 2 <= W-2:             # round id, right-aligned, only if it won't collide
+                    rput(ch,col,3,W-2, rid, lerp(GREY,WHITE,.15))
+            else:
+                put(ch,col,3,20,"◆",lerp(BRAND,GREY,.4))
+                put(ch,col,3,22,"COINJOIN.NL  ·  no live round right now  ·  join Sundays 0:00–23:59 CET",
+                    lerp(BRAND,WHITE,.2))
             # -- upcoming-blocks lane: next 3 blocks (real size/tx/fees) + chain tip ---------
             BW, PITCH, YB, BH = 20, 22, 4, 6; xo = round(slide); x_tip = W-2-BW
             if projected:
@@ -1498,7 +1575,7 @@ def watch(base, source, frames, liquisabi=LIQUISABI_API):   # returns a txid to 
             if helpon: draw_help(ch, col, "LIVE MEMPOOL  ·  keys", HELP)
             emit(o, ch, col); time.sleep(FRAME); f += 1
     except KeyboardInterrupt:
-        pass
+        raise                                        # Ctrl+C = exit the whole app (q/Esc only go back a page)
     finally:
         stop.set(); restore(); o("\x1b[?2026l\x1b[?25h\x1b[?1049l\x1b[0m\n")
     return chosen
@@ -1697,4 +1774,9 @@ def main():
     animate(meta, build(meta), source, a.frames)
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:                         # Ctrl+C anywhere -> immediate, clean full exit
+        try: sys.stdout.write("\x1b[?2026l\x1b[?25h\x1b[?1049l\x1b[0m\n"); sys.stdout.flush()
+        except Exception: pass
+        sys.exit(130)
