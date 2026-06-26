@@ -1,4 +1,4 @@
-22#!/usr/bin/env python
+#!/usr/bin/env python
 # -*- coding: utf-8 -*- ###########  T X   F L O W  ·  coinjoin.nl  ###########
 #  Pull any Bitcoin transaction from mempool.space (or your own self-hosted    #
 #  mempool) and animate its input -> output flow as ASCII.  Equal-value        #
@@ -1695,9 +1695,22 @@ def export(meta, viz, source, out, nframes):
     else: sys.exit("--export needs a .gif, .png, .svg, or .html filename")
 
 # ---- main -------------------------------------------------------------------------
+_B58 = set("123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz")
+_BECH = set("qpzry9x8gf2tvdw0s3jn54khce6mua7l")
+def is_btc_address(s):                               # bech32(m) or base58 address (not a 64-hex txid)
+    if not s: return False
+    low = s.lower()
+    if low.startswith(("bc1", "tb1", "bcrt1")):      # segwit / taproot
+        body = low[low.rindex("1")+1:]
+        return 6 <= len(body) <= 87 and all(c in _BECH for c in body)
+    if s[0] in "123mn" and 25 <= len(s) <= 35:       # legacy P2PKH / P2SH (main + testnet)
+        return all(c in _B58 for c in s)
+    return False
+
 def main():
     ap = argparse.ArgumentParser(description="Animate a Bitcoin tx flow from mempool.space.")
-    ap.add_argument("txid", nargs="?", help="transaction id")
+    ap.add_argument("txid", nargs="?", metavar="TXID|ADDRESS",
+                    help="transaction id (flow view) or a bitcoin address (privacy view)")
     ap.add_argument("--mempool", default="https://mempool.space", help="mempool base URL (self-hosted ok)")
     ap.add_argument("--file", help="load tx JSON from a file instead of fetching")
     ap.add_argument("--frames", type=int, default=0, help="frames to run (0 = forever)")
@@ -1756,8 +1769,17 @@ def main():
             except urllib.error.HTTPError as e: print(f"HTTP {e.code} for {txid[:12]}", file=sys.stderr); time.sleep(1)
             except Exception as e: print(f"could not load {txid[:12]}: {e}", file=sys.stderr); time.sleep(1)
         return
+    if is_btc_address(a.txid):                        # a bitcoin address -> jump straight to its privacy view
+        source = base.split("//")[-1]
+        if not sys.stdin.isatty():
+            sys.exit("the address privacy view needs an interactive terminal.")
+        try: explore_address(a.txid, base, source); return
+        except urllib.error.HTTPError as e:
+            sys.exit(f"mempool returned HTTP {e.code} - is the address correct / known to {base}?")
+        except Exception as e:
+            sys.exit(f"could not load address: {e}")
     if len(a.txid)!=64 or any(c not in "0123456789abcdefABCDEF" for c in a.txid):
-        ap.error("that doesn't look like a 64-hex-char txid")
+        ap.error("that doesn't look like a 64-hex-char txid or a bitcoin address")
     source = base.split("//")[-1]
     try:
         if a.frames == 0 and sys.stdin.isatty():      # interactive explorer (w/a/s/d)
