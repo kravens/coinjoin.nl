@@ -1,0 +1,14 @@
+# Manual coinjoin-stats.py subcommands (run as a user with DB read access):
+#   coinjoin-stats.py sync          store new coinjoins from the coordinator log
+#   coinjoin-stats.py stats         print aggregate fee statistics
+#   coinjoin-stats.py latest [N]    show the latest N rounds (default 5)
+[Unit]
+Description=Publish latest successful coinjoin txid for coinjoin.nl
+After=wasabicoordinator.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/coinjoin-latest-txid.sh
+ExecStart=-/usr/local/bin/coinjoin-stats.py sync
+# Dump the latest rounds for the index page (after sync, so it includes the new one).
+ExecStart=-/bin/sh -c '/usr/local/bin/coinjoin-stats.py latest 10 > /var/www/coinjoin/latest-stats.txt'

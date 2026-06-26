@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>CoinJoin.nl</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="/css/bootstrap.min.css">
+<link href="https://www.kravens.nl/fonts/SwissSiena.ttf" rel="stylesheet">
+<link href="https://www.kravens.nl/fonts/Library3am.otf" rel="stylesheet">
+<link href='https://fonts.googleapis.com/css?family=Megrim' rel='stylesheet'>
+<link href='https://fonts.googleapis.com/css?family=Anonymous Pro' rel='stylesheet'>
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
+<script src="/js/bootstrap.min.js"></script>
+<script>
+    function myFunction(inputID) {
+    // Get the text field
+    var copyText = document.getElementById(inputID);
+
+    // Select the text field
+    copyText.select();
+    copyText.setSelectionRange(0, 99999); // For mobile devices
+
+    // Copy the text inside the text field
+    navigator.clipboard.writeText(copyText.value);
+
+    // Alert the copied text
+    alert("Copied the text: " + copyText.value);
+}
+</script>
+<style>
+    .css-selector {
+    background: linear-gradient(56deg, #1dbc93, #305ee1);
+    background-size: 400% 400%;
+
+    -webkit-animation: AnimationName 6s ease infinite;
+    -moz-animation: AnimationName 6s ease infinite;
+    -o-animation: AnimationName 6s ease infinite;
+    animation: AnimationName 6s ease infinite;
+}
+
+@-webkit-keyframes AnimationName {
+    0%{background-position:0% 48%}
+    50%{background-position:100% 53%}
+    100%{background-position:0% 48%}
+}
+@-moz-keyframes AnimationName {
+    0%{background-position:0% 48%}
+    50%{background-position:100% 53%}
+    100%{background-position:0% 48%}
+}
+@-o-keyframes AnimationName {
+    0%{background-position:0% 48%}
+    50%{background-position:100% 53%}
+    100%{background-position:0% 48%}
+}
+@keyframes AnimationName {
+    0%{background-position:0% 48%}
+    50%{background-position:100% 53%}
+    100%{background-position:0% 48%}
+}
+    body {
+      padding: 0.618%;
+      border-radius: 15px;
+      text-align:center;
+      /* background-color:darkslategray; */
+      
+      background-color: #3c618b;
+      background: linear-gradient(90deg, #1dbc93, #3c618b);
+    background-size: 400% 400%;
+
+    -webkit-animation: AnimationName 6s ease infinite;
+    -moz-animation: AnimationName 6s ease infinite;
+    -o-animation: AnimationName 6s ease infinite;
+    animation: AnimationName 6s ease infinite;
+      font-family: 'Anonymous Pro';
+      }
+    div {
+        color:whitesmoke;
+        /* background-color: rgb(4, 46, 46); */
+        background-color: #112031;
+        background: linear-gradient(270deg, #0c4e3e, #112031);
+    background-size: 400% 400%;
+
+    -webkit-animation: AnimationName 30s ease infinite;
+    -moz-animation: AnimationName 30s ease infinite;
+    -o-animation: AnimationName 30s ease infinite;
+    animation: AnimationName 30s ease infinite;
+        
+        border-radius: 15px;
+    }
+    p {
+        color:whitesmoke;
+    }
+    .tooltip {
+    position: relative;
+    display: inline-block;
+    }
+
+    .tooltip .tooltiptext {
+    visibility: hidden;
+    width: 140px;
+    background-color: #555;
+    color: #fff;
+    text-align: center;
+    border-radius: 6px;
+    padding: 5px;
+    position: absolute;
+    z-index: 1;
+    bottom: 150%;
+    left: 50%;
+    margin-left: -75px;
+    opacity: 0;
+    transition: opacity 0.3s;
+    }
+
+    .tooltip .tooltiptext::after {
+    content: "";
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    margin-left: -5px;
+    border-width: 5px;
+    border-style: solid;
+    border-color: #555 transparent transparent transparent;
+    }
+
+    .tooltip:hover .tooltiptext {
+    visibility: visible;
+    opacity: 1;
+    }
+    a:link {
+    color: orange;
+    background-color: transparent;
+    text-decoration: none;
+    }
+    a:visited {
+    color: pink;
+    background-color: transparent;
+    text-decoration: none;
+    }
+    a:hover {
+    color: darkorange;
+    background-color: transparent;
+    text-decoration: underline;
+    }
+    a:active {
+    color: yellow;
+    background-color: transparent;
+    text-decoration: underline;
+    }
+    table {
+    width: 100%;
+    border-collapse: collapse;
+    }
+
+    th, td {
+    padding: 8px;
+    text-align: left;
+    border-bottom: 1px solid #ddd;
+    }
+    table {
+        width: 80%;
+        border-collapse: collapse;
+        position: auto;
+        border-radius: 5px;
+        margin-top: 3px auto;
+        margin: 3px auto;
+        background-color: #3c618b;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    }
+
+</style>
+<link rel="apple-touch-icon" sizes="57x57" href="https://wasabi.kravens.nl/Logo icon PNG.png">
+<link rel="apple-touch-icon" sizes="60x60" href="https://wasabi.kravens.nl/Logo icon PNG.png">
+<link rel="apple-touch-icon" sizes="72x72" href="https://wasabi.kravens.nl/Logo icon PNG.png">
+<link rel="apple-touch-icon" sizes="76x76" href="https://wasabi.kravens.nl/Logo icon PNG.png">
+<link rel="apple-touch-icon" sizes="114x114" href="https://wasabi.kravens.nl/Logo icon PNG.png">
+<link rel="apple-touch-icon" sizes="120x120" href="https://wasabi.kravens.nl/Logo icon PNG.png">
+<link rel="apple-touch-icon" sizes="144x144" href="https://wasabi.kravens.nl/Logo icon PNG.png">
+<link rel="apple-touch-icon" sizes="152x152" href="https://wasabi.kravens.nl/Logo icon PNG.png">
+<link rel="apple-touch-icon" sizes="180x180" href="https://wasabi.kravens.nl/Logo icon PNG.png">
+<link rel="icon" type="image/png" sizes="192x192"  href="https://wasabi.kravens.nl/Logo icon PNG.png">
+<link rel="icon" type="image/png" sizes="32x32" href="https://wasabi.kravens.nl/Logo icon PNG.png">
+<link rel="icon" type="image/png" sizes="96x96" href="https://wasabi.kravens.nl/Logo icon PNG.png">
+<link rel="icon" type="image/png" sizes="16x16" href="https://wasabi.kravens.nl/Logo icon PNG.png">
+<link rel="manifest" href="/manifest.json">
+<meta name="msapplication-TileColor" content="#000000">
+<meta name="msapplication-TileImage" content="https://wasabi.kravens.nl/Logo icon PNG.png">
+<meta name="theme-color" content="#000000">
+</head>
+<body>
+<div class="container-fluid text-center">
+    <p>
+        <br>
+        <br>
+        <img src="https://wasabi.kravens.nl/Logo PNG.png" style="max-width:80%;max-height:210px;text-align: center; position:relative;vertical-align: middle;margin-right:-0.1em; background-blend-mode: darken;"></img>
+        <!-- <h2><br> <img src="bitcoin-lightning.svg" style="max-height:42px;text-align: center; position:relative;vertical-align: middle;margin-right:-0.1em; background-blend-mode: darken;"></img>itcoin How to: </h2> -->
+        <h1><br> WabiSabi Coordinator for <a href="https://wasabiwallet.io/">Wasabi Wallet</a></h1>
+	Weekly coinjoin round with 26 inputs is our target, join us every Sunday from 0:00-23:59 (CET).
+
+	<div id="content"></div>
+
+	<div id="latest-round" style="margin:1em auto;max-width:1100px;padding:8px;">
+	    <h2>Latest successful coinjoin round</h2>
+	    <iframe id="latestRoundFrame" title="Latest CoinJoin round" loading="lazy"
+	            style="width:100%;height:640px;border:0;border-radius:21px;max-inline-size:100%;"></iframe>
+	    <p id="latestRoundMeta"></p>
+	</div>
+	<script>
+	    fetch('/latest-coinjoin.json', { cache: 'no-store' })
+	        .then(r => r.json())
+	        .then(d => {
+	            if (d && d.txid) {
+	                document.getElementById('latestRoundFrame').src = '/viewer/#tx=' + d.txid;
+	                document.getElementById('latestRoundMeta').textContent =
+	                    'txid ' + d.txid + (d.time ? '  ·  ' + d.time + ' UTC' : '');
+	            } else {
+	                document.getElementById('latest-round').style.display = 'none';
+	            }
+	        })
+	        .catch(() => { document.getElementById('latest-round').style.display = 'none'; });
+	</script>
+
+	<h2>1. Download & Install <a href="https://wasabiwallet.io/#download">Wasabi Wallet</a><h2>
+	
+	<h2>2. Copy magic connect string: </h2>
+    	<!-- The text field -->
+    	<input style="width:560px; user-select:all;" type="text" value='name=Noderunners%20Batched%20Transaction%20Coordinator&network=main&coordinatorUri=https://coinjoin.nl&coordinationFeeRate=0&readMore=https://coinjoin.nl/&absoluteMinInputCount=21' id="myInput2" readonly>
+    	<!-- The button used to copy the text -->
+	<button onclick="myFunction('myInput2')">Copy</button>
+	<h2>3. Open Wasabi & Accept coinjoin.nl as coordinator </h2>
+        <img src="https://kravens.nl/images/wasabi_detected.png" style="width:40em; border-radius:21px; max-inline-size:90%;">
+
+	<h2>4. Restart Wasabi Wallet after saving</h2>
+	<h2>5. Click Receive & send bitcoin to your Wasabi Wallet</h2>
+	<p>Simply open your wallet, receive funds you'd like to CoinJoin and press the play button to start!</p>
+	<h3>🕶️ Privacy can be a side-effect of batching your transactions 🕶️</h3>
+
+</p>
+<br>
+    <iframe style="max-width: 90% !important; border-radius:21px; max-inline-size:90%;" width="1022" height="486" src="https://www.youtube-nocookie.com/embed/dGATztn5Ql8" title="WabiSabi Coinjoin Explained in 3 Minutes" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+    <br>
+
+    <p>
+
+    </p>
+    <br>
+    <br>
+<br>
+</p>
+<br>
+</div>
+<br>
+
+<div>
+	<br><h4>Disclaimer: </h4><br>User error (registration over clearnet without Tor) or malicious coordinators can lead to loss of UTXO privacy: <a href="https://groups.google.com/g/bitcoindev/c/CbfbEGozG7c/m/fKuKwo6kDAAJ">Bitcoindev mailinglist discussion</a> 
+        <br>Always update to the latest Wasabi Wallet version when possible and do your own research! <a href="https://petertodd.org/2025/coinjoin-comparison">Peter Todd's coinjoin comparison</a>, <a href="https://youtu.be/eIBTSe4OABI?t=19002">Kruw presentation BTC++ Riga 2025</a>.
+        <br><br> <h4>Funding: </h4> 
+        <br>The <a href='https://coinjoin.nl'>coinjoin.nl</a> coordinator is a not-for-profit community project, any future fee-revenue will be donated to OpenSats / HRF / BTCPayServer to support open source development of bitcoin privacy tools. 
+        <br>Even with a 0% Coordinator-fee, there can be dust (pieces of bitcoin too small to economically spend) collection revenue for WabiSabi coordinators.
+<br><br>
+</div>
+<br>
+<div><br>
+<h4>Coordinator status & history:</h4>
+
+<a href="https://coinjoin.nl/wabisabi/human-monitor">Check CoinJoin round status</a>
+    
+<script>
+        async function fetchData() {
+            try {
+                const response = await fetch('https://coinjoin.nl/wabisabi/human-monitor');
+                if (!response.ok) {
+                    throw new Error('Network response was not ok');
+                }
+                const data = await response.json();
+                displayData(data);
+            } catch (error) {
+                const contentDiv = document.getElementById('content');
+                contentDiv.innerHTML = `<p class="error">Error fetching data: ${error.message}</p>`;
+            }
+        }
+
+        function displayData(data) {
+            const contentDiv = document.getElementById('content');
+            if (data.RoundStates && data.RoundStates.length > 0) {
+                let tableHTML = `
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Round ID</th>
+                                <!-- <th>Is Blame Round</th> !-->
+                                <th>Input Count</th>
+                                <!-- <th>Max Suggested Amount</th> !-->
+                                <th>Time Remaining</th>
+                                <th>Phase</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                `;
+                data.RoundStates.forEach(state => {
+                    tableHTML += `
+                        <tr>
+                            <td>${state.RoundId}</td>
+                            <!-- <td>${state.IsBlameRound}</td> !-->
+                            <td>${state.InputCount}</td>
+                            <!-- <td>${state.MaxSuggestedAmount}</td> !-->
+                            <td>${state.InputRegistrationRemaining}</td>
+                            <td>${state.Phase}</td>
+                        </tr>
+                    `;
+                });
+                tableHTML += '</tbody></table>';
+                contentDiv.innerHTML = tableHTML;
+            } else {
+                contentDiv.innerHTML = '<p class="error">No round states found.</p>';
+            }
+        }
+
+        // Fetch data when the page loads
+        fetchData();
+    </script>
+
+<br> <br>
+<a href="https://liquisabi.com">Check CoinJoin rounds history on LiquiSabi</a>
+<br> <br>
+
+<div id="latest-flow" style="margin:1em auto;max-width:1100px;padding:8px;">
+    <h2>Latest successful coinjoin — transaction flow</h2>
+    <iframe id="latestFlowFrame" title="Latest CoinJoin transaction flow" loading="lazy"
+            src="/latest.html"
+            style="width:100%;height:640px;border:0;border-radius:21px;max-inline-size:100%;background:rgb(10,12,16);"></iframe>
+</div>
+
+<div id="latest-stats" style="margin:1em auto;max-width:1100px;padding:8px;">
+    <h2>Latest rounds</h2>
+    <div id="latestStats"></div>
+</div>
+<script>
+    // Parse `coinjoin-stats.py latest` text (2 lines per round) into a table that
+    // reuses the round-monitor table styling at the top of the page.
+    fetch('/latest-stats.txt', { cache: 'no-store' })
+        .then(r => r.ok ? r.text() : Promise.reject())
+        .then(t => {
+            const lines = t.split('\n');
+            let rows = '';
+            for (let i = 0; i < lines.length; i++) {
+                const h = lines[i].match(/^\s+(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)\s+([0-9a-f]{64})/);
+                if (!h) continue;
+                const d = (lines[i + 1] || '').match(/in\/out (\d+)\/(\d+)\s+mining ([\d,]+) sat\s+coord ([\d,]+) sat\s+([\d.]+) sat\/vB/);
+                const txid = h[2];
+                const short = txid.slice(0, 8) + '…' + txid.slice(-8);
+                rows += `<tr>
+                    <td>${h[1]} UTC</td>
+                    <td><a href="/viewer/#tx=${txid}" title="${txid}">${short}</a></td>
+                    <td>${d ? d[1] + '/' + d[2] : '—'}</td>
+                    <td>${d ? d[3] : '—'}</td>
+                    <td>${d ? d[4] : '—'}</td>
+                    <td>${d ? d[5] : '—'}</td>
+                </tr>`;
+            }
+            if (!rows) { document.getElementById('latest-stats').style.display = 'none'; return; }
+            document.getElementById('latestStats').innerHTML = `
+                <table>
+                    <thead><tr>
+                        <th>Time</th><th>Txid</th><th>In/Out</th>
+                        <th>Mining fee (sat)</th><th>Coord fee (sat)</th><th>Fee rate (sat/vB)</th>
+                    </tr></thead>
+                    <tbody>${rows}</tbody>
+                </table>`;
+        })
+        .catch(() => { document.getElementById('latest-stats').style.display = 'none'; });
+</script>
+
+</div>
+
+</body>
+</html>

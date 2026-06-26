@@ -1,0 +1,12 @@
+# Runtime-generated artifacts (regenerate themselves; never commit)
+web/latest-coinjoin.json
+web/latest.html
+web/latest-stats.txt
+web/.latest-txid
+*.db
+
+# Secrets — never commit (here as a guard, these live outside the repo anyway)
+**/Config.json
+**/bitcoin.conf
+*.pem
+*.key
