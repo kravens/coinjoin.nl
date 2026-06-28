@@ -1,4 +1,4 @@
-22#!/usr/bin/env python
+#!/usr/bin/env python
 # -*- coding: utf-8 -*- ###########  T X   F L O W  ·  coinjoin.nl  ###########
 #  Pull any Bitcoin transaction from mempool.space (or your own self-hosted    #
 #  mempool) and animate its input -> output flow as ASCII.  Equal-value        #
@@ -594,12 +594,13 @@ def animate_graph(G, source, frames):
     interactive = (frames == 0 and sys.stdin.isatty())
     apply_canvas(*term_canvas(interactive))
     getkey, restore = make_keyreader() if interactive else ((lambda: None), (lambda: None))
-    HINT = "w/a/s/d move   Tab/S-Tab page   e/f or a/d-at-edge expand   space open tx   y copy   ? help   q quit"
+    HINT = "w/a/s/d move   Tab/S-Tab page   e/f expand   space open tx   m mempool   y copy   ? help   q quit"
     HELP = ["w / a / s / d   move between transactions (column / row)",
             "a / d at edge   expand the graph one level that direction",
             "Tab / S-Tab     page down / up a column (reveals more)",
             "e / f           expand / contract depth both ways",
             "space           open the selected transaction in the flow view",
+            "m               jump to the live mempool view",
             "y               copy the selected txid to the clipboard",
             "q               quit / back",
             "",
@@ -667,6 +668,14 @@ def animate_graph(G, source, frames):
                 restore()
                 try: explore(sel[0], base, source)
                 except Exception as e: flash, flasht = f"could not open {sel[0][:10]}...: {e}", 40
+                getkey, restore = make_keyreader() if interactive else ((lambda: None), (lambda: None))
+                o("\x1b[?1049h\x1b[?25l\x1b[2J"); parts.clear()
+            elif k == "MEMPOOL":                       # jump to the live mempool view
+                restore()
+                try:
+                    tid = watch(base, source, 0)
+                    if tid: explore(tid, base, source)
+                except Exception as e: flash, flasht = f"mempool view failed: {e}", 40
                 getkey, restore = make_keyreader() if interactive else ((lambda: None), (lambda: None))
                 o("\x1b[?1049h\x1b[?25l\x1b[2J"); parts.clear()
             elif k == "EXPAND":
@@ -862,7 +871,7 @@ def make_keyreader():                                # non-blocking w/a/s/d cont
     KEYS = {"w":"UP","a":"LEFT","s":"DOWN","d":"RIGHT",
             "W":"UP","A":"LEFT","S":"DOWN","D":"RIGHT",
             "e":"EXPAND","E":"EXPAND","f":"CONTRACT","F":"CONTRACT","c":"COINBASE","C":"COINBASE",
-            "y":"YANK","Y":"YANK","?":"HELP","j":"JOINS","J":"JOINS",
+            "y":"YANK","Y":"YANK","?":"HELP","j":"JOINS","J":"JOINS","m":"MEMPOOL","M":"MEMPOOL",
             "\t":"TAB"," ":"SPACE","q":"QUIT","Q":"QUIT","\x1b":"QUIT"}
     for _d in "123456789": KEYS[_d] = _d
     def parse(chars):                                # -> (key_or_None, leftover); leftover = an incomplete
@@ -969,13 +978,14 @@ def explore(txid, base, source):
     meta = gmeta(cur)                                 # initial fetch (may raise -> caught in main)
     interactive = sys.stdin.isatty(); apply_canvas(*term_canvas(interactive))
     getkey, restore = make_keyreader()
-    HINT = "a/d walk   w/s move ◂▸   Tab page   e graph   space address   y copy   ? help   q quit"
+    HINT = "a/d walk   w/s move ◂▸   e graph   space address   m mempool   y copy   ? help   q quit"
     HELP = ["a / d        walk back / forward through the selected branch",
             "w / s        move the ◂▸ cursor (up/down a row, scrolls if needed)",
             "Tab / S-Tab  page forward / back through many inputs/outputs",
             "1-9          (none) - use w/s; cursor follows value rank",
             "e            zoom out to the connected-transaction graph",
             "space        open the privacy view of the selected output's address",
+            "m            jump to the live mempool view",
             "c            follow the fee to its block's coinbase tx",
             "y            copy this txid to the clipboard",
             "q            quit / back"]
@@ -1039,16 +1049,25 @@ def explore(txid, base, source):
                 if c: cur, io_off, sel = c, 0, 0; meta = gmeta(cur); viz = build(meta, io_off); parts.clear(); flash, flasht = "walked forward through output #%d  ▶" % (i+1), 30
                 else: flash, flasht = "that output isn't spent yet (tip of the chain)", 24
             elif k == "SPACE":                            # dive into the selected address view
-                addr = None
-                if sel < len(viz["nout"]): addr = viz["nout"][sel][2][1]
-                if not addr and sel < len(viz["nin"]): addr = viz["nin"][sel][2][1]
-                if addr and addr[:3] in ("bc1","tb1","bcr") or (addr and addr[:1] in ("1","3")):
+                addr = None; vsel = sel - io_off          # cursor row INSIDE the scrolled window
+                if 0 <= vsel < len(viz["nout"]): addr = viz["nout"][vsel][2][1]
+                if not addr and 0 <= vsel < len(viz["nin"]): addr = viz["nin"][vsel][2][1]
+                if addr and is_btc_address(addr):
                     restore()
                     try: explore_address(addr, base, source)
                     except Exception as e: flash, flasht = f"address view failed: {e}", 40
                     getkey, restore = make_keyreader(); o("\x1b[?1049h\x1b[?25l\x1b[2J"); parts.clear()
                 else:
                     flash, flasht = "no address on this output (op_return / coinbase?)", 24
+            elif k == "MEMPOOL":                          # back to the live mempool, pick a tx, land here
+                restore()
+                tid = None
+                try: tid = watch(base, source, 0)
+                except Exception as e: flash, flasht = f"mempool view failed: {e}", 40
+                getkey, restore = make_keyreader(); o("\x1b[?1049h\x1b[?25l\x1b[2J"); parts.clear()
+                if tid:
+                    try: cur, io_off, sel = tid, 0, 0; meta = gmeta(cur); viz = build(meta, io_off); flash, flasht = "opened from live mempool", 24
+                    except Exception as e: flash, flasht = f"could not load {tid[:10]}...: {e}", 40
             elif k == "EXPAND":                           # zoom out to the connected-tx graph
                 restore()
                 o("\x1b[2J\x1b[H\x1b[38;2;176;186;236mbuilding transaction graph from this tx ...\x1b[0m"); sys.stdout.flush()
@@ -1188,6 +1207,7 @@ def explore_address(addr, base, source):
     HELP = ["w / s    select a UTXO / transaction in the list",
             "space    open the selected (funding) tx in the flow view",
             "c        coin-control: spend-safety advice for this UTXO",
+            "m        jump to the live mempool view",
             "y        copy this address to the clipboard",
             "q        back to the transaction",
             "",
@@ -1209,6 +1229,13 @@ def explore_address(addr, base, source):
                     advice = coin_control_advice(u, fm, r)
                 else:
                     flash, flasht = "coin control needs a UTXO (this address has none)", 24
+            elif k == "MEMPOOL":                          # jump to the live mempool view
+                restore()
+                try:
+                    tid = watch(base, source, 0)
+                    if tid: explore(tid, base, source)
+                except Exception as e: flash, flasht = f"mempool view failed: {e}", 40
+                getkey, restore = make_keyreader(); o("\x1b[?1049h\x1b[?25l\x1b[2J")
             elif k == "YANK":
                 flash, flasht = ("copied address to clipboard" if clip_copy(addr) else "clipboard copy unavailable"), 24
             elif k == "HELP":
@@ -1279,7 +1306,7 @@ def explore_address(addr, base, source):
                         put(ch,col,y,58, f"anon {t['anon']}", GREEN if t["anon"] > 1 else GREY)
                     put(ch,col,y,70, short(t["txid"]), lerp(bc,GREY,.3))
                     rput(ch,col,y,W-2, conf, GREY)
-            hint = flash if flasht > 0 else ("w/s select   space open tx   c coin control   y copy   ? help   q back")
+            hint = flash if flasht > 0 else ("w/s select   space open   c coin control   m mempool   y copy   ? help   q back")
             put(ch,col,H-2,(W-len(hint))//2,hint,lerp(BRAND,WHITE,.4))
             tag = "coinjoin.nl    ·    one address, one use    ·    never mix private + non-private"
             put(ch,col,H-1,(W-len(tag))//2,tag,lerp(BRAND,WHITE,.25))
@@ -1695,9 +1722,22 @@ def export(meta, viz, source, out, nframes):
     else: sys.exit("--export needs a .gif, .png, .svg, or .html filename")
 
 # ---- main -------------------------------------------------------------------------
+_B58 = set("123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz")
+_BECH = set("qpzry9x8gf2tvdw0s3jn54khce6mua7l")
+def is_btc_address(s):                               # bech32(m) or base58 address (not a 64-hex txid)
+    if not s: return False
+    low = s.lower()
+    if low.startswith(("bc1", "tb1", "bcrt1")):      # segwit / taproot
+        body = low[low.rindex("1")+1:]
+        return 6 <= len(body) <= 87 and all(c in _BECH for c in body)
+    if s[0] in "123mn" and 25 <= len(s) <= 35:       # legacy P2PKH / P2SH (main + testnet)
+        return all(c in _B58 for c in s)
+    return False
+
 def main():
     ap = argparse.ArgumentParser(description="Animate a Bitcoin tx flow from mempool.space.")
-    ap.add_argument("txid", nargs="?", help="transaction id")
+    ap.add_argument("txid", nargs="?", metavar="TXID|ADDRESS",
+                    help="transaction id (flow view) or a bitcoin address (privacy view)")
     ap.add_argument("--mempool", default="https://mempool.space", help="mempool base URL (self-hosted ok)")
     ap.add_argument("--file", help="load tx JSON from a file instead of fetching")
     ap.add_argument("--frames", type=int, default=0, help="frames to run (0 = forever)")
@@ -1756,8 +1796,17 @@ def main():
             except urllib.error.HTTPError as e: print(f"HTTP {e.code} for {txid[:12]}", file=sys.stderr); time.sleep(1)
             except Exception as e: print(f"could not load {txid[:12]}: {e}", file=sys.stderr); time.sleep(1)
         return
+    if is_btc_address(a.txid):                        # a bitcoin address -> jump straight to its privacy view
+        source = base.split("//")[-1]
+        if not sys.stdin.isatty():
+            sys.exit("the address privacy view needs an interactive terminal.")
+        try: explore_address(a.txid, base, source); return
+        except urllib.error.HTTPError as e:
+            sys.exit(f"mempool returned HTTP {e.code} - is the address correct / known to {base}?")
+        except Exception as e:
+            sys.exit(f"could not load address: {e}")
     if len(a.txid)!=64 or any(c not in "0123456789abcdefABCDEF" for c in a.txid):
-        ap.error("that doesn't look like a 64-hex-char txid")
+        ap.error("that doesn't look like a 64-hex-char txid or a bitcoin address")
     source = base.split("//")[-1]
     try:
         if a.frames == 0 and sys.stdin.isatty():      # interactive explorer (w/a/s/d)
