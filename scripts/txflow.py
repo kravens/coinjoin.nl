@@ -927,7 +927,9 @@ def make_keyreader():                                # non-blocking w/a/s/d cont
             import ctypes
             _k32 = ctypes.windll.kernel32; hin = _k32.GetStdHandle(-10)
             m = ctypes.c_uint(); _k32.GetConsoleMode(hin, ctypes.byref(m)); mode0 = m.value
-            _k32.SetConsoleMode(hin, (mode0 | 0x0080) & ~0x0010 & ~0x0040)   # EXTENDED, ~MOUSE, ~QUICK_EDIT
+            # +EXTENDED +VIRTUAL_TERMINAL_INPUT, ~MOUSE, ~QUICK_EDIT.  VT input delivers special
+            # keys as escape sequences (Shift+Tab = ESC[Z); getwch alone drops the Shift modifier.
+            _k32.SetConsoleMode(hin, (mode0 | 0x0080 | 0x0200) & ~0x0010 & ~0x0040)
         except Exception:
             hin = mode0 = _k32 = None
         def get():
