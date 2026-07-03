@@ -55,7 +55,7 @@ python3 sabi.py               # zero-config: finds your daemon via Wasabi's own 
 First run help: sabi reads the daemon's `Config.json` for the RPC port and credentials, offers to
 enable `JsonRpcServerEnabled` if it's off, and can find + start the daemon for you.
 
-Six tabs (`1-6`, mouse works too):
+Seven tabs (`1-7`, mouse works too):
 
 1. **dashboard** — daemon health (tor, P2P peers, filter sync), wallets: `space` load, `n` create, `v` recover
 2. **wallet** — private / semi / non-private balance breakdown vs your anon-score target, privacy
@@ -68,6 +68,11 @@ Six tabs (`1-6`, mouse works too):
 6. **auto** — **programmable rules**: *when non-private ≥ 0.05 BTC → start coinjoin*,
    *when private ≥ 0.5 BTC → sweep → cold wallet*, optional night-window (cheap fees),
    arm once with your password and it runs unattended — **hot → cold via coinjoin, automatically**
+
+7. **scheme** — cross-wallet console: 9 native reports (total/balances/privacy % /toxic
+   coins/label audit across ALL loaded wallets — exact and crash-safe) plus curated snippets
+   for Wasabi's experimental Scheme `query` RPC (metadata-only; sabi can enable the
+   `scripting` feature flag in your config with consent)
 
 Everywhere: `g` receive (label → fresh address + **QR code**) · `.` **privacy mode** (obfuscates all
 amounts and addresses — screen-share safe) · `?` help · `Ctrl+C` instant quit.
