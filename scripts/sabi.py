@@ -11,7 +11,7 @@
 #  Keys:   1-5 tabs · Tab/arrows switch · w/s select · enter act · ? help      #
 #          mouse: click tabs/rows, wheel scrolls (Linux/macOS terminals)       #
 ################################################################################
-import sys, os, time, math, random, json, argparse, shutil, re, urllib.request
+import sys, os, time, math, random, json, argparse, shutil, re, tempfile, urllib.request
 M = math
 FRAME = 1/21                                          # 21 FPS - the bitcoin frame rate
 os.system("")
@@ -497,7 +497,7 @@ class DemoRpc:                                        # --demo : plausible fake 
                 label="coinjoin" if cjrow else rnd.choice(["zonda", "kraken", "pizza", "rent", ""]),
                 tx="".join(rnd.choice("0123456789abcdef") for _ in range(64)), islikelycoinjoin=cjrow))
         self.hist[0]["height"] = "Mempool"            # one unconfirmed row (speed-up / cancel demo)
-    def call(self, method, params=None, wallet=None):
+    def call(self, method, params=None, wallet=None, timeout=15):
         p = params or []
         if method == "getstatus":                     # 2.8.0 shape: p2p sync, no backendStatus
             fleft = max(0, 420 - int((time.time()-self.t0)*30))   # filters catch up in ~14s
@@ -563,6 +563,30 @@ class DemoRpc:                                        # --demo : plausible fake 
         if method == "recoverwallet": return None
         if method in ("canceltransaction", "speeduptransaction"): return "02000000" + "ab"*60
         if method == "broadcast": return dict(txid="e"*64)
+        if method == "query":                          # fake Scheme eval - plausible cross-wallet output
+            src = (p[0] if p else "")
+            wallets = ["SavingsWallet", "DailyWallet", "ColdVault"]
+            wo = {"ColdVault": True}
+            if "wallet-info" in src:
+                return [[["name", w], ["loaded", True], ["readOnly", wo.get(w, False)],
+                         ["path", f"~/.walletwasabi/.../{w}.json"]] for w in wallets]
+            if "wallet-loaded?" in src:
+                return [[w, True] for w in wallets]
+            if "open-wallet" in src: return wallets
+            if "wallet-watch-only?" in src:
+                return [[w, wo.get(w, False)] for w in wallets]
+            if "wallet-auto-coinjoin?" in src and "isolation" not in src.lower():
+                return [[w, w == "SavingsWallet"] for w in wallets]
+            if "wallet-hardware-wallet?" in src:
+                return [[w, w == "ColdVault"] for w in wallets]
+            if "fingerprint" in src.lower():
+                return [[w, f"{8+i:08x}"] for i, w in enumerate(wallets)]
+            if "length (wallets)" in src.replace(" ", " "): return len(wallets)
+            if "isolation" in src.lower() or "non-private-coin" in src:
+                return [[w, wo.get(w, False), w == "SavingsWallet", False] for w in wallets]
+            if "network" in src:
+                return [["network", "Main"], ["localTip", 902213], ["remoteTip", 902213], ["headersLeft", 0]]
+            return "(demo) query evaluated - connect a real daemon with scripting enabled for live data"
         if method in ("send", "build"):
             pay = (params or {}).get("payments", []) if isinstance(params, dict) else []
             tot = sum(x.get("amount", 0) for x in pay)
@@ -782,8 +806,70 @@ def eval_rules(rpc, S, wname):                       # poller hook: fire armed r
             rl["last"] = now
             S["flash"], S["flasht"] = f"✗ rule failed ({rule_text(rl)}): {e}", 110
 
+# ---- Scheme console: curated cross-wallet scripts (Wasabi 2.8.0 'query' RPC) --------
+# IMPORTANT: Wasabi's Scheme interpreter is EXPERIMENTAL and NOT tail-recursive. Its list ops
+# (length/filter/map/fold) recurse once per element on a 1 MB .NET stack, and a StackOverflow in
+# .NET is UNCATCHABLE - it kills the whole daemon. So iterating a wallet's coins or transactions
+# can crash Wasabi on any non-trivial wallet. These curated snippets therefore only touch
+# WALLET-LEVEL metadata (a handful of wallets) - never coin/transaction lists. Coin-level scripts
+# are possible via 'e' (edit) but are flagged at-your-own-risk in the UI.
+SCHEME_SNIPPETS = [
+ ("wallets overview",
+  "name · loaded · read-only · path for every wallet on the daemon",
+  "(map wallet-info (wallets))"),
+ ("loaded state",
+  "which wallets are currently loaded (started) in the daemon",
+  "(map (lambda (w) (list (wallet-name w) (wallet-loaded? w))) (wallets))"),
+ ("open ALL wallets",
+  "start every wallet so other cross-wallet queries can see them",
+  "(map (lambda (w) (wallet-name (open-wallet w))) (wallets))"),
+ ("watch-only wallets",
+  "flag each wallet: watch-only (cold/read-only) or spendable",
+  "(map (lambda (w) (list (wallet-name w) (wallet-watch-only? w))) (wallets))"),
+ ("auto-coinjoin flags",
+  "which loaded wallets have auto-coinjoin enabled",
+  "(map (lambda (w) (list (wallet-name w) (wallet-auto-coinjoin? w)))\n"
+  "     (get-opened-wallets))"),
+ ("hardware wallets",
+  "flag each wallet as hardware-backed or software",
+  "(map (lambda (w) (list (wallet-name w) (wallet-hardware-wallet? w)))\n"
+  "     (get-opened-wallets))"),
+ ("master fingerprints",
+  "master key fingerprint per loaded wallet (identify duplicates)",
+  "(map (lambda (w) (list (wallet-name w) (wallet-master-key-fingerprint w)))\n"
+  "     (get-opened-wallets))"),
+ ("wallet count",
+  "how many wallets exist on this daemon",
+  "(length (wallets))"),
+ ("full wallet info",
+  "detailed info incl. accounts/xpubs per wallet (metadata only)",
+  "(map (lambda (w)\n"
+  "       (list (wallet-name w) (wallet-watch-only? w)\n"
+  "             (wallet-auto-coinjoin? w) (wallet-non-private-coin-isolation? w)))\n"
+  "     (get-opened-wallets))"),
+ ("sync status",
+  "network + local/remote tip height + block filters remaining",
+  "(list (list \"network\"     (native->string network))\n"
+  "      (list \"localTip\"    (local-tip-height))\n"
+  "      (list \"remoteTip\"   (remote-tip-height))\n"
+  "      (list \"headersLeft\" (headers-left)))"),
+]
+
+def enable_scripting_in_config(path):                 # add "scripting" to ExperimentalFeatures
+    try:
+        cfg = json.load(open(path, encoding="utf-8-sig"))
+        ef = cfg.get("ExperimentalFeatures")
+        if not isinstance(ef, list): ef = []
+        if not any(str(x).lower() == "scripting" for x in ef): ef.append("scripting")
+        cfg["ExperimentalFeatures"] = ef
+        json.dump(cfg, open(path, "w", encoding="utf-8"), indent=2)
+        return True
+    except Exception as e:
+        print(f"could not edit {path}: {e}", file=sys.stderr)
+        return False
+
 # ---- the TUI ------------------------------------------------------------------------
-TABS = ["dashboard", "wallet", "history", "coinjoin", "send", "auto"]
+TABS = ["dashboard", "wallet", "history", "coinjoin", "send", "auto", "scheme"]
 
 HELP = ["1-6 / Tab / ←→   switch tab          w/s or ↑↓   select row",
         "enter            primary action      y           copy (address / txid)",
@@ -813,14 +899,17 @@ def tui(rpc, args, frames=0):
              armed=False, autopw=None, single=False, single_base=0, banner=None, banner_t=0,
              rules=[], _rules_w=None, notice=None, pager=None, busy=None,
              wloading=False, logpath=getattr(args, "logpath", None),
+             cfgpath=getattr(args, "cfgpath", None), loaded=set(),
+             sc_out=None, sc_custom=None, sc_running=False, sc_needs_enable=False, sc_hist=[],
              sync_h=None, sync_h0=None, sync_rate=0.0, sync_t=0.0,
              t_poll=0.0, flash="", flasht=0, ver=0)
+    if args.wallet: S["loaded"].add(args.wallet)
     stop = threading.Event()
     threading.Thread(target=poller, args=(rpc, S, stop), daemon=True).start()
     getkey, restore = make_keyreader() if interactive else ((lambda: None), (lambda: None))
     o = sys.stdout.write
     o("\x1b]0;sabi · wasabi daemon\x07\x1b[?1049h\x1b[?25l\x1b[2J")
-    tab = 0; sel = {t: 0 for t in range(6)}; off = {t: 0 for t in range(6)}
+    tab = 0; sel = {t: 0 for t in range(7)}; off = {t: 0 for t in range(7)}
     helpon = False; modal = None; queue = []; sub_fee = False; regions = []
     def flash(msg, t=60): S["flash"], S["flasht"] = msg, t
 
@@ -891,12 +980,26 @@ def tui(rpc, args, frames=0):
             except Exception:
                 try: rpc.call("selectwallet", [name])
                 except Exception: pass
-            # switch NOW and drop the previous wallet's data (never show stale coins)
+            S.setdefault("loaded", set()).add(name)   # loaded wallets stay loaded in the daemon
+            # switch the ACTIVE wallet now; drop its data (never show stale coins)
             S["wallet"] = name; S["winfo"] = None
             S["coins"] = []; S["history"] = []; S["pays"] = []; S["wloading"] = True
             S["kick"] = True
             return name
         act("loading wallet", fn)
+
+    def do_load_all():                                # load every wallet -> cross-wallet Scheme queries
+        wl = S.get("wallets") or []
+        if not wl: flash("no wallets found on the daemon", 60); return
+        def fn():
+            done = 0
+            for name in wl:
+                try: rpc.call("loadwallet", [name]); S.setdefault("loaded", set()).add(name); done += 1
+                except Exception: pass
+            if not S.get("wallet") and wl: S["wallet"] = wl[0]
+            S["kick"] = True
+            return f"{done}/{len(wl)} loaded - filters sync in the background"
+        act("loading all wallets", fn)
 
     def do_receive():
         if not S.get("wallet"): flash("load a wallet first (tab 1, enter)"); return
@@ -1219,6 +1322,161 @@ def tui(rpc, args, frames=0):
             return f"{len(ext)} addresses"
         act("address book", fn)
 
+    def _json_lines(obj, ind=0, out=None):            # pretty-print query result (nested lists/dicts)
+        out = [] if out is None else out
+        pad = "  " * ind
+        if isinstance(obj, dict):
+            for k, v in obj.items():
+                if isinstance(v, (dict, list)): out.append(f"{pad}{k}:"); _json_lines(v, ind+1, out)
+                else: out.append(f"{pad}{k}: {v}")
+        elif isinstance(obj, list):
+            for v in obj:
+                if isinstance(v, (dict, list)): _json_lines(v, ind, out); out.append("")
+                else: out.append(f"{pad}• {v}")
+        else:
+            out.append(f"{pad}{obj}")
+        return out
+
+    def do_scheme_run(script):
+        if not script.strip(): return
+        S["sc_running"] = True; S["sc_out"] = ["running ..."]
+        def w():
+            try:
+                r = rpc.call("query", [script], timeout=30)   # 'query' is not wallet-scoped
+                if isinstance(r, str) and "scripting" in r.lower() and "not enabled" in r.lower():
+                    S["sc_out"] = ["⚠ the daemon's experimental 'scripting' feature is OFF.",
+                                   "", "press x to enable it in Config.json (asks first), then",
+                                   "restart the daemon."]
+                    S["sc_needs_enable"] = True
+                else:
+                    S["sc_out"] = _json_lines(r) or ["(empty result)"]
+                    S["sc_hist"] = ([script] + [h for h in S.get("sc_hist", []) if h != script])[:20]
+            except Exception as e:
+                S["sc_out"] = [f"✗ {e}"]
+            finally:
+                S["sc_running"] = False
+        threading.Thread(target=w, daemon=True).start()
+
+    # native cross-wallet reports: same insights as the removed coin-level Scheme scripts, but
+    # computed from the ordinary per-wallet RPC (daemon sums coins in C#) - exact and crash-safe.
+    NATIVE_REPORTS = [
+        ("total", "total across all wallets", "adds up every loaded wallet's native balance"),
+        ("balances", "balance per wallet", "per-wallet balance from getwalletinfo (native sum)"),
+        ("privacy", "privacy % per wallet", "private share of each wallet vs its anon target"),
+        ("nonpriv", "non-private per wallet", "unmixed sats still needing coinjoin, per wallet"),
+        ("counts", "coin count per wallet", "UTXO count per wallet (consolidation exposure)"),
+        ("largest", "largest coin per wallet", "the single biggest UTXO in each wallet"),
+        ("toxic", "toxic coins (anon <= 1)", "non-private coins across ALL wallets, largest first"),
+        ("cjs", "coinjoins per wallet", "coinjoin transactions per wallet, from history"),
+        ("labels", "label audit", "largest coins with their labels + addresses"),
+    ]
+
+    def report_lines(key):
+        names = S.get("wallets") or []
+        rows = []; skipped = []
+        def winfo(n): return rpc.call("getwalletinfo", [], wallet=n) or {}
+        def coins(n): return rpc.call("listunspentcoins", [], wallet=n) or []
+        def hist(n):
+            h = rpc.call("gethistory", [], wallet=n) or []
+            return h.get("transactions") or [] if isinstance(h, dict) else h
+        for name in names:
+            try:
+                wi = winfo(name)
+                if wi.get("loaded") is False: skipped.append(name); continue
+                T = int(wi.get("anonScoreTarget") or 5)
+                if key == "total" or key == "balances":
+                    b = wi.get("balance")
+                    if b is None:
+                        b = sum(c.get("amount", 0) for c in coins(name))
+                    rows.append((name, int(b)))
+                elif key in ("privacy", "nonpriv", "counts", "largest", "toxic", "labels"):
+                    cs = coins(name)
+                    if key == "privacy":
+                        tot = sum(c.get("amount", 0) for c in cs)
+                        pr = sum(c.get("amount", 0) for c in cs if anon_of(c) >= T)
+                        rows.append((name, (100.0*pr/tot) if tot else 0.0, tot))
+                    elif key == "nonpriv":
+                        rows.append((name, sum(c.get("amount", 0) for c in cs if anon_of(c) <= 1)))
+                    elif key == "counts":
+                        rows.append((name, len(cs)))
+                    elif key == "largest":
+                        rows.append((name, max((c.get("amount", 0) for c in cs), default=0)))
+                    elif key == "toxic":
+                        rows += [(name, c.get("amount", 0), str(c.get("label", "") or "-"))
+                                 for c in cs if anon_of(c) <= 1]
+                    elif key == "labels":
+                        rows += [(name, c.get("amount", 0), str(c.get("label", "") or "-"),
+                                  c.get("address", "")) for c in cs]
+                elif key == "cjs":
+                    rows.append((name, sum(1 for h_ in hist(name) if is_cj_row(h_))))
+            except Exception as e:
+                skipped.append(f"{name} ({short(str(e), 30)})")
+        out = []
+        if key == "total":
+            tot = sum(v for _, v in rows)
+            out = [f"TOTAL   {btc(tot)}   {usd(tot)}", f"across {len(rows)} loaded wallet(s)"]
+        elif key == "balances":
+            out = [f"{n:<20} {btc(v):>20}   {usd(v)}" for n, v in rows]
+        elif key == "privacy":
+            out = [f"{n:<20} {p:5.1f}% private   of {btc(t)}" for n, p, t in rows]
+        elif key == "nonpriv":
+            out = [f"{n:<20} {btc(v):>20}   {usd(v)}" for n, v in rows]
+            out.append(""); out.append(f"to mix in total: {btc(sum(v for _, v in rows))}")
+        elif key == "counts":
+            out = [f"{n:<20} {v:>4} coins" for n, v in rows]
+        elif key == "largest":
+            out = [f"{n:<20} {btc(v):>20}" for n, v in rows]
+        elif key == "toxic":
+            rows.sort(key=lambda r: -r[1])
+            out = [f"{n:<18} {cbtc(v):>14}   {short(lb, 18)}" for n, v, lb in rows[:24]]
+            if not rows: out = ["no non-private coins anywhere ◆ fully mixed"]
+        elif key == "cjs":
+            out = [f"{n:<20} {v:>4} coinjoins" for n, v in rows]
+        elif key == "labels":
+            rows.sort(key=lambda r: -r[1])
+            out = [f"{short(lb, 16):<17} {cbtc(v):>14}  {short(a, 22)}  {n}"
+                   for n, v, lb, a in rows[:24]]
+        if skipped:
+            out += ["", "not loaded (press l to load all): " + ", ".join(skipped[:6])]
+        return out or ["(no data yet)"]
+
+    def do_native_report(key):
+        S["sc_running"] = True; S["sc_out"] = ["running (native RPC, crash-safe) ..."]
+        def w():
+            try: S["sc_out"] = report_lines(key)
+            except Exception as e: S["sc_out"] = [f"✗ {e}"]
+            finally: S["sc_running"] = False
+        threading.Thread(target=w, daemon=True).start()
+
+    SCHEME_ITEMS = ([("rpc", t, d, k) for k, t, d in NATIVE_REPORTS]
+                    + [("scm", t, d, c) for t, d, c in SCHEME_SNIPPETS])
+
+    def do_enable_scripting():
+        path = S.get("cfgpath")
+        if not path: flash("✗ Config.json not found - enable 'scripting' in ExperimentalFeatures yourself", 90); return
+        def cb(_v):
+            if enable_scripting_in_config(path):
+                S["sc_needs_enable"] = False
+                S["notice"] = dict(title="SCRIPTING ENABLED", lines=[
+                    "", "  added \"scripting\" to ExperimentalFeatures in:", "  " + path, "",
+                    "  ⟳ RESTART the Wasabi daemon for it to take effect", "",
+                    "  (a running daemon only reads its config at startup)", "",
+                    "  press any key"])
+            else:
+                flash("✗ could not edit the config", 80)
+        open_modal("ENABLE EXPERIMENTAL SCRIPTING?",
+                   [dict(k="ok", label="type y to confirm editing Config.json", v="", mask=False,
+                         hint="adds ExperimentalFeatures: [scripting] - needs a daemon restart")],
+                   lambda v: cb(v) if v.get("ok", "").strip().lower() == "y" else flash("cancelled"))
+
+    def do_scheme_edit(prefill):
+        def cb(v):
+            code = v.get("code", "")
+            S["sc_custom"] = code; do_scheme_run(code)
+        open_modal("EDIT / PASTE SCHEME SCRIPT   ·   ⚠ coin/tx loops can crash the daemon",
+                   [dict(k="code", label="scheme expression (paste multi-line ok)", v=prefill, mask=False,
+                         hint="prefer wallet-level ops; iterating coins can overflow the interpreter")], cb)
+
     def fees_hint(S):
         f = S.get("fees")
         if isinstance(f, dict) and f:
@@ -1236,6 +1494,7 @@ def tui(rpc, args, frames=0):
         if t == 3: return S.get("pays") or []
         if t == 4: return queue
         if t == 5: return S.get("rules") or []
+        if t == 6: return SCHEME_ITEMS
         return []
 
     def draw_header(ch, col, f):
@@ -1301,6 +1560,8 @@ def tui(rpc, args, frames=0):
         if S.get("busy"):                             # action in flight: spinner, never a frozen UI
             sp = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"[int(time.time()*10) % 10]
             put(ch, col, 2, x0, f"{sp} {S['busy']} ...", AMBER)
+        nload = len(S.get("loaded") or ())
+        if nload > 1: put(ch, col, 1, x0+34, f"· {nload} wallets loaded", lerp(GREEN, GREY, .3))
         if DISCREET["on"]:
             rput(ch, col, 0, W-2, "●  privacy mode  ·  '.' to reveal", clamp8(lerp(AMBER, WHITE, .2)))
         if on:
@@ -1316,7 +1577,8 @@ def tui(rpc, args, frames=0):
         for j in range(1, W-1): put(ch, col, y-1, j, "─", lerp(BG, BRAND, .22))   # header divider
         x = 2
         counts = {1: len(S.get("coins") or []), 2: len(S.get("history") or []),
-                  3: len(S.get("pays") or []), 4: len(queue), 5: len(S.get("rules") or [])}
+                  3: len(S.get("pays") or []), 4: len(queue), 5: len(S.get("rules") or []),
+                  6: len(SCHEME_ITEMS)}
         for i, name in enumerate(TABS):
             on = (i == tab); cnt = counts.get(i)
             lab = f" {i+1} {name} "
@@ -1342,22 +1604,26 @@ def tui(rpc, args, frames=0):
 
     def draw_dashboard(ch, col, y0):
         wl = S.get("wallets") or []
-        put(ch, col, y0, 4, "WALLETS ON THIS DAEMON", GREY)
+        loaded = S.get("loaded") or set()
+        put(ch, col, y0, 4, "WALLETS ON THIS DAEMON   space load · l load all · n create", GREY)
         if not wl:
             put(ch, col, y0+2, 4, "none found yet " + ("(daemon offline?)" if S.get("err") else "..."), GREY)
         for i, name in enumerate(wl[:H-y0-6]):
             y = y0+2+i; on = (i == sel[0] % max(1, len(wl)))
-            cur = (name == S.get("wallet"))
-            put(ch, col, y, 4, ("▸ " if on else "  ") + name, WHITE if on else lerp(BRAND, WHITE, .15))
-            if cur: put(ch, col, y, 4+len(name)+4, "· loaded", GREEN)
-            regions.append((y, 4, 40, ("ROW", 0, i)))
+            cur = (name == S.get("wallet")); ld = (name in loaded)
+            dot = "● " if cur else ("○ " if ld else "  ")
+            put(ch, col, y, 4, ("▸ " if on else "  ") + dot + name,
+                WHITE if on else (lerp(GREEN, WHITE, .2) if ld else lerp(BRAND, WHITE, .15)))
+            if cur: put(ch, col, y, 6+len(name)+4, "· active", GREEN)
+            elif ld: put(ch, col, y, 6+len(name)+4, "· loaded", lerp(GREEN, GREY, .35))
+            regions.append((y, 4, 42, ("ROW", 0, i)))
         put(ch, col, y0, 50, "GETTING STARTED", GREY)
-        for i, l in enumerate(["space        load the selected wallet",
+        for i, l in enumerate(["space / l    load one / load ALL wallets",
                                "n / v        create / recover a wallet",
                                "2 wallet     balances & coins",
                                "4 coinjoin   start mixing (the logo breathes green)",
-                               "5 send       batched, privacy-aware payments",
-                               "6 auto       programmable rules: hot -> cold via coinjoin",
+                               "6 auto       rules: hot -> cold via coinjoin",
+                               "7 scheme     powerful cross-wallet Scheme scripts",
                                "?            all keys"]):
             put(ch, col, y0+2+i, 50, l, lerp(BRAND, WHITE, .3))
 
@@ -1612,6 +1878,44 @@ def tui(rpc, args, frames=0):
         foot = f"w/s scroll · q close   [{p['off']+1}-{min(len(lines), p['off']+vis)}/{len(lines)}]"
         put(ch, col, y0+h-2, x0+(w-len(foot))//2, foot, GREY)
 
+    def draw_scheme(ch, col, y0):
+        n = len(SCHEME_ITEMS); sel[6] = max(0, min(sel[6], n-1))
+        colw = 32
+        put(ch, col, y0, 4, "CROSS-WALLET REPORTS & SCRIPTS", GREY)
+        put(ch, col, y0, 4+colw+2, "OUTPUT   ·   ◆ native (crash-safe) · λ scheme (experimental)", GREY)
+        put(ch, col, H-3, 4, "⚠ λ scheme is experimental daemon code - the curated ones are metadata-only; "
+            "custom coin/tx loops can crash the daemon", clamp8(lerp(AMBER, GREY, .25)))
+        vis = H - (y0+1) - 3
+        if sel[6] < off[6]: off[6] = sel[6]
+        elif sel[6] >= off[6]+vis: off[6] = sel[6]-vis+1
+        for i, (kd, title, desc, payload) in enumerate(SCHEME_ITEMS[off[6]:off[6]+vis]):
+            gi = off[6]+i; y = y0+1+i; on2 = (gi == sel[6])
+            tag = "◆" if kd == "rpc" else "λ"
+            tc = GREEN if kd == "rpc" else AMBER
+            put(ch, col, y, 4, "▸ " if on2 else "  ", WHITE)
+            put(ch, col, y, 6, tag, clamp8(lerp(tc, WHITE, .3)) if on2 else tc)
+            put(ch, col, y, 8, title, WHITE if on2 else lerp(BRAND, WHITE, .25))
+            regions.append((y, 4, 4+colw, ("ROW", 6, gi)))
+        kd, title, desc, payload = SCHEME_ITEMS[sel[6]]
+        x = 4+colw+2
+        put(ch, col, y0+1, x, desc, lerp(BRAND, WHITE, .3))
+        cy = y0+3
+        if kd == "scm":
+            for ln in payload.split("\n")[:8]:        # the selected script
+                put(ch, col, cy, x, ln[:W-x-2], lerp(GREEN, WHITE, .25)); cy += 1
+        else:
+            put(ch, col, cy, x, "◆ native RPC report - exact numbers, cannot crash the daemon",
+                lerp(GREEN, GREY, .25)); cy += 1
+        cy += 1
+        run = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"[int(time.time()*10) % 10] + " running ..." if S.get("sc_running") else (
+              "enter run · e edit/paste scheme · x enable scripting · l load all wallets first")
+        put(ch, col, cy, x, run, AMBER if S.get("sc_running") else GREY); cy += 1
+        put(ch, col, cy, x, "─"*min(W-x-2, 60), lerp(BG, BRAND, .3)); cy += 1
+        for ln in (S.get("sc_out") or ["(no output yet - press enter to run the selection)"]):
+            if cy >= H-3: break
+            c_ = WARN if ln.startswith("✗") else (AMBER if ln.startswith("⚠") else lerp(BRAND, WHITE, .4))
+            put(ch, col, cy, x, ln[:W-x-2], c_); cy += 1
+
     def draw_modal(ch, col):
         m = modal
         w = max(56, max(len(f["label"]) + 34 for f in m["fields"]) + 8, len(m["title"]) + 8)
@@ -1645,12 +1949,13 @@ def tui(rpc, args, frames=0):
         put(ch, col, y0+h-2, x0+3, "enter ok · tab next field · esc cancel", GREY)
 
     # ---------- main loop --------------------------------------------------------------
-    HINTS = ["space load wallet · n create · v recover · g receive · 1-6 tabs · ? help · q quit",
+    HINTS = ["space load · l load ALL · n create · v recover · g receive · 1-7 tabs · ? help · q",
              "w/s coins · g receive · k addresses · x exclude · y copy · ? help",
              "w/s scroll · u speed up · c cancel · y copy txid · ? help",
              "space start/stop · o one round · a rules · b sweep · p pay-in-cj · ? help",
              "n add · i import list · e edit · x remove · u subtract-fee · enter send · ? help",
-             "n new rule · e edit · space on/off · x delete · a arm/disarm · ? help"]
+             "n new rule · e edit · space on/off · x delete · a arm/disarm · ? help",
+             "w/s pick · enter run · e edit/paste · x enable scripting · l load all wallets · ? help"]
     try:
         f = 0
         while frames == 0 or f < frames:
@@ -1672,11 +1977,11 @@ def tui(rpc, args, frames=0):
                 elif name == "QUIT":
                     break
                 elif name == "HELP": helpon = True
-                elif name and name in "123456": tab = int(name)-1
-                elif name == "TAB": tab = (tab+1) % 6
-                elif name == "STAB": tab = (tab-1) % 6
-                elif name == "RIGHT": tab = (tab+1) % 6
-                elif name == "LEFT": tab = (tab-1) % 6
+                elif name and name in "1234567": tab = int(name)-1
+                elif name == "TAB": tab = (tab+1) % 7
+                elif name == "STAB": tab = (tab-1) % 7
+                elif name == "RIGHT": tab = (tab+1) % 7
+                elif name == "LEFT": tab = (tab-1) % 7
                 elif name == "UP": sel[tab] = max(0, sel[tab]-1)
                 elif name == "DOWN": sel[tab] = min(max(0, len(lists_for_tab(tab))-1), sel[tab]+1)
                 elif name in ("WHEELUP", "WHEELDN"):
@@ -1695,9 +2000,15 @@ def tui(rpc, args, frames=0):
                     if tab == 0: do_load_wallet()
                     elif tab == 4: do_send()
                     elif tab == 5 and (S.get("rules") or []): rule_edit(sel[5] % len(S["rules"]))
+                    elif tab == 6:
+                        kd6, _t6, _d6, pl6 = SCHEME_ITEMS[sel[6] % len(SCHEME_ITEMS)]
+                        do_native_report(pl6) if kd6 == "rpc" else do_scheme_run(pl6)
                 elif name == "SPACE":
                     if tab == 0: do_load_wallet()     # space opens/loads, same as everywhere else
                     elif tab == 3: do_cj_toggle()
+                    elif tab == 6:
+                        kd6, _t6, _d6, pl6 = SCHEME_ITEMS[sel[6] % len(SCHEME_ITEMS)]
+                        do_native_report(pl6) if kd6 == "rpc" else do_scheme_run(pl6)
                     elif tab == 5 and (S.get("rules") or []):
                         rl = S["rules"][sel[5] % len(S["rules"])]
                         rl["on"] = not rl.get("on"); save_rules(S["wallet"], S["rules"])
@@ -1709,8 +2020,13 @@ def tui(rpc, args, frames=0):
                         flash("privacy mode ON - amounts & addresses hidden ('.' reveals)" if DISCREET["on"]
                               else "privacy mode off - everything visible", 70)
                     elif r == "g": do_receive()                   # receive works from every tab
+                    elif r == "l" and tab in (0, 6): do_load_all()   # load every wallet
                     elif tab == 0 and r == "n": do_create_wallet()
                     elif tab == 0 and r == "v": do_recover_wallet()
+                    elif tab == 6 and r == "e":
+                        it6 = SCHEME_ITEMS[sel[6] % len(SCHEME_ITEMS)]
+                        do_scheme_edit(S.get("sc_custom") or (it6[3] if it6[0] == "scm" else ""))
+                    elif tab == 6 and r == "x": do_enable_scripting()
                     elif tab == 2 and r == "u": do_speedup()
                     elif tab == 2 and r == "c": do_cancel_tx()
                     elif tab == 5 and r == "n": rule_edit()
@@ -1760,6 +2076,7 @@ def tui(rpc, args, frames=0):
             elif tab == 3: draw_coinjoin(ch, col, y, f)
             elif tab == 4: draw_send(ch, col, y)
             elif tab == 5: draw_auto(ch, col, y, f)
+            elif tab == 6: draw_scheme(ch, col, y)
             hint = S["flash"] if S.get("flasht", 0) > 0 else HINTS[tab]
             if S.get("werr"): hint = "wallet rpc: " + short(S["werr"], 60)
             hcol = (WARN if hint.startswith(("✗", "wallet rpc"))
@@ -1870,10 +2187,10 @@ def main():
     ap.add_argument("--daemon", default=None, metavar="PATH", help="Wasabi daemon executable (for auto-start)")
     ap.add_argument("--frames", type=int, default=0, help="render N frames then exit (testing)")
     a = ap.parse_args()
-    a.logpath = None
+    a.logpath = None; a.cfgpath = None
     if not a.demo:
         cfg = wasabi_config()                          # zero-config: use the daemon's own settings
-        if cfg: a.logpath = cfg.get("log")             # local log = wallet-scan progress source
+        if cfg: a.logpath = cfg.get("log"); a.cfgpath = cfg.get("path")   # log = sync progress; cfg = toggles
         if a.rpc is None and cfg:
             a.rpc = cfg["url"]
             if a.user is None: a.user = cfg["user"]
@@ -1945,6 +2262,7 @@ def main():
                   file=sys.stderr)
     rpc = DemoRpc() if a.demo else WasabiRpc(a.rpc, a.user, a.password)
     if a.demo and not a.wallet: a.wallet = "SavingsWallet"
+    if a.demo: a.cfgpath = os.path.join(tempfile.gettempdir(), "sabi-demo-config.json")
     if not sys.stdin.isatty() and a.frames == 0:
         print("sabi needs an interactive terminal (or pass --frames N for a fixed run).", file=sys.stderr)
         return
