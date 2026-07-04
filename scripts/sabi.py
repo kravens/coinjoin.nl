@@ -653,6 +653,11 @@ def poller(rpc, S, stop):
                     S["coins"] = rpc.call("listunspentcoins", [], wallet=wname) or []
                     hist = rpc.call("gethistory", [], wallet=wname) or []
                     if isinstance(hist, dict): hist = hist.get("transactions") or []
+                    def _hkey(h_):                    # newest on top: unconfirmed first, then height,
+                        try: hh = int(h_.get("height"))    # datetime as tiebreak (ISO sorts lexically)
+                        except (TypeError, ValueError): hh = 1 << 31
+                        return (hh, str(h_.get("datetime", "")))
+                    hist.sort(key=_hkey, reverse=True)
                     S["history"] = hist
                     S["werr"] = None
             except Exception as e:
@@ -884,6 +889,7 @@ HELP = ["1-6 / Tab / ←→   switch tab          w/s or ↑↓   select row",
         "coinjoin   space start/stop · o single round · b sweep to other wallet",
         "           p pay inside coinjoin · x cancel selected payment · a rules",
         "send       n add payment · i import pasted list · e edit · x remove",
+        "           + / - apply no-change round-up/down (exact coin match, no change output)",
         "           u subtract-fee · enter send (live fee estimate in the confirm)",
         "auto       programmable rules: when np/pr/tot ≥ threshold -> start/single/",
         "           sweep->cold-wallet/stop · optional night window · bell on fire",
@@ -911,6 +917,7 @@ def tui(rpc, args, frames=0):
     o("\x1b]0;sabi · wasabi daemon\x07\x1b[?1049h\x1b[?25l\x1b[2J")
     tab = 0; sel = {t: 0 for t in range(7)}; off = {t: 0 for t in range(7)}
     helpon = False; modal = None; queue = []; sub_fee = False; regions = []
+    sug_lock = {}                                     # applied no-change match: {coins, subset, total}
     def flash(msg, t=60): S["flash"], S["flasht"] = msg, t
 
     def act(label, fn):                               # RPC actions never block the render loop
@@ -1244,6 +1251,7 @@ def tui(rpc, args, frames=0):
             item = dict(sendto=addr, amount=amt, label=v.get("label") or "sabi")
             if d.get("_edit") is not None: queue[d["_edit"]] = item
             else: queue.append(item)
+            sug_lock.clear()
             flash(f"queued {cbtc(amt)} -> {short(addr, 20)}")
         open_modal("ADD PAYMENT" if d.get("_edit") is None else "EDIT PAYMENT",
                    [dict(k="address", label="pay to address", v=d.get("sendto", ""), mask=False, hint=""),
@@ -1252,30 +1260,107 @@ def tui(rpc, args, frames=0):
                     dict(k="label", label="label", v=d.get("label", ""), mask=False,
                          hint="required by wasabi - who receives this?")], cb)
 
+    def _fee_rate6():                                 # ~6-block sat/vB from the daemon's estimates
+        f = S.get("fees")
+        try:
+            ks = sorted(int(k) for k in f.keys())
+            k = min(ks, key=lambda k_: abs(k_-6))
+            return max(1.0, float(f.get(str(k), f.get(k))))
+        except Exception:
+            return 5.0
+
+    def changeless_search(total):                     # find coin subsets that pay `total` EXACTLY
+        coins = [c for c in S.get("coins") or []      # (minus fee) -> transaction with NO change output
+                 if c.get("confirmed", True) and not c.get("coinJoinInProgress")]
+        if not coins or total <= 0: return {}
+        rate = _fee_rate6(); nout = max(1, len(queue))
+        def fee(n): return int(rate * (11 + 68*n + 31*nout))
+        vals = sorted(((c.get("amount", 0), i) for i, c in enumerate(coins)), reverse=True)[:40]
+        UP = int(total*0.02) + 2_000                  # round-up tolerance:  +2%
+        DN = int(total*0.05) + 2_000                  # round-down tolerance: -5%
+        best = {"up": None, "dn": None}; budget = [80_000]
+        def dfs(idx, cur, picked, rem):
+            if budget[0] <= 0: return
+            budget[0] -= 1
+            n = len(picked)
+            if n:
+                d = cur - fee(n) - total              # + => receiver gets a bit more, - => a bit less
+                if 0 <= d <= UP and (best["up"] is None or d < best["up"][0]):
+                    best["up"] = (d, tuple(picked), cur)
+                if -DN <= d < 0 and (best["dn"] is None or d > best["dn"][0]):
+                    best["dn"] = (d, tuple(picked), cur)
+            if idx >= len(vals) or n >= 25: return
+            if cur + rem < total - DN: return         # even taking everything left can't reach
+            if n and cur - fee(n) - total > UP: return  # already past the window; adding only grows it
+            v, ci = vals[idx]
+            dfs(idx+1, cur+v, picked+[ci], rem-v)
+            dfs(idx+1, cur, picked, rem-v)
+        dfs(0, 0, [], sum(v for v, _ in vals))
+        out = {}
+        for k, hit in best.items():
+            if hit:
+                out[k] = dict(delta=hit[0], coins=[coins[i] for i in hit[1]], subset=hit[2])
+        return out
+
+    def get_sug(total):                               # cached per (total, coins, rate)
+        key = (total, len(queue), len(S.get("coins") or []),
+               sum(c.get("amount", 0) for c in S.get("coins") or []), int(_fee_rate6()*10))
+        cache = S.get("_sug")
+        if cache and cache[0] == key: return cache[1]
+        res = changeless_search(total)
+        S["_sug"] = (key, res)
+        return res
+
+    def apply_sug(which):
+        if not queue: return
+        total = sum(p["amount"] for p in queue)
+        sug = (get_sug(total) or {}).get(which)
+        if not sug: flash("no exact-match coin combo in that direction"); return
+        queue[0]["amount"] += sug["delta"]
+        sug_lock.clear()
+        sug_lock.update(coins=sug["coins"], subset=sug["subset"],
+                        total=sum(p["amount"] for p in queue))
+        flash(f"◆ no-change match locked  ({'+' if sug['delta'] >= 0 else ''}{sug['delta']:,} sats) "
+              "- this spend produces NO change output", 90)
+
     def do_send():
         if wo(): return
         if not S.get("wallet"): flash("load a wallet first (tab 1, enter)"); return
         if not queue: flash("queue a payment first (n)"); return
         total = sum(p["amount"] for p in queue)
         T = tgt_of(S)
-        need = total + max(5_000, int(total*0.003))
-        coins, have, toxic = pick_coins(S.get("coins") or [], need, T)
-        if have < need and not sub_fee:
-            flash(f"✗ not enough confirmed funds: need ~{cbtc(need)}, have {cbtc(have)}", 90); return
+        # applied no-change match? spend EXACTLY that subset; daemon fee comes out via subtractFee
+        have_now = {(c.get("txid"), c.get("index")) for c in S.get("coins") or []}
+        locked = (sug_lock.get("coins") and sug_lock.get("total") == total
+                  and all((c.get("txid"), c.get("index")) in have_now for c in sug_lock["coins"]))
+        if sug_lock and not locked: sug_lock.clear()
+        if locked:
+            coins = sug_lock["coins"]; have = sug_lock["subset"]
+            toxic = (any(anon_of(c) >= T for c in coins) and any(anon_of(c) <= 1 for c in coins))
+        else:
+            need = total + max(5_000, int(total*0.003))
+            coins, have, toxic = pick_coins(S.get("coins") or [], need, T)
+            if have < need and not sub_fee:
+                flash(f"✗ not enough confirmed funds: need ~{cbtc(need)}, have {cbtc(have)}", 90); return
         warn = ("⚠ TOXIC MERGE: this spend joins private + non-private coins and undoes their mix"
                 if toxic else None)
         def cb(v):
             try: ft = max(1, min(1008, int(v.get("feeTarget") or "6")))
             except Exception: ft = 6
             pays = [dict(p) for p in queue]
-            if sub_fee and pays: pays[0]["subtractFee"] = True
+            if locked:                                # consume the subset to zero -> no change output
+                others = sum(p["amount"] for p in pays[1:])
+                pays[0]["amount"] = sug_lock["subset"] - others
+                pays[0]["subtractFee"] = True
+            elif sub_fee and pays:
+                pays[0]["subtractFee"] = True
             params = dict(payments=pays,
                           coins=[dict(transactionid=c.get("txid"), index=c.get("index")) for c in coins],
                           feeTarget=ft, password=v.get("password", ""))
             def fn():
                 r = rpc.call("send", params, wallet=S["wallet"])
                 txid = (r or {}).get("txid") if isinstance(r, dict) else str(r)
-                queue.clear(); clip_copy(txid or "")
+                queue.clear(); sug_lock.clear(); clip_copy(txid or "")
                 return f"txid {short(txid or '?', 24)} (copied)"
             act(f"sent {len(pays)} payment(s), {cbtc(total)}", fn)
         nc, np_ = len(coins), len(queue)
@@ -1294,14 +1379,15 @@ def tui(rpc, args, frames=0):
         fields = [dict(k="feeTarget", label="fee target (blocks)", v="6", mask=False,
                        hint=fees_hint(S)),
                   dict(k="password", label="wallet password", v="", mask=True, hint="")]
-        open_modal(f"CONFIRM SEND · {len(queue)} payment(s) · {cbtc(total)} {usd(total)} · {len(coins)} coins",
-                   fields, cb, warn=warn, info=fee_info)
+        title = f"CONFIRM SEND · {len(queue)} payment(s) · {cbtc(total)} {usd(total)} · {len(coins)} coins"
+        if locked: title += " · ◆ NO CHANGE"
+        open_modal(title, fields, cb, warn=warn, info=fee_info)
 
     def do_import():
         def cb(v):
             items = parse_batch(v.get("lines", ""))
             if not items: flash("✗ nothing usable - lines like: bc1q... 0.01 rent", 90); return
-            queue.extend(items)
+            queue.extend(items); sug_lock.clear()
             flash(f"imported {len(items)} payment(s), {cbtc(sum(p['amount'] for p in items))} total")
         open_modal("IMPORT PAYMENTS  ·  paste a list",
                    [dict(k="lines", label="address amount [label]  (one per line)", v="", mask=False,
@@ -1817,7 +1903,11 @@ def tui(rpc, args, frames=0):
         coins, have, toxic = pick_coins(S.get("coins") or [], need, T) if total else ([], 0, False)
         put(ch, col, yb, 4, f"total {btc(total)}", WHITE if total else GREY)
         if sub_fee: put(ch, col, yb, 32, "· fee subtracted from payment 1", AMBER)
-        if total:
+        locked = bool(sug_lock.get("coins")) and sug_lock.get("total") == total
+        if total and locked:                          # applied no-change match
+            put(ch, col, yb+1, 4, f"◆ NO CHANGE locked - {len(sug_lock['coins'])} coins consumed exactly, "
+                "zero change output (any edit unlocks)", clamp8(lerp(GREEN, WHITE, .2)))
+        elif total:
             put(ch, col, yb+1, 4, f"coin selection: {len(coins)} coins, {btc(have)} "
                 f"(private first, target {T})", lerp(BRAND, WHITE, .3))
             if toxic:
@@ -1825,6 +1915,23 @@ def tui(rpc, args, frames=0):
                     "and undo their mix", WARN)
             elif have < need:
                 put(ch, col, yb+2, 4, f"not enough confirmed funds (need ~{cbtc(need)})", WARN)
+            sug = get_sug(total)                      # wasabi-style round-up / round-down shields
+            ys = yb + 3
+            if sug.get("up") or sug.get("dn"):
+                put(ch, col, ys, 4, "NO-CHANGE SUGGESTIONS   avoiding change = nothing links back to you", GREY)
+                if sug.get("up"):
+                    d = sug["up"]["delta"]
+                    put(ch, col, ys+1, 4, "◆ ▲", clamp8(lerp(GREEN, WHITE, .2)))
+                    put(ch, col, ys+1, 9, f"round UP   +{cbtc(d):>12}  →  send {btc(total+d)}"
+                        f"   ({len(sug['up']['coins'])} coins, no change)   press +",
+                        clamp8(lerp(GREEN, WHITE, .1)))
+                if sug.get("dn"):
+                    d = sug["dn"]["delta"]
+                    put(ch, col, ys+2, 4, "◆ ▼", AMBER)
+                    put(ch, col, ys+2, 9, f"round DOWN {cbtc(d):>13}  →  send {btc(total+d)}"
+                        f"   ({len(sug['dn']['coins'])} coins, no change)   press -", AMBER)
+                put(ch, col, ys+3, 4, "only if the receiver accepts a slightly different amount",
+                    lerp(BRAND, GREY, .35))
 
     def draw_auto(ch, col, y0, f):
         if not S.get("wallet"):
@@ -1953,7 +2060,7 @@ def tui(rpc, args, frames=0):
              "w/s coins · g receive · k addresses · x exclude · y copy · ? help",
              "w/s scroll · u speed up · c cancel · y copy txid · ? help",
              "space start/stop · o one round · a rules · b sweep · p pay-in-cj · ? help",
-             "n add · i import list · e edit · x remove · u subtract-fee · enter send · ? help",
+             "n add · i import · +/- no-change round · e edit · x remove · enter send · ? help",
              "n new rule · e edit · space on/off · x delete · a arm/disarm · ? help",
              "w/s pick · enter run · e edit/paste · x enable scripting · l load all wallets · ? help"]
     try:
@@ -2053,16 +2160,22 @@ def tui(rpc, args, frames=0):
                     elif tab == 3 and r == "b": do_cj_sweep()
                     elif tab == 3 and r == "p": do_pay_in_cj()
                     elif tab == 3 and r == "x": do_cancel_pay()
-                    elif tab == 4 and r == "n": q_add()
+                    elif tab == 4 and r == "n": sug_lock.clear(); q_add()
                     elif tab == 4 and r == "e":
                         if queue:
+                            sug_lock.clear()
                             d = dict(queue[sel[4] % len(queue)]); d["_edit"] = sel[4] % len(queue)
                             q_add(d)
                     elif tab == 4 and r == "x":
-                        if queue: queue.pop(sel[4] % len(queue)); sel[4] = max(0, sel[4]-1)
+                        if queue:
+                            sug_lock.clear()
+                            queue.pop(sel[4] % len(queue)); sel[4] = max(0, sel[4]-1)
                     elif tab == 4 and r == "u":
+                        sug_lock.clear()
                         sub_fee = not sub_fee
                         flash("fee subtracted from payment 1" if sub_fee else "fee paid on top")
+                    elif tab == 4 and raw in ("+", "="): apply_sug("up")
+                    elif tab == 4 and raw in ("-", "_"): apply_sug("dn")
             if interactive:
                 nw, nh = term_canvas(True)
                 if (nw, nh) != (W, H): apply_canvas(nw, nh); o("\x1b[2J")
