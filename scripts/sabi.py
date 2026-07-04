@@ -646,6 +646,7 @@ def poller(rpc, S, stop):
         if wname:
             try:
                 S["winfo"] = rpc.call("getwalletinfo", [], wallet=wname)
+                S["no_coord"] = False                 # 2.8.0: getwalletinfo throws without a coordinator
                 if S["winfo"] and S["winfo"].get("loaded") is False:
                     S["wloading"] = True; S["werr"] = None    # async load: filters still processing -
                 else:                                         # coins/history would throw until loaded
@@ -662,6 +663,7 @@ def poller(rpc, S, stop):
                     S["werr"] = None
             except Exception as e:
                 S["werr"] = str(e)
+                if "no coordinator" in str(e).lower(): S["no_coord"] = True
                 if "no wallet loaded" in str(e).lower(): S["wloading"] = True; S["werr"] = None
             try: S["pays"] = rpc.call("listpaymentsincoinjoin", [], wallet=wname) or []
             except Exception: S["pays"] = S.get("pays") or []
@@ -873,6 +875,69 @@ def enable_scripting_in_config(path):                 # add "scripting" to Exper
         print(f"could not edit {path}: {e}", file=sys.stderr)
         return False
 
+# ---- coinjoin coordinator (Config.json 'CoordinatorUri') ----------------------------
+# Wasabi ships WITHOUT a coordinator - the user picks one they trust. Without it the
+# daemon has no CoinJoinManager and even getwalletinfo fails: "No coordinator configured."
+# A coordinator batches the rounds; it sees coinjoin activity and sets the coordination
+# fee, but it can never steal funds (WabiSabi is trustless for custody).
+KNOWN_COORDINATORS = [
+    ("coinjoin.nl", "https://coinjoin.nl/",      "this project's coordinator"),
+    ("kruw.io",     "https://coinjoin.kruw.io/", "well-known, long-running"),
+]
+LIQUISABI_API = "http://liquisabi.com/api"            # public round aggregator (same as txflow.py)
+
+def coord_host(url):                                  # short display name from a coordinator URL
+    from urllib.parse import urlparse
+    h = (urlparse(str(url)).netloc or str(url)).lower()
+    for pre in ("www.", "api.", "btcpay.", "coordinator.", "coinjoin.", "wabisabi."):
+        if h.startswith(pre): h = h[len(pre):]
+    return h or str(url)
+
+def fetch_live_coordinators(api=LIQUISABI_API, days=14, n=100, timeout=10):
+    import datetime                                   # coordinators with recent PUBLIC rounds
+    now = datetime.datetime.now(datetime.timezone.utc)
+    body = json.dumps({"jsonrpc": "2.0", "id": "1", "method": "dashboard", "params": {
+        "since": (now - datetime.timedelta(days=days)).isoformat(), "until": now.isoformat(),
+        "page": 1, "pageSize": n, "orderBy": "RoundEndTime", "descending": True, "searchTerm": ""}})
+    req = urllib.request.Request(api, data=body.encode("utf-8"),
+        headers={"Content-Type": "text/plain;charset=UTF-8", "User-Agent": "sabi/1.0 (coinjoin.nl)",
+                 "Origin": "http://liquisabi.com", "Referer": "http://liquisabi.com/"})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        resp = json.loads(r.read().decode())
+    rounds = ((resp.get("result") or resp).get("PaginatedRounds") or {}).get("Rounds") or []
+    seen = {}
+    for rd in rounds:
+        ep = str(rd.get("CoordinatorEndpoint") or "").strip()
+        if ep: seen[ep] = seen.get(ep, 0) + 1
+    return sorted(seen.items(), key=lambda kv: -kv[1])   # [(url, rounds seen in window)]
+
+def norm_coord_uri(s):                                # user text -> URI for Config.json (None = invalid)
+    from urllib.parse import urlparse
+    s = (s or "").strip()
+    if s.lower() in ("none", "off", "clear"): return ""      # explicit: run without a coordinator
+    if not s: return None
+    if "://" not in s: s = "https://" + s
+    try:
+        u = urlparse(s); host, _ = u.hostname, u.port  # .port raises on a malformed port
+    except ValueError:
+        return None
+    if u.scheme not in ("http", "https") or not host: return None
+    if not re.fullmatch(r"[a-z0-9]([a-z0-9.-]*[a-z0-9])?", host): return None
+    if host.endswith("wasabiwallet.io"): return None   # daemon rejects the old zkSNACKs host
+    return s if s.endswith("/") else s + "/"
+
+def set_coordinator_in_config(path, uri):
+    # edit ONLY the CoordinatorUri value: v2.8.0's strict loader deletes and re-defaults a
+    # Config.json it cannot fully decode, so never write a fresh/partial file here.
+    try:
+        cfg = json.load(open(path, encoding="utf-8-sig"))
+        cfg["CoordinatorUri"] = uri
+        json.dump(cfg, open(path, "w", encoding="utf-8"), indent=2)
+        return True
+    except Exception as e:
+        print(f"could not edit {path}: {e}", file=sys.stderr)
+        return False
+
 # ---- the TUI ------------------------------------------------------------------------
 TABS = ["dashboard", "wallet", "history", "coinjoin", "send", "auto", "scheme"]
 
@@ -888,6 +953,7 @@ HELP = ["1-6 / Tab / ←→   switch tab          w/s or ↑↓   select row",
         "history    u speed up (fee bump) · c cancel unconfirmed tx · y copy txid",
         "coinjoin   space start/stop · o single round · b sweep to other wallet",
         "           p pay inside coinjoin · x cancel selected payment · a rules",
+        "           c choose coordinator (edits Config.json - daemon restart needed)",
         "send       n add payment · i import pasted list · e edit · x remove",
         "           + / - apply no-change round-up/down (exact coin match, no change output)",
         "           u subtract-fee · enter send (live fee estimate in the confirm)",
@@ -906,6 +972,7 @@ def tui(rpc, args, frames=0):
              rules=[], _rules_w=None, notice=None, pager=None, busy=None,
              wloading=False, logpath=getattr(args, "logpath", None),
              cfgpath=getattr(args, "cfgpath", None), loaded=set(),
+             no_coord=False, coord_uri=getattr(args, "coord", None), coord_menu=None,
              sc_out=None, sc_custom=None, sc_running=False, sc_needs_enable=False, sc_hist=[],
              sync_h=None, sync_h0=None, sync_rate=0.0, sync_t=0.0,
              t_poll=0.0, flash="", flasht=0, ver=0)
@@ -932,9 +999,9 @@ def tui(rpc, args, frames=0):
                 S["busy"] = None
         threading.Thread(target=w, daemon=True).start()
 
-    def open_modal(title, fields, cb, warn=None, info=None):
-        nonlocal modal
-        modal = dict(title=title, fields=fields, i=0, cb=cb, warn=warn, info=info)
+    def open_modal(title, fields, cb, warn=None, info=None, lines=None):
+        nonlocal modal                                # lines: list or callable -> menu above the fields
+        modal = dict(title=title, fields=fields, i=0, cb=cb, warn=warn, info=info, lines=lines)
 
     def modal_key(name, raw):
         nonlocal modal
@@ -1092,6 +1159,58 @@ def tui(rpc, args, frames=0):
                    [dict(k="password", label="wallet password", v="", mask=True, hint=""),
                     dict(k="output", label="output wallet name", v=(others[0] if others else ""),
                          mask=False, hint="must be a different wallet on this daemon")], cb)
+
+    def do_coordinator():                             # choose the coinjoin coordinator (Config.json)
+        path = S.get("cfgpath")
+        if not path:
+            flash("✗ Config.json not found - set \"CoordinatorUri\" in it yourself", 90); return
+        if S.get("coord_menu") is None:               # live list, fetched once per session (best effort)
+            S["coord_menu"] = []
+            def w():
+                try: S["coord_menu"] = fetch_live_coordinators()
+                except Exception: pass
+            threading.Thread(target=w, daemon=True).start()
+        def menu():                                   # known examples first, then live extras
+            out = list(KNOWN_COORDINATORS)
+            for url, cnt in S.get("coord_menu") or []:
+                if not any(url.rstrip("/") == u.rstrip("/") for _, u, _ in out):
+                    out.append((coord_host(url), url, f"{cnt} public rounds/14d"))
+            return out[:9]
+        def lines():
+            cur = S.get("coord_uri")
+            ls = ["current: " + (cur if cur else "(none - coinjoin is disabled)"),
+                  "",
+                  "the coordinator batches your coinjoin rounds. it can see coinjoin",
+                  "activity and sets the coordination fee - it can NEVER steal funds.",
+                  "wasabi ships without one on purpose: pick whoever YOU trust.", ""]
+            for i, (name, url, note) in enumerate(menu()):
+                ls.append(f" {i+1}  {name:<15} {url:<40} {note}")
+            if not S.get("coord_menu"):
+                ls.append("    ... fetching live coordinators from liquisabi.com ...")
+            return ls
+        def cb(v):
+            raw = v.get("uri", "").strip()
+            m = menu()
+            if raw.isdigit() and 1 <= int(raw) <= len(m):
+                uri = m[int(raw)-1][1]
+            else:
+                uri = norm_coord_uri(raw)
+                if uri is None:
+                    flash("✗ give a number from the list, an http(s) URL, or 'none'", 90); return
+            if not set_coordinator_in_config(path, uri):
+                flash("✗ could not edit " + path, 90); return
+            S["coord_uri"] = uri
+            S["notice"] = dict(title="COORDINATOR SET", lines=[
+                "", "  \"CoordinatorUri\" in " + path,
+                "  is now:  " + (uri or "(none)"), "",
+                "  ⟳ RESTART the Wasabi daemon for it to take effect", "",
+                "  (a running daemon only reads its config at startup; a",
+                "   WASABI_COORDINATORURI env var would override the file)", "",
+                "  press any key"])
+        open_modal("SET COINJOIN COORDINATOR",
+                   [dict(k="uri", label="coordinator (number, URL, or 'none')", v="", mask=False,
+                         hint="e.g. 1 · or https://your.coordinator/ (.onion ok via the daemon's Tor)")],
+                   cb, lines=lines)
 
     def do_create_wallet():
         def cb(v):
@@ -1842,6 +1961,15 @@ def tui(rpc, args, frames=0):
             put(ch, col, y0+1, x0, "no wallet loaded - go to [1] dashboard and press enter", ORANGE); return
         if S.get("wloading"):
             put(ch, col, y0+1, x0, "⟳ wallet is synchronizing - coinjoin available once it finishes", AMBER); return
+        if S.get("no_coord") or (S.get("coord_uri") == "" and not S.get("cj_status")):
+            put(ch, col, y0+1, x0, "⚠ NO COORDINATOR CONFIGURED - coinjoin is disabled", WARN)
+            put(ch, col, y0+3, x0, "wasabi ships without a coordinator on purpose: you choose who", lerp(BRAND, WHITE, .3))
+            put(ch, col, y0+4, x0, "coordinates your rounds. a coordinator sees coinjoin activity and", lerp(BRAND, WHITE, .3))
+            put(ch, col, y0+5, x0, "sets the coordination fee - it can NEVER steal your funds.", lerp(BRAND, WHITE, .3))
+            put(ch, col, y0+7, x0, "press c to choose one  (coinjoin.nl · kruw.io · live list · your own)",
+                clamp8(lerp(GREEN, WHITE, .2)))
+            put(ch, col, y0+9, x0, "sabi edits Config.json for you - the daemon needs a restart after", GREY)
+            return
         stat = (S.get("cj_status") or ("In progress" if on else "Idle"))
         stat = (stat.upper() + " ◆") if on else stat.lower()
         put(ch, col, y0+1, x0, "COINJOIN  ·  ", GREY)
@@ -1853,8 +1981,11 @@ def tui(rpc, args, frames=0):
         put(ch, col, y0+5, x0, f"private      {btc(pr)}", GREEN if pr else GREY)
         mode = "single round" if S.get("single") else ("auto" if S.get("auto") else "manual")
         put(ch, col, y0+6, x0, f"mode         {mode}", lerp(BRAND, WHITE, .25))
+        cu = S.get("coord_uri")
+        put(ch, col, y0+7, x0, "coordinator  " + (coord_host(cu) if cu else "?"),
+            lerp(BRAND, WHITE, .25) if cu else GREY)
         put(ch, col, y0+8, x0, "space start/stop   o one round   a rules   b sweep", lerp(BRAND, WHITE, .35))
-        put(ch, col, y0+9, x0, "p pay inside coinjoin   x cancel payment", lerp(BRAND, WHITE, .35))
+        put(ch, col, y0+9, x0, "p pay inside coinjoin   x cancel payment   c coordinator", lerp(BRAND, WHITE, .35))
         pays = S.get("pays") or []
         py = y0 + 11
         put(ch, col, py, x0, f"PAYMENTS INSIDE COINJOIN ({len(pays)})", GREY)
@@ -2025,13 +2156,18 @@ def tui(rpc, args, frames=0):
 
     def draw_modal(ch, col):
         m = modal
-        w = max(56, max(len(f["label"]) + 34 for f in m["fields"]) + 8, len(m["title"]) + 8)
+        mlines = m.get("lines") or []                 # optional menu block above the fields
+        try: mlines = mlines() if callable(mlines) else list(mlines)
+        except Exception: mlines = []
+        w = max(56, max(len(f["label"]) + 34 for f in m["fields"]) + 8, len(m["title"]) + 8,
+                (max(len(l) for l in mlines) + 8) if mlines else 0)
         w = min(w, W-4)
         inf = ""
         if m.get("info"):
             try: inf = m["info"]({f["k"]: f["v"] for f in m["fields"]}) or ""
             except Exception: inf = ""
-        h = 4 + 3*len(m["fields"]) + (2 if m.get("warn") else 0) + (2 if inf else 0) + 2
+        h = 4 + 3*len(m["fields"]) + (len(mlines)+1 if mlines else 0) \
+            + (2 if m.get("warn") else 0) + (2 if inf else 0) + 2
         x0 = (W-w)//2; y0 = max(1, (H-h)//2)
         for yy in range(y0, min(y0+h, H)):
             for xx in range(x0, min(x0+w, W)):
@@ -2039,6 +2175,9 @@ def tui(rpc, args, frames=0):
         draw_box(ch, col, y0, x0, w, h, lerp(BRAND, WHITE, .3))
         put(ch, col, y0+1, x0+(w-len(m["title"]))//2, m["title"], WHITE)
         yy = y0+3
+        for l in mlines:
+            put(ch, col, yy, x0+3, l[:w-6], lerp(BRAND, WHITE, .4)); yy += 1
+        if mlines: yy += 1
         if inf:
             put(ch, col, yy, x0+3, inf[:w-6], lerp(AMBER, WHITE, .25)); yy += 2
         if m.get("warn"):
@@ -2059,7 +2198,7 @@ def tui(rpc, args, frames=0):
     HINTS = ["space load · l load ALL · n create · v recover · g receive · 1-7 tabs · ? help · q",
              "w/s coins · g receive · k addresses · x exclude · y copy · ? help",
              "w/s scroll · u speed up · c cancel · y copy txid · ? help",
-             "space start/stop · o one round · a rules · b sweep · p pay-in-cj · ? help",
+             "space start/stop · o one round · c coordinator · a rules · b sweep · p pay-in-cj · ? help",
              "n add · i import · +/- no-change round · e edit · x remove · enter send · ? help",
              "n new rule · e edit · space on/off · x delete · a arm/disarm · ? help",
              "w/s pick · enter run · e edit/paste · x enable scripting · l load all wallets · ? help"]
@@ -2155,6 +2294,7 @@ def tui(rpc, args, frames=0):
                         if hist:
                             ok = clip_copy(hist[sel[2] % len(hist)].get("tx", ""))
                             flash("txid copied ✓" if ok else "clipboard unavailable")
+                    elif tab == 3 and r == "c": do_coordinator()
                     elif tab == 3 and r == "o": do_cj_single()
                     elif tab == 3 and r == "a": do_cj_auto()
                     elif tab == 3 and r == "b": do_cj_sweep()
@@ -2191,7 +2331,10 @@ def tui(rpc, args, frames=0):
             elif tab == 5: draw_auto(ch, col, y, f)
             elif tab == 6: draw_scheme(ch, col, y)
             hint = S["flash"] if S.get("flasht", 0) > 0 else HINTS[tab]
-            if S.get("werr"): hint = "wallet rpc: " + short(S["werr"], 60)
+            if S.get("werr"):
+                hint = ("✗ no coordinator configured - press c on [4] coinjoin to choose one"
+                        if "no coordinator" in S["werr"].lower()
+                        else "wallet rpc: " + short(S["werr"], 60))
             hcol = (WARN if hint.startswith(("✗", "wallet rpc"))
                     else clamp8(lerp(GREEN, WHITE, .25)) if hint.startswith(("◆", "✓")) or "✓" in hint[:40]
                     else lerp(BRAND, WHITE, .4))
@@ -2239,6 +2382,7 @@ def wasabi_config():                                  # auto-detect like wcli.sh
         return dict(path=p, enabled=bool(cfg.get("JsonRpcServerEnabled")),
                     url=str(pref).rstrip("/"), user=cfg.get("JsonRpcUser") or None,
                     password=cfg.get("JsonRpcPassword") or None,
+                    coordinator=cfg.get("CoordinatorUri"),
                     log=os.path.join(os.path.dirname(p), "Logs.txt"))
     return None
 
@@ -2300,10 +2444,16 @@ def main():
     ap.add_argument("--daemon", default=None, metavar="PATH", help="Wasabi daemon executable (for auto-start)")
     ap.add_argument("--frames", type=int, default=0, help="render N frames then exit (testing)")
     a = ap.parse_args()
-    a.logpath = None; a.cfgpath = None
+    a.logpath = None; a.cfgpath = None; a.coord = None
     if not a.demo:
         cfg = wasabi_config()                          # zero-config: use the daemon's own settings
         if cfg: a.logpath = cfg.get("log"); a.cfgpath = cfg.get("path")   # log = sync progress; cfg = toggles
+        if cfg:
+            a.coord = cfg.get("coordinator")
+            if not (a.coord or "").strip():            # wasabi ships with NO coordinator - the user picks one
+                print("!  no coinjoin coordinator configured - coinjoin (and most wallet RPC) is disabled.",
+                      file=sys.stderr)
+                print("   fix inside sabi: [4] coinjoin tab, press c to choose one.", file=sys.stderr)
         if a.rpc is None and cfg:
             a.rpc = cfg["url"]
             if a.user is None: a.user = cfg["user"]
@@ -2375,7 +2525,13 @@ def main():
                   file=sys.stderr)
     rpc = DemoRpc() if a.demo else WasabiRpc(a.rpc, a.user, a.password)
     if a.demo and not a.wallet: a.wallet = "SavingsWallet"
-    if a.demo: a.cfgpath = os.path.join(tempfile.gettempdir(), "sabi-demo-config.json")
+    if a.demo:                                        # real-looking demo config so the c / x editors work
+        a.cfgpath = os.path.join(tempfile.gettempdir(), "sabi-demo-config.json")
+        a.coord = ""
+        try:
+            json.dump({"CoordinatorUri": "", "ExperimentalFeatures": [], "JsonRpcServerEnabled": True},
+                      open(a.cfgpath, "w", encoding="utf-8"), indent=2)
+        except Exception: pass
     if not sys.stdin.isatty() and a.frames == 0:
         print("sabi needs an interactive terminal (or pass --frames N for a fixed run).", file=sys.stderr)
         return
