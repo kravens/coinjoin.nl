@@ -11,6 +11,7 @@ They run anywhere with a truecolor terminal: Linux, macOS, Windows 10+, Raspberr
 ---
 
 ## txflow.py — transaction flow explorer
+<img width="1898" height="987" alt="image" src="https://github.com/user-attachments/assets/ec721494-024c-48ea-95dc-e545a115917e" />
 
 Pulls any bitcoin transaction from [mempool.space](https://mempool.space) (or your own self-hosted
 instance) and animates its input → output flow as ASCII, with coinjoins detected and highlighted.
@@ -42,6 +43,7 @@ Keys: `w/s` move · `a/d` walk the chain · `space` open · `e` expand to graph 
 ---
 
 ## sabi.py — Wasabi daemon terminal
+<img width="1903" height="991" alt="image" src="https://github.com/user-attachments/assets/d6521984-d630-41eb-b46f-9dcde7335098" />
 
 A complete TUI for [Wasabi Wallet](https://wasabiwallet.io)'s headless daemon (v2.8.0 RPC):
 wallets, balances, history, coinjoin and privacy-aware spending — from any terminal, over SSH,
@@ -93,4 +95,4 @@ amounts and addresses — screen-share safe) · `?` help · `Ctrl+C` instant qui
 - A terminal with truecolor support (Windows Terminal, iTerm2, GNOME Terminal, kitty, Termius, ...)
 - Optional: [Pillow](https://pypi.org/project/pillow/) only if you want txflow's `--export` to gif/png
 
-*Mix to break the link — [coinjoin.nl](https://coinjoin.nl)*
+*Coinjoin to break the link — [coinjoin.nl](https://coinjoin.nl)*
