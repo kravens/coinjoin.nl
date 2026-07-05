@@ -364,10 +364,12 @@ def make_keyreader(mouse=True):
                 if seq.startswith("<") and seq[-1] in "Mm":   # SGR mouse: <b;x;y M/m
                     try:
                         b, mx, my = (int(v) for v in seq[1:-1].split(";"))
-                        if b == 64: return (("WHEELUP", (mx-1, my-1)), chars[j:] if j < n else [])
-                        if b == 65: return (("WHEELDN", (mx-1, my-1)), chars[j:] if j < n else [])
+                        # my-2, not my-1: emit() joins home-escape + rows with "\n", so canvas
+                        # row 0 sits on terminal line 2 (SGR y is 1-based on the terminal)
+                        if b == 64: return (("WHEELUP", (mx-1, my-2)), chars[j:] if j < n else [])
+                        if b == 65: return (("WHEELDN", (mx-1, my-2)), chars[j:] if j < n else [])
                         if seq[-1] == "M" and b in (0, 1, 2):
-                            return (("CLICK", (mx-1, my-1)), chars[j:] if j < n else [])
+                            return (("CLICK", (mx-1, my-2)), chars[j:] if j < n else [])
                     except Exception: pass
                     i = j; continue
                 if seq == "200~":                     # bracketed paste: swallow through 201~
@@ -745,6 +747,14 @@ def poller(rpc, S, stop):
             if stop.wait(0.5): break
             if S.get("wloading"): _tail_log(S)        # live scan progress from the local daemon log
 
+def fmt_dt(v):                                        # 2.8.0 gethistory: epoch seconds; older: ISO string
+    try:
+        if isinstance(v, (int, float)) or (isinstance(v, str) and v.strip().isdigit()):
+            return time.strftime("%Y-%m-%d %H:%M", time.localtime(int(float(v))))
+    except Exception:
+        pass
+    return str(v or "")[:16].replace("T", " ")
+
 def tgt_of(S):
     wi = S.get("winfo") or {}
     try: return int(wi.get("anonScoreTarget") or 5)
@@ -997,6 +1007,7 @@ HELP = ["1-6 / Tab / ←→   switch tab          w/s or ↑↓   select row",
         "any tab    g RECEIVE - label -> fresh address + scannable QR code",
         "dashboard  space/enter load wallet · n create wallet · v recover wallet",
         "wallet     k address book · x exclude coin from coinjoin · y copy address",
+        "           click anon/amount/confs headers to sort (newest confirmed on top)",
         "history    u speed up (fee bump) · c cancel unconfirmed tx · y copy txid",
         "           r copy raw hex (fetched from YOUR node; also works after send)",
         "coinjoin   space start/stop · o single round · b sweep to other wallet",
@@ -1008,7 +1019,10 @@ HELP = ["1-6 / Tab / ←→   switch tab          w/s or ↑↓   select row",
         "auto       programmable rules: when np/pr/tot ≥ threshold -> start/single/",
         "           sweep->cold-wallet/stop · optional night window · bell on fire",
         "",
-        "mouse: click tabs & rows, wheel scrolls (Linux/macOS/Windows Terminal)"]
+        "mouse: click tabs/rows · click the selected row again (or double-click)",
+        "       to open/run it · click addresses & txids to copy them · wheel scrolls",
+        "       also clickable: sort headers, coordinator, coinjoin status, [on]/[off],",
+        "       no-change round-up/down, modal fields & numbered menu lines"]
 
 def tui(rpc, args, frames=0):
     import threading
@@ -1021,7 +1035,7 @@ def tui(rpc, args, frames=0):
              wloading=False, logpath=getattr(args, "logpath", None),
              cfgpath=getattr(args, "cfgpath", None), loaded=set(),
              no_coord=False, coord_uri=getattr(args, "coord", None), coord_menu=None,
-             last_send=None,
+             last_send=None, coin_sort=("confs", False),
              sc_out=None, sc_custom=None, sc_running=False, sc_needs_enable=False, sc_hist=[],
              sync_h=None, sync_h0=None, sync_rate=0.0, sync_t=0.0,
              t_poll=0.0, flash="", flasht=0, ver=0)
@@ -1154,8 +1168,17 @@ def tui(rpc, args, frames=0):
                     dict(k="taproot", label="taproot? (y/n)", v="n", mask=False,
                          hint="n = segwit bc1q (default) · y = taproot bc1p")], cb)
 
+    def coins_view():                                 # wallet tab order: sortable columns
+        key, rev = S.get("coin_sort") or ("confs", False)
+        coins = list(S.get("coins") or [])
+        if key == "anon": kf = anon_of
+        elif key == "amount": kf = lambda c: c.get("amount", 0)
+        else: kf = lambda c: c.get("confirmations", 0) if c.get("confirmed", True) else -1
+        coins.sort(key=kf, reverse=rev)               # default: lowest confs first = newest on top
+        return coins
+
     def do_toggle_exclude():
-        coins = S.get("coins") or []
+        coins = coins_view()
         if not coins: return
         c = coins[sel[1] % len(coins)]
         ex = not c.get("excludedFromCoinjoin")
@@ -1436,7 +1459,7 @@ def tui(rpc, args, frames=0):
         try:
             ks = sorted(int(k) for k in f.keys())
             k = min(ks, key=lambda k_: abs(k_-6))
-            return max(1.0, float(f.get(str(k), f.get(k))))
+            return max(0.1, float(f.get(str(k), f.get(k))))   # 0.1 sat/vB = core 30 minrelay floor
         except Exception:
             return 5.0
 
@@ -1548,7 +1571,7 @@ def tui(rpc, args, frames=0):
             rate = float(f.get(str(k), f.get(k, 0)))
             vs = 58 + 68*nc + 31*(np_+1)              # P2WPKH heuristic: ins + outs + change
             fee = int(rate*vs)
-            return f"fee ≈ {rate:.0f} sat/vB × ~{vs} vB = {fee:,} sats  {usd(fee)}   ({k}-block rate)"
+            return f"fee ≈ {rate:.1f} sat/vB × ~{vs} vB = {fee:,} sats  {usd(fee)}   ({k}-block rate)"
         fields = [dict(k="feeTarget", label="fee target (blocks)", v="6", mask=False,
                        hint=fees_hint(S)),
                   dict(k="password", label="wallet password", v="", mask=True, hint="")]
@@ -1764,7 +1787,7 @@ def tui(rpc, args, frames=0):
         if isinstance(f, dict) and f:
             try:
                 items = sorted(((int(k), v) for k, v in f.items()))[:4]
-                return "current: " + "  ".join(f"{k}blk={v}s/vB" for k, v in items)
+                return "current: " + "  ".join(f"{k}blk={float(v):.1f}s/vB" for k, v in items)
             except Exception: pass
         return "2 = fast · 6 = normal · 144 = eco"
 
@@ -1816,10 +1839,14 @@ def tui(rpc, args, frames=0):
             if net and net != "Main": rput(ch, col, 3, W-2, str(net).upper(), AMBER)
             cu = S.get("coord_uri")
             if S.get("no_coord") or cu == "":
-                put(ch, col, 4, x0, "no coordinator - press c on [4] coinjoin", WARN)
+                txt = "no coordinator - press c on [4] coinjoin (or click here)"
+                put(ch, col, 4, x0, txt, WARN)
+                regions.append((4, x0, x0+len(txt)-1, ("ACT", do_coordinator)))
             elif cu:
-                put(ch, col, 4, x0, "coordinator " + coord_host(cu),
+                txt = "coordinator " + coord_host(cu)
+                put(ch, col, 4, x0, txt,
                     lerp(GREEN, GREY, .45) if S.get("cj_on") else lerp(BRAND, GREY, .35))
+                regions.append((4, x0, x0+len(txt)-1, ("ACT", do_coordinator)))
         wname = S.get("wallet")
         pr, se, np_ = balances(S)
         tot = pr + se + np_
@@ -1945,7 +1972,7 @@ def tui(rpc, args, frames=0):
             put(ch, col, y, 66, f"{100*v/tot:3.0f}%", GREY)
             fx = usd(v)
             if fx: put(ch, col, y, 72, fx, GREY)
-        coins = S.get("coins") or []
+        coins = coins_view()
         yb = y0 + 4
         pend_v = sum(c.get("amount", 0) for c in coins if not c.get("confirmed", True))
         pend_n = sum(1 for c in coins if not c.get("confirmed", True))
@@ -1959,8 +1986,15 @@ def tui(rpc, args, frames=0):
         bar(ch, col, yb, 13, 51, pct/100, pcol)
         put(ch, col, yb, 66, ("fully private ◆" if pct >= 99.5 else f"{pct:.0f}% private"), clamp8(pcol))
         y1 = yb + 2
-        put(ch, col, y1, 4, f"COINS ({len(coins)})   anon · amount · confs · label · address"
-            "     g receive · k addresses · x exclude · y copy", GREY)
+        skey, srev = S.get("coin_sort") or ("confs", False)
+        put(ch, col, y1, 4, f"COINS ({len(coins)})", GREY)
+        x = 4 + len(f"COINS ({len(coins)})") + 3
+        for lab in ("anon", "amount", "confs"):       # clickable sort headers
+            txt = lab + (("▼" if srev else "▲") if lab == skey else "")
+            put(ch, col, y1, x, txt, WHITE if lab == skey else GREY)
+            regions.append((y1, x, x+len(txt)-1, ("SORT", lab)))
+            x += len(txt) + 3
+        put(ch, col, y1, x, "· label · address     g receive · k addresses · x exclude · y copy", GREY)
         vis = H - (y1+1) - 2
         n = len(coins)
         if n:
@@ -1981,6 +2015,8 @@ def tui(rpc, args, frames=0):
             put(ch, col, y, 38, short(lab, 16) if lab else "·", (lerp(GREEN, WHITE, .2) if on else
                 lerp(BRAND, WHITE, .1)) if lab else DIM)
             put(ch, col, y, 56, short(c.get("address", ""), 22), lerp(BRAND, GREY, .3))
+            if c.get("address"):                      # click the address text = copy it
+                regions.append((y, 56, 56+21, ("COPY", str(c["address"]), "address")))
             xx = 80
             if c.get("coinJoinInProgress"):
                 sp = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"[int(time.time()*8) % 10]
@@ -2017,7 +2053,7 @@ def tui(rpc, args, frames=0):
         for i, h_ in enumerate(hist[off[2]:off[2]+vis]):
             gi = off[2]+i; y = y0+2+i; on = (gi == sel[2])
             amt = h_.get("amount", 0); cj = is_cj_row(h_)
-            dt = str(h_.get("datetime", ""))[:16].replace("T", " ")
+            dt = fmt_dt(h_.get("datetime"))
             put(ch, col, y, 4, ("▸ " if on else "  ") + dt, WHITE if on else GREY)
             ac = GREEN if amt > 0 else (ORANGE if amt < 0 else GREY)
             put(ch, col, y, 24, f"{('+' if amt > 0 else '')+cbtc(amt):>16}", WHITE if on else ac)
@@ -2025,6 +2061,8 @@ def tui(rpc, args, frames=0):
             if cj: put(ch, col, y, 42, "◆ coinjoin", GREEN)
             elif lab: put(ch, col, y, 42, short(lab, 14), lerp(BRAND, GREY, .3))
             put(ch, col, y, 58, short(h_.get("tx", ""), 20), lerp(BRAND, GREY, .4))
+            if h_.get("tx"):                          # click the txid text = copy it
+                regions.append((y, 58, 58+19, ("COPY", str(h_["tx"]), "txid")))
             hh = h_.get("height")                     # 2.8.0: a string ("902123" / "Mempool")
             try: htxt, hcol = f"block {int(hh):,}", GREY
             except (TypeError, ValueError):
@@ -2049,14 +2087,16 @@ def tui(rpc, args, frames=0):
             put(ch, col, y0+3, x0, "wasabi ships without a coordinator on purpose: you choose who", lerp(BRAND, WHITE, .3))
             put(ch, col, y0+4, x0, "coordinates your rounds. a coordinator sees coinjoin activity and", lerp(BRAND, WHITE, .3))
             put(ch, col, y0+5, x0, "sets the coordination fee - it can NEVER steal your funds.", lerp(BRAND, WHITE, .3))
-            put(ch, col, y0+7, x0, "press c to choose one  (coinjoin.nl · kruw.io · live list · your own)",
-                clamp8(lerp(GREEN, WHITE, .2)))
+            cta = "press c (or click here) to choose one  (coinjoin.nl · kruw.io · your own)"
+            put(ch, col, y0+7, x0, cta, clamp8(lerp(GREEN, WHITE, .2)))
+            regions.append((y0+7, x0, x0+len(cta)-1, ("ACT", do_coordinator)))
             put(ch, col, y0+9, x0, "sabi edits Config.json for you - the daemon needs a restart after", GREY)
             return
         stat = (S.get("cj_status") or ("In progress" if on else "Idle"))
         stat = (stat.upper() + " ◆") if on else stat.lower()
         put(ch, col, y0+1, x0, "COINJOIN  ·  ", GREY)
         put(ch, col, y0+1, x0+13, stat, clamp8(lerp(GREEN, WHITE, .4*pulse)) if on else GREY)
+        regions.append((y0+1, x0, x0+13+len(stat)-1, ("ACT", do_cj_toggle)))   # click = start/stop
         pr, se, np_ = balances(S)
         put(ch, col, y0+3, x0, f"daemon says  {S.get('cj_status') or '?'}",
             GREEN if on else GREY)
@@ -2083,6 +2123,7 @@ def tui(rpc, args, frames=0):
                 stt = (last.get("status") or last.get("state") or next(iter(last.values()), "")) \
                       if isinstance(last, dict) else str(last)
             put(ch, col, y, x0, ("▸ " if onr else "  ") + short(str(dest), 22), WHITE if onr else lerp(GREEN, WHITE, .2))
+            regions.append((y, x0+2, x0+2+21, ("COPY", str(dest), "destination")))
             put(ch, col, y, x0+26, f"{cbtc(amt) if isinstance(amt, (int, float)) else amt}", lerp(BRAND, WHITE, .2))
             put(ch, col, y, x0+44, str(stt)[:18], GREY)
             regions.append((y, x0, W-4, ("ROW", 3, i)))
@@ -2137,13 +2178,15 @@ def tui(rpc, args, frames=0):
                     d = sug["up"]["delta"]
                     put(ch, col, ys+1, 4, "◆ ▲", clamp8(lerp(GREEN, WHITE, .2)))
                     put(ch, col, ys+1, 9, f"round UP   +{cbtc(d):>12}  →  send {btc(total+d)}"
-                        f"   ({len(sug['up']['coins'])} coins, no change)   press +",
+                        f"   ({len(sug['up']['coins'])} coins, no change)   press + or click",
                         clamp8(lerp(GREEN, WHITE, .1)))
+                    regions.append((ys+1, 4, W-4, ("ACT", lambda: apply_sug("up"))))
                 if sug.get("dn"):
                     d = sug["dn"]["delta"]
                     put(ch, col, ys+2, 4, "◆ ▼", AMBER)
                     put(ch, col, ys+2, 9, f"round DOWN {cbtc(d):>13}  →  send {btc(total+d)}"
-                        f"   ({len(sug['dn']['coins'])} coins, no change)   press -", AMBER)
+                        f"   ({len(sug['dn']['coins'])} coins, no change)   press - or click", AMBER)
+                    regions.append((ys+2, 4, W-4, ("ACT", lambda: apply_sug("dn"))))
                 put(ch, col, ys+3, 4, "only if the receiver accepts a slightly different amount",
                     lerp(BRAND, GREY, .35))
 
@@ -2169,6 +2212,10 @@ def tui(rpc, args, frames=0):
             onoff = "[ on]" if rl.get("on") else "[off]"
             oc = GREEN if rl.get("on") else GREY
             put(ch, col, y, 4, ("▸ " if on else "  ") + onoff, WHITE if on else oc)
+            def _tgl(idx=i):                          # click the [on]/[off] chip = toggle the rule
+                S["rules"][idx]["on"] = not S["rules"][idx].get("on")
+                save_rules(S["wallet"], S["rules"])
+            regions.append((y, 6, 10, ("ACT", _tgl)))
             put(ch, col, y, 12, rule_text(rl), WHITE if on else lerp(BRAND, WHITE, .25))
             last = rl.get("last", 0)
             if last:
@@ -2259,7 +2306,10 @@ def tui(rpc, args, frames=0):
         put(ch, col, y0+1, x0+(w-len(m["title"]))//2, m["title"], WHITE)
         yy = y0+3
         for l in mlines:
-            put(ch, col, yy, x0+3, l[:w-6], lerp(BRAND, WHITE, .4)); yy += 1
+            put(ch, col, yy, x0+3, l[:w-6], lerp(BRAND, WHITE, .4))
+            mnum = re.match(r"\s*(\d+)\s", l)         # numbered menu line: click = pick that number
+            if mnum: regions.append((yy, x0+3, x0+w-4, ("MPICK", mnum.group(1))))
+            yy += 1
         if mlines: yy += 1
         if inf:
             put(ch, col, yy, x0+3, inf[:w-6], lerp(AMBER, WHITE, .25)); yy += 2
@@ -2267,6 +2317,8 @@ def tui(rpc, args, frames=0):
             put(ch, col, yy, x0+3, m["warn"][:w-6], WARN); yy += 2
         for i, fld in enumerate(m["fields"]):
             onf = (i == m["i"])
+            regions.append((yy, x0+3, x0+w-4, ("MFIELD", i)))     # click a field = focus it
+            regions.append((yy+1, x0+3, x0+w-4, ("MFIELD", i)))
             put(ch, col, yy, x0+3, fld["label"], WHITE if onf else GREY)
             v = fld["v"]; shown = ("•"*len(v)) if fld.get("mask") else v
             maxw = w - 8
@@ -2276,6 +2328,17 @@ def tui(rpc, args, frames=0):
                 put(ch, col, yy+1, x0+3+len(shown)+3, fld["hint"][:w-10-len(shown)], lerp(BRAND, GREY, .3))
             yy += 3
         put(ch, col, y0+h-2, x0+3, "enter ok · tab next field · esc cancel", GREY)
+
+    def row_activate(tt, ii):                         # second click on a selected row = open/run it
+        if tt == 0: do_load_wallet()
+        elif tt == 4:                                 # send queue: edit the clicked payment
+            if queue:
+                sug_lock.clear()
+                d = dict(queue[ii % len(queue)]); d["_edit"] = ii % len(queue); q_add(d)
+        elif tt == 5 and (S.get("rules") or []): rule_edit(ii % len(S["rules"]))
+        elif tt == 6:
+            kd6, _t6, _d6, pl6 = SCHEME_ITEMS[ii % len(SCHEME_ITEMS)]
+            do_native_report(pl6) if kd6 == "rpc" else do_scheme_run(pl6)
 
     # ---------- main loop --------------------------------------------------------------
     HINTS = ["space load · l load ALL · n create · v recover · g receive · 1-7 tabs · ? help · q",
@@ -2300,7 +2363,16 @@ def tui(rpc, args, frames=0):
                     elif name == "WHEELDN": S["pager"]["off"] = S["pager"].get("off", 0) + 3
                     else: S["pager"] = None
                 elif modal:
-                    modal_key(name, raw)
+                    if name == "CLICK" and isinstance(raw, tuple):
+                        mx, my = raw                  # clicks inside a modal: focus field / pick line
+                        for (ry, rx0, rx1, tok) in regions:
+                            if my == ry and rx0 <= mx <= rx1:
+                                if tok[0] == "MFIELD": modal["i"] = tok[1]
+                                elif tok[0] == "MPICK" and modal["fields"]:
+                                    modal["fields"][modal["i"]]["v"] = tok[1]
+                                break
+                    else:
+                        modal_key(name, raw)
                 elif helpon:
                     helpon = False
                 elif name == "QUIT":
@@ -2321,9 +2393,20 @@ def tui(rpc, args, frames=0):
                     for (ry, rx0, rx1, tok) in regions:
                         if my == ry and rx0 <= mx <= rx1:
                             if tok[0] == "TAB": tab = tok[1]
+                            elif tok[0] == "COPY":    # click the text itself = copy it
+                                ok = clip_copy(tok[1])
+                                flash(f"{tok[2]} copied ✓" if ok else "clipboard unavailable")
+                            elif tok[0] == "ACT":     # click a named action = run it
+                                tok[1]()
+                            elif tok[0] == "SORT":
+                                k2 = tok[1]; sk, sr = S.get("coin_sort") or ("confs", False)
+                                # same column toggles direction; fresh column gets its natural one
+                                S["coin_sort"] = (k2, not sr if sk == k2 else k2 != "confs")
                             elif tok[0] == "ROW":
                                 _, tt, ii = tok
+                                already = (tab == tt and sel[tt] == ii)
                                 tab = tt; sel[tt] = ii
+                                if already: row_activate(tt, ii)   # click selected row = open/run
                             break
                 elif name == "ENTER":
                     if tab == 0: do_load_wallet()
@@ -2370,7 +2453,7 @@ def tui(rpc, args, frames=0):
                     elif tab == 1 and r == "k": do_list_keys()
                     elif tab == 4 and r == "i": do_import()
                     elif tab == 1 and r == "y":
-                        coins = S.get("coins") or []
+                        coins = coins_view()
                         if coins:
                             ok = clip_copy(coins[sel[1] % len(coins)].get("address", ""))
                             flash("address copied ✓" if ok else "clipboard unavailable")

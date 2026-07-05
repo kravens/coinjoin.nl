@@ -10,3 +10,6 @@ web/.latest-txid
 **/bitcoin.conf
 *.pem
 *.key
+
+# Python bytecode
+__pycache__/
