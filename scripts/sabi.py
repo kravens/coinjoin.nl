@@ -389,7 +389,8 @@ def make_keyreader(mouse=True):
             pend.clear(); return None
         chars = pend + new; pend.clear()
         if len(chars) > PASTE:                        # long burst = paste -> pass to modal as text
-            txt = "".join(c for c in chars if c.isprintable() or c == "\n")
+            s = re.sub(r"\x1b?\[20[01]~", "", "".join(chars))   # strip bracketed-paste markers
+            txt = "".join(c for c in s if c.isprintable() or c == "\n")
             return ("PASTE", txt.strip("\n")) if txt.strip() else None
         ev, leftover = parse(chars); pend[:] = leftover
         return ev
@@ -469,6 +470,52 @@ class WasabiRpc:
             except Exception: raise RpcError(f"HTTP {e.code}")
         except Exception as e:
             raise RpcError(str(e) or type(e).__name__)
+        if isinstance(resp, dict) and resp.get("error"):
+            raise RpcError(str(resp["error"].get("message", resp["error"])))
+        return resp.get("result") if isinstance(resp, dict) else resp
+
+class BitcoindRpc:                                    # the user's own node, creds from Wasabi's config
+    def __init__(self, endpoint, cred, torport=37150):   # 37150 = wasabi's own Tor SOCKS port
+        from urllib.parse import urlparse
+        u = urlparse(endpoint if "://" in str(endpoint) else "http://" + str(endpoint))
+        self.host = u.hostname or "127.0.0.1"; self.port = u.port or 8332
+        self.user, _, self.password = str(cred or "").partition(":")
+        self.torport = torport
+    def _tor_sock(self, timeout):                     # minimal SOCKS5 CONNECT for .onion endpoints
+        import socket
+        s = socket.create_connection(("127.0.0.1", self.torport), timeout=timeout)
+        def rx(n):
+            b = b""
+            while len(b) < n:
+                c = s.recv(n - len(b))
+                if not c: raise OSError("socks: connection closed")
+                b += c
+            return b
+        try:
+            s.sendall(b"\x05\x01\x00")                # no-auth
+            if rx(2) != b"\x05\x00": raise OSError("tor socks refused (is the wasabi daemon running?)")
+            host = self.host.encode()
+            s.sendall(b"\x05\x01\x00\x03" + bytes([len(host)]) + host + self.port.to_bytes(2, "big"))
+            r = rx(4)
+            if r[1] != 0: raise OSError(f"tor could not reach {self.host} (rep {r[1]})")
+            if r[3] == 1: rx(4 + 2)                   # swallow BND.ADDR + BND.PORT
+            elif r[3] == 4: rx(16 + 2)
+            elif r[3] == 3: rx(rx(1)[0] + 2)
+            return s
+        except Exception:
+            s.close(); raise
+    def call(self, method, params=None, timeout=30):
+        import http.client, base64
+        body = json.dumps({"jsonrpc": "1.0", "id": "sabi", "method": method, "params": params or []})
+        conn = http.client.HTTPConnection(self.host, self.port, timeout=timeout)
+        if self.host.endswith(".onion"): conn.sock = self._tor_sock(timeout)
+        tok = base64.b64encode(f"{self.user}:{self.password}".encode()).decode()
+        try:
+            conn.request("POST", "/", body, {"Authorization": "Basic " + tok,
+                                             "Content-Type": "application/json"})
+            resp = json.loads(conn.getresponse().read().decode() or "{}")
+        finally:
+            conn.close()
         if isinstance(resp, dict) and resp.get("error"):
             raise RpcError(str(resp["error"].get("message", resp["error"])))
         return resp.get("result") if isinstance(resp, dict) else resp
@@ -592,7 +639,7 @@ class DemoRpc:                                        # --demo : plausible fake 
             tot = sum(x.get("amount", 0) for x in pay)
             self.hist.insert(0, dict(datetime="2026-07-02T12:00:00+00:00", height=None,
                 amount=-tot, label="batched send", tx="f"*64, islikelycoinjoin=False))
-            return dict(txid="f" * 64)
+            return dict(txid="f" * 64, tx="0200000001" + "ab"*90)
         raise RpcError(f"method not found: {method}")
 
 # ---- shared state + background poller ----------------------------------------------
@@ -890,7 +937,7 @@ def coord_host(url):                                  # short display name from 
     from urllib.parse import urlparse
     h = (urlparse(str(url)).netloc or str(url)).lower()
     for pre in ("www.", "api.", "btcpay.", "coordinator.", "coinjoin.", "wabisabi."):
-        if h.startswith(pre): h = h[len(pre):]
+        if h.startswith(pre) and "." in h[len(pre):]: h = h[len(pre):]   # keep e.g. coinjoin.nl intact
     return h or str(url)
 
 def fetch_live_coordinators(api=LIQUISABI_API, days=14, n=100, timeout=10):
@@ -951,6 +998,7 @@ HELP = ["1-6 / Tab / ←→   switch tab          w/s or ↑↓   select row",
         "dashboard  space/enter load wallet · n create wallet · v recover wallet",
         "wallet     k address book · x exclude coin from coinjoin · y copy address",
         "history    u speed up (fee bump) · c cancel unconfirmed tx · y copy txid",
+        "           r copy raw hex (fetched from YOUR node; also works after send)",
         "coinjoin   space start/stop · o single round · b sweep to other wallet",
         "           p pay inside coinjoin · x cancel selected payment · a rules",
         "           c choose coordinator (edits Config.json - daemon restart needed)",
@@ -973,10 +1021,13 @@ def tui(rpc, args, frames=0):
              wloading=False, logpath=getattr(args, "logpath", None),
              cfgpath=getattr(args, "cfgpath", None), loaded=set(),
              no_coord=False, coord_uri=getattr(args, "coord", None), coord_menu=None,
+             last_send=None,
              sc_out=None, sc_custom=None, sc_running=False, sc_needs_enable=False, sc_hist=[],
              sync_h=None, sync_h0=None, sync_rate=0.0, sync_t=0.0,
              t_poll=0.0, flash="", flasht=0, ver=0)
     if args.wallet: S["loaded"].add(args.wallet)
+    bc = getattr(args, "btcrpc", None) or {}
+    btcrpc = BitcoindRpc(bc["url"], bc.get("cred", "")) if bc.get("url") else None
     stop = threading.Event()
     threading.Thread(target=poller, args=(rpc, S, stop), daemon=True).start()
     getkey, restore = make_keyreader() if interactive else ((lambda: None), (lambda: None))
@@ -1013,8 +1064,9 @@ def tui(rpc, args, frames=0):
         if name == "TAB":  modal["i"] = (i+1) % len(fl); return
         if name == "STAB": modal["i"] = (i-1) % len(fl); return
         if name == "BACK": fl[i]["v"] = fl[i]["v"][:-1]; return
+        if name in ("CLICK", "WHEELUP", "WHEELDN"): return   # mouse: raw is (x, y), not text
         if name == "PASTE": fl[i]["v"] += raw; return
-        if raw and raw.isprintable(): fl[i]["v"] += raw
+        if isinstance(raw, str) and raw.isprintable(): fl[i]["v"] += raw
 
     def parse_amount(v):                              # BTC ("0.001") or sats ("150000s"/"150000 sats")
         v = v.strip().lower().replace("btc", "").strip()
@@ -1479,8 +1531,10 @@ def tui(rpc, args, frames=0):
             def fn():
                 r = rpc.call("send", params, wallet=S["wallet"])
                 txid = (r or {}).get("txid") if isinstance(r, dict) else str(r)
+                if isinstance(r, dict) and r.get("tx"):   # keep the raw hex: 'r' copies it later
+                    S["last_send"] = dict(txid=str(txid), hex=str(r["tx"]))
                 queue.clear(); sug_lock.clear(); clip_copy(txid or "")
-                return f"txid {short(txid or '?', 24)} (copied)"
+                return f"txid {short(txid or '?', 24)} (copied · r = raw hex)"
             act(f"sent {len(pays)} payment(s), {cbtc(total)}", fn)
         nc, np_ = len(coins), len(queue)
         def fee_info(vals):                           # live estimate as the fee target is typed
@@ -1501,6 +1555,29 @@ def tui(rpc, args, frames=0):
         title = f"CONFIRM SEND · {len(queue)} payment(s) · {cbtc(total)} {usd(total)} · {len(coins)} coins"
         if locked: title += " · ◆ NO CHANGE"
         open_modal(title, fields, cb, warn=warn, info=fee_info)
+
+    def do_copy_rawtx():                              # history: raw hex of the selected tx
+        hist = S.get("history") or []
+        if not hist: return
+        tid = str(hist[sel[2] % len(hist)].get("tx") or "")
+        ls = S.get("last_send") or {}
+        if tid and tid == ls.get("txid"):             # sent this session: hex already in hand
+            ok = clip_copy(ls["hex"])
+            flash("raw tx hex copied ✓ (from the send result)" if ok else "clipboard unavailable"); return
+        if not btcrpc:
+            flash("✗ no BitcoinRpcEndPoint in wasabi's Config.json - can't fetch raw hex", 90); return
+        def fn():
+            hx = btcrpc.call("getrawtransaction", [tid])   # mempool, or confirmed via txindex
+            ok = clip_copy(str(hx))
+            if not ok: raise RpcError("clipboard unavailable")
+            return f"{len(str(hx))//2} bytes (from your node)"
+        act("raw tx hex copied", fn)
+
+    def do_copy_last_send():                          # send: raw hex of the last tx sent this session
+        ls = S.get("last_send")
+        if not ls: flash("nothing sent this session yet - hex is kept from each send", 70); return
+        ok = clip_copy(ls["hex"])
+        flash(f"raw hex of {short(ls['txid'], 20)} copied ✓" if ok else "clipboard unavailable")
 
     def do_import():
         def cb(v):
@@ -1737,6 +1814,12 @@ def tui(rpc, args, frames=0):
                 put(ch, col, 3, x, "filters ✓", lerp(GREEN, GREY, .35))
             net = st.get("network", "")
             if net and net != "Main": rput(ch, col, 3, W-2, str(net).upper(), AMBER)
+            cu = S.get("coord_uri")
+            if S.get("no_coord") or cu == "":
+                put(ch, col, 4, x0, "no coordinator - press c on [4] coinjoin", WARN)
+            elif cu:
+                put(ch, col, 4, x0, "coordinator " + coord_host(cu),
+                    lerp(GREEN, GREY, .45) if S.get("cj_on") else lerp(BRAND, GREY, .35))
         wname = S.get("wallet")
         pr, se, np_ = balances(S)
         tot = pr + se + np_
@@ -1924,7 +2007,7 @@ def tui(rpc, args, frames=0):
                 put(ch, col, y0+4, 4, "old / busy wallets take minutes; coins and history appear when done.", GREY)
             return
         hist = S.get("history") or []
-        put(ch, col, y0, 4, f"HISTORY ({len(hist)})   date · amount · label · txid          y copy txid", GREY)
+        put(ch, col, y0, 4, f"HISTORY ({len(hist)})   date · amount · label · txid      y copy txid · r raw hex", GREY)
         vis = H - (y0+2) - 2; n = len(hist)
         if n:
             sel[2] = max(0, min(sel[2], n-1))
@@ -2197,9 +2280,9 @@ def tui(rpc, args, frames=0):
     # ---------- main loop --------------------------------------------------------------
     HINTS = ["space load · l load ALL · n create · v recover · g receive · 1-7 tabs · ? help · q",
              "w/s coins · g receive · k addresses · x exclude · y copy · ? help",
-             "w/s scroll · u speed up · c cancel · y copy txid · ? help",
+             "w/s scroll · u speed up · c cancel · y copy txid · r copy raw hex · ? help",
              "space start/stop · o one round · c coordinator · a rules · b sweep · p pay-in-cj · ? help",
-             "n add · i import · +/- no-change round · e edit · x remove · enter send · ? help",
+             "n add · i import · +/- no-change round · e edit · x remove · enter send · r raw hex · ? help",
              "n new rule · e edit · space on/off · x delete · a arm/disarm · ? help",
              "w/s pick · enter run · e edit/paste · x enable scripting · l load all wallets · ? help"]
     try:
@@ -2260,7 +2343,9 @@ def tui(rpc, args, frames=0):
                         rl["on"] = not rl.get("on"); save_rules(S["wallet"], S["rules"])
                 elif raw:
                     r = raw.lower()
-                    if r == "r": S["kick"] = True; flash("refreshing ...", 20)
+                    if tab == 2 and r == "r": do_copy_rawtx()
+                    elif tab == 4 and r == "r": do_copy_last_send()
+                    elif r == "r": S["kick"] = True; flash("refreshing ...", 20)
                     elif r == ".":                                # privacy mode: hide amounts + addresses
                         DISCREET["on"] = not DISCREET["on"]
                         flash("privacy mode ON - amounts & addresses hidden ('.' reveals)" if DISCREET["on"]
@@ -2383,6 +2468,8 @@ def wasabi_config():                                  # auto-detect like wcli.sh
                     url=str(pref).rstrip("/"), user=cfg.get("JsonRpcUser") or None,
                     password=cfg.get("JsonRpcPassword") or None,
                     coordinator=cfg.get("CoordinatorUri"),
+                    btcrpc=dict(url=str(cfg.get("BitcoinRpcEndPoint") or cfg.get("BitcoinRpcUri") or ""),
+                                cred=str(cfg.get("BitcoinRpcCredentialString") or "")),
                     log=os.path.join(os.path.dirname(p), "Logs.txt"))
     return None
 
@@ -2444,10 +2531,10 @@ def main():
     ap.add_argument("--daemon", default=None, metavar="PATH", help="Wasabi daemon executable (for auto-start)")
     ap.add_argument("--frames", type=int, default=0, help="render N frames then exit (testing)")
     a = ap.parse_args()
-    a.logpath = None; a.cfgpath = None; a.coord = None
+    a.logpath = None; a.cfgpath = None; a.coord = None; a.btcrpc = None
     if not a.demo:
         cfg = wasabi_config()                          # zero-config: use the daemon's own settings
-        if cfg: a.logpath = cfg.get("log"); a.cfgpath = cfg.get("path")   # log = sync progress; cfg = toggles
+        if cfg: a.logpath = cfg.get("log"); a.cfgpath = cfg.get("path"); a.btcrpc = cfg.get("btcrpc")
         if cfg:
             a.coord = cfg.get("coordinator")
             if not (a.coord or "").strip():            # wasabi ships with NO coordinator - the user picks one
