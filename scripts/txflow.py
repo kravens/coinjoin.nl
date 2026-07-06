@@ -49,7 +49,7 @@ def coord_name(url):                                 # short coordinator name fr
     from urllib.parse import urlparse
     h = (urlparse(url).netloc or url).lower()
     for pre in ("www.", "api.", "btcpay.", "coordinator.", "coinjoin.", "wabisabi."):
-        if h.startswith(pre): h = h[len(pre):]
+        if h.startswith(pre) and "." in h[len(pre):]: h = h[len(pre):]   # keep e.g. coinjoin.nl intact
     return h or url
 def fetch_coinjoins(n=10, api=LIQUISABI_API):        # latest n WabiSabi coinjoin rounds from LiquiSabi
     import datetime

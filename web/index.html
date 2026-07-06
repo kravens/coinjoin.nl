@@ -196,7 +196,26 @@
         <img src="https://wasabi.kravens.nl/Logo PNG.png" style="max-width:80%;max-height:210px;text-align: center; position:relative;vertical-align: middle;margin-right:-0.1em; background-blend-mode: darken;"></img>
         <!-- <h2><br> <img src="bitcoin-lightning.svg" style="max-height:42px;text-align: center; position:relative;vertical-align: middle;margin-right:-0.1em; background-blend-mode: darken;"></img>itcoin How to: </h2> -->
         <h1><br> WabiSabi Coordinator for <a href="https://wasabiwallet.io/">Wasabi Wallet</a></h1>
-	Weekly coinjoin round with 26 inputs is our target, join us every Sunday from 0:00-23:59 (CET).
+	Weekly coinjoin round with <span id="minInputCount">26</span> inputs is our target, join us every Sunday from 0:00-23:59 (CET).
+	<script>
+	    fetch('/wabisabi/status', {
+	        method: 'POST',
+	        headers: { 'Content-Type': 'application/json' },
+	        body: JSON.stringify({ RoundCheckpoints: [] })
+	    })
+	        .then(r => r.ok ? r.json() : Promise.reject())
+	        .then(d => {
+	            let min = null;
+	            for (const rs of (d.roundStates || [])) {
+	                for (const ev of ((rs.coinjoinState || {}).Events || [])) {
+	                    const m = (ev.RoundParameters || {}).MinInputCountByRound;
+	                    if (m != null) { min = min == null ? m : Math.min(min, m); }
+	                }
+	            }
+	            if (min != null) document.getElementById('minInputCount').textContent = min;
+	        })
+	        .catch(() => {});
+	</script>
 
 	<div id="content"></div>
 
