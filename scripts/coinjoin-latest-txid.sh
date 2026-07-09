@@ -1,14 +1,17 @@
 #!/bin/bash
 # Publishes the latest successfully broadcast coinjoin txid as JSON for the
-# coinjoin.nl index page to render. Sourced from the WabiSabi coordinator log.
-LOG=/home/wasabi/.walletwasabi/coordinator/Logs.txt
+# coinjoin.nl index page to render. Sourced from the durable stats DB that
+# coinjoin-stats.py maintains — the coordinator's Logs.txt truncates too fast
+# (WW 2.8.0 error spam) to read reliably, but the DB survives rotation.
+# Run this AFTER `coinjoin-stats.py sync` so the DB is current.
+DB=/var/lib/coinjoin-stats/coinjoin.db
 OUT=/var/www/coinjoin/latest-coinjoin.json
 TXFLOW_OUT=/var/www/coinjoin/latest.html
 MARKER=/var/www/coinjoin/.latest-txid
 
-line=$(grep "Successfully broadcast the coinjoin" "$LOG" 2>/dev/null | tail -1)
-txid=$(printf '%s' "$line" | grep -oE 'coinjoin: [0-9a-f]{64}' | grep -oE '[0-9a-f]{64}')
-ts=$(printf '%s' "$line" | grep -oE '^[0-9-]{10} [0-9:]{8}')
+row=$(sqlite3 "$DB" "SELECT txid,broadcast_time FROM coinjoins ORDER BY broadcast_time DESC LIMIT 1;" 2>/dev/null)
+txid=${row%%|*}
+ts=${row#*|}
 
 if [ -n "$txid" ]; then
     printf '{"txid":"%s","time":"%s"}\n' "$txid" "$ts" > "$OUT"

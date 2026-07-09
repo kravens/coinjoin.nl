@@ -8,7 +8,9 @@ After=wasabicoordinator.service
 
 [Service]
 Type=oneshot
-ExecStart=/usr/local/bin/coinjoin-latest-txid.sh
+# Sync first so the DB is current, then publish the txid/txflow from the DB
+# (coinjoin-latest-txid.sh reads the DB, which survives log rotation).
 ExecStart=-/usr/local/bin/coinjoin-stats.py sync
+ExecStart=/usr/local/bin/coinjoin-latest-txid.sh
 # Dump the latest rounds for the index page (after sync, so it includes the new one).
 ExecStart=-/bin/sh -c '/usr/local/bin/coinjoin-stats.py latest 10 > /var/www/coinjoin/latest-stats.txt'
