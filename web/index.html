@@ -11,22 +11,33 @@
 @font-face{font-family:'Anonymous Pro';font-style:normal;font-weight:400;font-display:swap;src:url('/fonts/AnonymousPro.woff2?v=20260710') format('woff2')}
 </style>
 <script>
-    function myFunction(inputID) {
-    // Get the text field
+    async function myFunction(inputID, btn) {
     var copyText = document.getElementById(inputID);
-
-    // Select the text field
     copyText.select();
     copyText.setSelectionRange(0, 99999); // For mobile devices
-
-    // Copy the text inside the text field
-    navigator.clipboard.writeText(copyText.value);
-
-    // Alert the copied text
-    alert("Copied the text: " + copyText.value);
+    try { await navigator.clipboard.writeText(copyText.value); }
+    catch (e) { document.execCommand("copy"); } // fallback for non-secure contexts
+    if (!btn) return;
+    btn.classList.add("copied");
+    btn.textContent = "✓ Copied";
+    clearTimeout(btn._t);
+    btn._t = setTimeout(function () {
+        btn.classList.remove("copied");
+        btn.textContent = "Copy";
+    }, 1600);
 }
 </script>
 <style>
+    .copybtn {
+        cursor: pointer; padding: 6px 18px; border: 0; border-radius: 8px;
+        background: #3c618b; color: #fff; font-family: 'Anonymous Pro'; font-size: 1em;
+        transition: background .25s ease, transform .15s ease;
+    }
+    .copybtn:hover { transform: translateY(-1px); }
+    .copybtn:active { transform: translateY(0); }
+    .copybtn.copied { background: #2ed67a; color: #0a0c10; transform: scale(1.05); }
+    @media (prefers-reduced-motion: reduce) { .copybtn { transition: none; } }
+
     .css-selector {
     background: linear-gradient(56deg, #1dbc93, #305ee1);
     background-size: 400% 400%;
@@ -252,7 +263,7 @@
     	<!-- The text field -->
     	<input style="width:560px; max-width:100%; box-sizing:border-box; user-select:all;" type="text" value='name=Noderunners%20Batched%20Transaction%20Coordinator&network=main&coordinatorUri=https://coinjoin.nl&coordinationFeeRate=0&readMore=https://coinjoin.nl/&absoluteMinInputCount=21' id="myInput2" readonly>
     	<!-- The button used to copy the text -->
-	<button onclick="myFunction('myInput2')">Copy</button>
+	<button class="copybtn" onclick="myFunction('myInput2', this)">Copy</button>
 	<h2>3. Open Wasabi & Accept coinjoin.nl as coordinator </h2>
         <img src="https://kravens.nl/images/wasabi_detected.png" style="width:40em; border-radius:21px; max-inline-size:90%;">
 
