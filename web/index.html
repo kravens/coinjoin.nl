@@ -160,6 +160,7 @@
     }
     table {
         width: 80%;
+        max-width: 100%;
         border-collapse: collapse;
         position: auto;
         border-radius: 5px;
@@ -167,6 +168,12 @@
         margin: 3px auto;
         background-color: #3c618b;
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    }
+    /* shortened round id, allow break as last resort so table never overflows */
+    td.rid { word-break: break-all; }
+    @media (max-width: 600px) {
+        table { width: 100%; }
+        th, td { padding: 6px 4px; font-size: 0.85em; }
     }
 
 </style>
@@ -223,7 +230,7 @@
 	    <h2>Latest successful coinjoin round</h2>
 	    <iframe id="latestRoundFrame" title="Latest CoinJoin round" loading="lazy"
 	            style="width:100%;height:640px;border:0;border-radius:21px;max-inline-size:100%;"></iframe>
-	    <p id="latestRoundMeta"></p>
+	    <p id="latestRoundMeta" style="overflow-wrap:anywhere;"></p>
 	</div>
 	<script>
 	    fetch('/latest-coinjoin.json', { cache: 'no-store' })
@@ -244,7 +251,7 @@
 	
 	<h2>2. Copy magic connect string: </h2>
     	<!-- The text field -->
-    	<input style="width:560px; user-select:all;" type="text" value='name=Noderunners%20Batched%20Transaction%20Coordinator&network=main&coordinatorUri=https://coinjoin.nl&coordinationFeeRate=0&readMore=https://coinjoin.nl/&absoluteMinInputCount=21' id="myInput2" readonly>
+    	<input style="width:560px; max-width:100%; box-sizing:border-box; user-select:all;" type="text" value='name=Noderunners%20Batched%20Transaction%20Coordinator&network=main&coordinatorUri=https://coinjoin.nl&coordinationFeeRate=0&readMore=https://coinjoin.nl/&absoluteMinInputCount=21' id="myInput2" readonly>
     	<!-- The button used to copy the text -->
 	<button onclick="myFunction('myInput2')">Copy</button>
 	<h2>3. Open Wasabi & Accept coinjoin.nl as coordinator </h2>
@@ -344,9 +351,11 @@
                 data.RoundStates.forEach(state => {
                     const fr = feeRates[(state.RoundId || '').toLowerCase()];
                     const frCell = fr != null ? fr.toFixed(1) : '—';
+                    const rid = state.RoundId || '';
+                    const ridShort = rid.length > 13 ? rid.slice(0, 6) + '…' + rid.slice(-4) : rid;
                     tableHTML += `
                         <tr>
-                            <td>${state.RoundId}</td>
+                            <td class="rid" title="${rid}">${ridShort}</td>
                             <!-- <td>${state.IsBlameRound}</td> !-->
                             <td>${state.InputCount}</td>
                             <!-- <td>${state.MaxSuggestedAmount}</td> !-->
