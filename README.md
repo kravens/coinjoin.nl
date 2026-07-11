@@ -80,3 +80,19 @@ Never committed; live outside this repo:
 
 Runtime artifacts (`latest*.json/html/txt`, `*.db`) are git-ignored — they
 regenerate on the next timer tick.
+
+## Hardware Wallet Signers
+
+Status of hardware wallets as unattended WabiSabi coinjoin remote signers for
+Wasabi Wallet (ownership proofs + round signing under an on-device policy):
+
+| | **Trezor** | **Coldcard** | **Passport Prime** | **Krux** |
+|---|---|---|---|---|
+| **Wasabi branch** | [`feature/trezor-coinjoin`](https://github.com/kravens/WalletWasabi/tree/feature/trezor-coinjoin) | [`feature/coldcard-coinjoin`](https://github.com/kravens/WalletWasabi/tree/feature/coldcard-coinjoin) | [`feature/passport-coinjoin`](https://github.com/kravens/WalletWasabi/tree/feature/passport-coinjoin) | cross-check vectors only |
+| **Wasabi client side** | ✅ TrezorKeyChain + bridge | ✅ ColdcardKeyChain + raw USB HID | ✅ PassportKeyChain + USB HID | ❌ none (airgapped QR, no unattended channel) |
+| **Firmware requirement** | none — stock firmware has coinjoin support | custom `feature/slip19-coinjoin` branch + HSM policy | custom `wallet-rpc` service ([KeyOS branch](https://github.com/kravens/KeyOS/tree/feature/passport-coinjoin)) | custom `feat/slip-19-coinjoin` branch |
+| **Ownership proofs (SLIP-19)** | ✅ device-native | ✅ segwit + taproot (simulator) | ✅ spec-vector exact | ✅ segwit + taproot vectors pass Wasabi's verifier |
+| **Unattended round signing** | ✅ on-device authorization, SLIP-25 account | ✅ HSM policy (self-spend floor) | ✅ session policy: fee cap, self-spend only, round budget, expiry | ❌ QR per interaction |
+| **Real device tested** | ✅ | ❌ simulator only — retail runs vendor-signed firmware; Mk4 is the only viable model (Q disables HSM, Mk3 too old) | ❌ pending: USB VID/PID, boot-image registration, vendor-signed-firmware question | ❌ |
+| **Script types** | taproot (SLIP-25) | segwit (taproot proofs verified, signing follow-up) | segwit v0 (taproot follow-up) | n/a |
+| **Readiness** | **closest to production** | **blocked on vendor firmware signing** | **hardware-test ready** ([bring-up guide](passport/PASSPORT_TESTING.md)) | **research stage** |
