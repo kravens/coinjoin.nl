@@ -1,12 +1,16 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
 <title>CoinJoin.nl</title>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<link href="https://www.kravens.nl/fonts/SwissSiena.ttf" rel="stylesheet">
-<link href="https://www.kravens.nl/fonts/Library3am.otf" rel="stylesheet">
-<!-- ponytail: self-hosted, was Google Fonts (leaked visitor IP). Only Anonymous Pro is actually used. -->
+<meta name="description" content="Not-for-profit WabiSabi coinjoin coordinator for Wasabi Wallet — 0% coordinator fee, weekly rounds. Batch your bitcoin transactions for lower fees and better privacy.">
+<meta property="og:title" content="CoinJoin.nl — WabiSabi Coordinator for Wasabi Wallet">
+<meta property="og:description" content="Not-for-profit coinjoin coordinator, 0% fee, weekly rounds. Batch your bitcoin transactions for lower fees and better privacy.">
+<meta property="og:image" content="https://wasabi.kravens.nl/Logo PNG.png">
+<meta property="og:url" content="https://coinjoin.nl/">
+<meta property="og:type" content="website">
+<!-- ponytail: self-hosted font, was Google Fonts (leaked visitor IP). -->
 <style>
 @font-face{font-family:'Anonymous Pro';font-style:normal;font-weight:400;font-display:swap;src:url('/fonts/AnonymousPro.woff2?v=20260710') format('woff2')}
 </style>
@@ -28,164 +32,176 @@
 }
 </script>
 <style>
+    /* ---------- background & typography ---------- */
+    @keyframes bgShift {
+        0%   { background-position: 0% 48%; }
+        50%  { background-position: 100% 53%; }
+        100% { background-position: 0% 48%; }
+    }
+    * { box-sizing: border-box; }
+    body {
+        margin: 0;
+        /* the animated gradient shows through as a thin glowing border around the
+           cards — same proportional thickness on every screen width */
+        padding: 0.618%;
+        text-align: center;
+        font-family: 'Anonymous Pro', monospace;
+        color: whitesmoke;
+        background: linear-gradient(90deg, #1dbc93, #3c618b);
+        background-size: 400% 400%;
+        animation: bgShift 12s ease infinite;
+        min-height: 100vh;
+    }
+    @media (prefers-reduced-motion: reduce) {
+        body, .card { animation: none !important; }
+    }
+    p { color: whitesmoke; }
+
+    /* ---------- section cards ---------- */
+    .card {
+        /* full width: only the body's thin gradient border shows on the sides */
+        margin: 0 0 0.618vw;
+        padding: 26px 22px 30px;
+        border-radius: 15px;
+        color: whitesmoke;
+        background: linear-gradient(270deg, #0c4e3e, #112031);
+        background-size: 400% 400%;
+        animation: bgShift 30s ease infinite;
+        box-shadow: 0 4px 18px rgba(0, 0, 0, 0.25);
+    }
+    /* keep reading content at a sane width inside the full-width cards */
+    #latest-round, #latest-flow, #latest-stats { max-width: 1100px; margin: 0 auto; }
+    .video { max-width: 1022px; }
+    .card > :first-child { margin-top: 0; }
+    .card > :last-child { margin-bottom: 0; }
+
+    /* section titles: consistent size + green accent underline */
+    .card h2.section {
+        font-size: 1.7em;
+        margin: 0 0 0.2em;
+        padding-bottom: 0.25em;
+        display: inline-block;
+        border-bottom: 2px solid #1dbc93;
+    }
+    .sub { font-size: 0.95em; opacity: 0.8; margin: 0.2em 0 1em; }
+
+    /* ---------- header ---------- */
+    .logo { max-width: 80%; max-height: 210px; vertical-align: middle; }
+    h1 { margin: 0.5em 0 0.2em; }
+    .tagline { margin: 0.3em auto 0.1em; max-width: 46em; }
+
+    nav.sections {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        align-items: center;
+        gap: 0.5em 1.3em;
+        margin: 1.1em auto 0.4em;
+        font-size: 1.05em;
+    }
+    nav.sections a { white-space: nowrap; }
+
+    .callout {
+        display: inline-block;
+        margin: 0.9em auto 0.2em;
+        padding: 10px 22px;
+        border-radius: 12px;
+        background: #0c4e3e;
+        border: 1px solid #1dbc93;
+        font-size: 1.05em;
+        line-height: 1.5;
+    }
+
+    /* ---------- buttons ---------- */
     .copybtn {
         cursor: pointer; padding: 6px 18px; border: 0; border-radius: 8px;
-        background: #3c618b; color: #fff; font-family: 'Anonymous Pro'; font-size: 1em;
+        background: #3c618b; color: #fff; font-family: 'Anonymous Pro', monospace; font-size: 1em;
         transition: background .25s ease, transform .15s ease;
     }
     .copybtn:hover { transform: translateY(-1px); }
     .copybtn:active { transform: translateY(0); }
     .copybtn.copied { background: #2ed67a; color: #0a0c10; transform: scale(1.05); }
     @media (prefers-reduced-motion: reduce) { .copybtn { transition: none; } }
+    /* anchor variant must beat the global a:link/:visited rules */
+    a.copybtn { display: inline-block; text-decoration: none; }
+    a.copybtn:link, a.copybtn:visited { color: #fff; background-color: #3c618b; }
+    a.copybtn:hover, a.copybtn:active { color: #fff; background-color: #4a76a8; text-decoration: none; }
 
-    .css-selector {
-    background: linear-gradient(56deg, #1dbc93, #305ee1);
-    background-size: 400% 400%;
+    /* ---------- links ---------- */
+    a:link { color: orange; text-decoration: none; }
+    a:visited { color: #e8b04b; text-decoration: none; }
+    a:hover { color: darkorange; text-decoration: underline; }
+    a:active { color: yellow; text-decoration: underline; }
 
-    -webkit-animation: AnimationName 6s ease infinite;
-    -moz-animation: AnimationName 6s ease infinite;
-    -o-animation: AnimationName 6s ease infinite;
-    animation: AnimationName 6s ease infinite;
-}
-
-@-webkit-keyframes AnimationName {
-    0%{background-position:0% 48%}
-    50%{background-position:100% 53%}
-    100%{background-position:0% 48%}
-}
-@-moz-keyframes AnimationName {
-    0%{background-position:0% 48%}
-    50%{background-position:100% 53%}
-    100%{background-position:0% 48%}
-}
-@-o-keyframes AnimationName {
-    0%{background-position:0% 48%}
-    50%{background-position:100% 53%}
-    100%{background-position:0% 48%}
-}
-@keyframes AnimationName {
-    0%{background-position:0% 48%}
-    50%{background-position:100% 53%}
-    100%{background-position:0% 48%}
-}
-    body {
-      padding: 0.618%;
-      border-radius: 15px;
-      text-align:center;
-      /* background-color:darkslategray; */
-      
-      background-color: #3c618b;
-      background: linear-gradient(90deg, #1dbc93, #3c618b);
-    background-size: 400% 400%;
-
-    -webkit-animation: AnimationName 6s ease infinite;
-    -moz-animation: AnimationName 6s ease infinite;
-    -o-animation: AnimationName 6s ease infinite;
-    animation: AnimationName 6s ease infinite;
-      font-family: 'Anonymous Pro';
-      }
-    div {
-        color:whitesmoke;
-        /* background-color: rgb(4, 46, 46); */
-        background-color: #112031;
-        background: linear-gradient(270deg, #0c4e3e, #112031);
-    background-size: 400% 400%;
-
-    -webkit-animation: AnimationName 30s ease infinite;
-    -moz-animation: AnimationName 30s ease infinite;
-    -o-animation: AnimationName 30s ease infinite;
-    animation: AnimationName 30s ease infinite;
-        
-        border-radius: 15px;
+    /* ---------- get-started steps ---------- */
+    .steps { max-width: 46em; margin: 0 auto; }
+    .steps h3 {
+        font-size: 1.25em;
+        margin: 1.1em 0 0.4em;
     }
-    p {
-        color:whitesmoke;
+    .steps h3 .n {
+        display: inline-block;
+        min-width: 1.55em;
+        margin-right: 0.35em;
+        padding: 0.05em 0;
+        border-radius: 50%;
+        background: #1dbc93;
+        color: #0a0c10;
     }
-    .tooltip {
-    position: relative;
-    display: inline-block;
+    .connect input {
+        width: 560px; max-width: 100%;
+        padding: 6px 8px;
+        border-radius: 8px; border: 1px solid #3c618b;
+        background: #0a0c10; color: whitesmoke;
+        font-family: 'Anonymous Pro', monospace;
+        user-select: all;
+    }
+    .shot { width: 40em; border-radius: 21px; max-inline-size: 90%; margin-top: 0.6em; }
+    .video {
+        width: 100%; max-width: 1022px; aspect-ratio: 16 / 9; height: auto;
+        border: 0; border-radius: 21px; margin-top: 1.4em;
     }
 
-    .tooltip .tooltiptext {
-    visibility: hidden;
-    width: 140px;
-    background-color: #555;
-    color: #fff;
-    text-align: center;
-    border-radius: 6px;
-    padding: 5px;
-    position: absolute;
-    z-index: 1;
-    bottom: 150%;
-    left: 50%;
-    margin-left: -75px;
-    opacity: 0;
-    transition: opacity 0.3s;
-    }
-
-    .tooltip .tooltiptext::after {
-    content: "";
-    position: absolute;
-    top: 100%;
-    left: 50%;
-    margin-left: -5px;
-    border-width: 5px;
-    border-style: solid;
-    border-color: #555 transparent transparent transparent;
-    }
-
-    .tooltip:hover .tooltiptext {
-    visibility: visible;
-    opacity: 1;
-    }
-    a:link {
-    color: orange;
-    background-color: transparent;
-    text-decoration: none;
-    }
-    a:visited {
-    color: pink;
-    background-color: transparent;
-    text-decoration: none;
-    }
-    a:hover {
-    color: darkorange;
-    background-color: transparent;
-    text-decoration: underline;
-    }
-    a:active {
-    color: yellow;
-    background-color: transparent;
-    text-decoration: underline;
-    }
+    /* ---------- tables ---------- */
     table {
-    width: 100%;
-    border-collapse: collapse;
-    }
-
-    th, td {
-    padding: 8px;
-    text-align: left;
-    border-bottom: 1px solid #ddd;
-    }
-    table {
-        width: 80%;
-        max-width: 100%;
+        width: 90%;
+        max-width: 1100px;
         border-collapse: collapse;
-        position: auto;
         border-radius: 5px;
-        margin-top: 3px auto;
-        margin: 3px auto;
+        margin: 10px auto;
         background-color: #3c618b;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
     }
-    /* shortened round id, allow break as last resort so table never overflows */
-    td.rid { word-break: break-all; }
+    th, td {
+        padding: 8px;
+        text-align: left;
+        border-bottom: 1px solid rgba(221, 221, 221, 0.35);
+    }
+    td.rid { word-break: break-all; } /* never let round ids overflow */
     @media (max-width: 600px) {
         table { width: 100%; }
         th, td { padding: 6px 4px; font-size: 0.85em; }
+        .card { padding: 18px 10px 22px; }
+        .viewerframe { height: 420px; }
+    }
+    #roundsUpdated { font-size: 0.85em; opacity: 0.75; }
+    .error { color: #e8b04b; }
+
+    /* ---------- embedded viewers ---------- */
+    .viewerframe {
+        width: 100%; height: 640px; border: 0; border-radius: 21px;
+        max-inline-size: 100%; background: rgb(10, 12, 16);
     }
 
+    /* ---------- hardware wallet flow ---------- */
+    .hwflow { width: 100%; max-width: 960px; height: auto; margin: 0.5em auto; display: block; }
+
+    /* ---------- footer ---------- */
+    .footer { font-size: 0.95em; }
+    .footer h3 { margin: 1.1em 0 0.4em; font-size: 1.15em; color: #1dbc93; }
+    .footer p { max-width: 56em; margin: 0.4em auto; }
+    a.gh:link, a.gh:visited { color: whitesmoke; display: inline-block; margin-top: 0.8em; }
+    a.gh:hover { color: #1dbc93; text-decoration: none; }
 </style>
 <link rel="apple-touch-icon" sizes="57x57" href="https://wasabi.kravens.nl/Logo icon PNG.png">
 <link rel="apple-touch-icon" sizes="60x60" href="https://wasabi.kravens.nl/Logo icon PNG.png">
@@ -206,103 +222,54 @@
 <meta name="theme-color" content="#000000">
 </head>
 <body>
-<div class="container-fluid text-center">
-    <p>
-        <br>
-        <br>
-        <img src="https://wasabi.kravens.nl/Logo PNG.png" style="max-width:80%;max-height:210px;text-align: center; position:relative;vertical-align: middle;margin-right:-0.1em; background-blend-mode: darken;"></img>
-        <!-- <h2><br> <img src="bitcoin-lightning.svg" style="max-height:42px;text-align: center; position:relative;vertical-align: middle;margin-right:-0.1em; background-blend-mode: darken;"></img>itcoin How to: </h2> -->
-        <h1><br> WabiSabi Coordinator for <a href="https://wasabiwallet.io/">Wasabi Wallet</a></h1>
-	Weekly coinjoin round with <span id="minInputCount">26</span> inputs is our target, join us every Sunday from 0:00-23:59 (CET).
-	<script>
-	    fetch('/wabisabi/status', {
-	        method: 'POST',
-	        headers: { 'Content-Type': 'application/json' },
-	        body: JSON.stringify({ RoundCheckpoints: [] })
-	    })
-	        .then(r => r.ok ? r.json() : Promise.reject())
-	        .then(d => {
-	            let min = null;
-	            for (const rs of (d.roundStates || [])) {
-	                for (const ev of ((rs.coinjoinState || {}).Events || [])) {
-	                    const m = (ev.RoundParameters || {}).MinInputCountByRound;
-	                    if (m != null) { min = min == null ? m : Math.min(min, m); }
-	                }
-	            }
-	            if (min != null) document.getElementById('minInputCount').textContent = min;
-	        })
-	        .catch(() => {});
-	</script>
 
-	<div id="content"></div>
+<!-- ============ header ============ -->
+<div class="card">
+    <img class="logo" src="https://wasabi.kravens.nl/Logo PNG.png" alt="CoinJoin.nl">
+    <h1>WabiSabi Coordinator for <a href="https://wasabiwallet.io/">Wasabi Wallet</a></h1>
+    <p class="tagline">Combine your bitcoin transaction with others into one batch — lower fees,
+    better privacy. Free and not-for-profit.</p>
+    <p>🕶️ Privacy can be a side-effect of batching your transactions 🕶️</p>
 
-	<div id="latest-round" style="margin:1em auto;max-width:1100px;padding:8px;">
-	    <h2>Latest successful coinjoin round</h2>
-	    <iframe id="latestRoundFrame" title="Latest CoinJoin round" loading="lazy"
-	            style="width:100%;height:640px;border:0;border-radius:21px;max-inline-size:100%;"></iframe>
-	    <p id="latestRoundMeta" style="overflow-wrap:anywhere;"></p>
-	</div>
-	<script>
-	    fetch('/latest-coinjoin.json', { cache: 'no-store' })
-	        .then(r => r.json())
-	        .then(d => {
-	            if (d && d.txid) {
-	                document.getElementById('latestRoundFrame').src = '/viewer/#tx=' + d.txid;
-	                document.getElementById('latestRoundMeta').textContent =
-	                    'txid ' + d.txid + (d.time ? '  ·  ' + d.time + ' UTC' : '');
-	            } else {
-	                document.getElementById('latest-round').style.display = 'none';
-	            }
-	        })
-	        .catch(() => { document.getElementById('latest-round').style.display = 'none'; });
-	</script>
-
-	<h2>1. Download & Install <a href="https://wasabiwallet.io/#download">Wasabi Wallet</a><h2>
-	
-	<h2>2. Copy magic connect string: </h2>
-    	<!-- The text field -->
-    	<input style="width:560px; max-width:100%; box-sizing:border-box; user-select:all;" type="text" value='name=Noderunners%20Batched%20Transaction%20Coordinator&network=main&coordinatorUri=https://coinjoin.nl&coordinationFeeRate=0&readMore=https://coinjoin.nl/&absoluteMinInputCount=21' id="myInput2" readonly>
-    	<!-- The button used to copy the text -->
-	<button class="copybtn" onclick="myFunction('myInput2', this)">Copy</button>
-	<h2>3. Open Wasabi & Accept coinjoin.nl as coordinator </h2>
-        <img src="https://kravens.nl/images/wasabi_detected.png" style="width:40em; border-radius:21px; max-inline-size:90%;">
-
-	<h2>4. Restart Wasabi Wallet after saving</h2>
-	<h2>5. Click Receive & send bitcoin to your Wasabi Wallet</h2>
-	<p>Simply open your wallet, receive funds you'd like to CoinJoin and press the play button to start!</p>
-	<h3>🕶️ Privacy can be a side-effect of batching your transactions 🕶️</h3>
-
-</p>
-<br>
-    <iframe style="max-width: 90% !important; border-radius:21px; max-inline-size:90%;" width="1022" height="486" src="https://www.youtube-nocookie.com/embed/dGATztn5Ql8" title="WabiSabi Coinjoin Explained in 3 Minutes" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+    <nav class="sections">
+        <a class="copybtn" href="#get-started">Get started</a>
+        <a href="#live">Live rounds</a>
+        <a href="#latest">Latest round</a>
+        <a href="#history">History</a>
+        <a href="#hardware">Hardware wallet</a>
+    </nav>
     <br>
-
-    <p>
-
-    </p>
-    <br>
-    <br>
-<br>
-</p>
-<br>
+    <span class="callout">Weekly coinjoin round with <span id="minInputCount">26</span>+ inputs —
+    join us every <b>Sunday 0:00–23:59 (CET)</b>.<br>Smaller rounds can happen during the week
+    whenever enough inputs register.</span>
+    <script>
+        fetch('/wabisabi/status', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ RoundCheckpoints: [] })
+        })
+            .then(r => r.ok ? r.json() : Promise.reject())
+            .then(d => {
+                let min = null;
+                for (const rs of (d.roundStates || [])) {
+                    for (const ev of ((rs.coinjoinState || {}).Events || [])) {
+                        const m = (ev.RoundParameters || {}).MinInputCountByRound;
+                        if (m != null) { min = min == null ? m : Math.min(min, m); }
+                    }
+                }
+                if (min != null) document.getElementById('minInputCount').textContent = min;
+            })
+            .catch(() => {});
+    </script>
 </div>
-<br>
 
-<div>
-	<br><h4>Disclaimer: </h4><br>User error (registration over clearnet without Tor) or malicious coordinators can lead to loss of UTXO privacy: <a href="https://groups.google.com/g/bitcoindev/c/CbfbEGozG7c/m/fKuKwo6kDAAJ">Bitcoindev mailinglist discussion</a> 
-        <br>Always update to the latest Wasabi Wallet version when possible and do your own research! <a href="https://petertodd.org/2025/coinjoin-comparison">Peter Todd's coinjoin comparison</a>, <a href="https://youtu.be/eIBTSe4OABI?t=19002">Kruw presentation BTC++ Riga 2025</a>.
-        <br><br> <h4>Funding: </h4> 
-        <br>The <a href='https://coinjoin.nl'>coinjoin.nl</a> coordinator is a not-for-profit community project, any future fee-revenue will be donated to OpenSats / HRF / BTCPayServer to support open source development of bitcoin privacy tools. 
-        <br>Even with a 0% Coordinator-fee, there can be dust (pieces of bitcoin too small to economically spend) collection revenue for WabiSabi coordinators.
-<br><br>
-</div>
-<br>
-<div><br>
-<h4>Coordinator status & history:</h4>
-
-<a href="https://coinjoin.nl/wabisabi/human-monitor">Check CoinJoin round status</a>
-    
-<script>
+<!-- ============ live rounds ============ -->
+<div class="card" id="live">
+    <h2 class="section">Live rounds</h2>
+    <p class="sub"><span id="roundsUpdated">loading…</span></p>
+    <div id="content"></div>
+    <p><a href="https://coinjoin.nl/wabisabi/human-monitor">Raw round status (human-monitor)</a></p>
+    <script>
         async function fetchFeeRates() {
             try {
                 const r = await fetch('/wabisabi/status', {
@@ -333,6 +300,7 @@
                 if (!response.ok) throw new Error('Network response was not ok');
                 const data = await response.json();
                 displayData(data, feeRates);
+                lastUpdated = Date.now();
             } catch (error) {
                 const contentDiv = document.getElementById('content');
                 contentDiv.innerHTML = `<p class="error">Error fetching data: ${error.message}</p>`;
@@ -348,9 +316,7 @@
                         <thead>
                             <tr>
                                 <th>Round ID</th>
-                                <!-- <th>Is Blame Round</th> !-->
                                 <th>Input Count</th>
-                                <!-- <th>Max Suggested Amount</th> !-->
                                 <th>Time Remaining</th>
                                 <th>Phase</th>
                                 <th>Fee Rate (sat/vB)</th>
@@ -366,9 +332,7 @@
                     tableHTML += `
                         <tr>
                             <td class="rid" title="${rid}">${ridShort}</td>
-                            <!-- <td>${state.IsBlameRound}</td> !-->
                             <td>${state.InputCount}</td>
-                            <!-- <td>${state.MaxSuggestedAmount}</td> !-->
                             <td>${state.InputRegistrationRemaining}</td>
                             <td>${state.Phase}</td>
                             <td>${frCell}</td>
@@ -382,60 +346,257 @@
             }
         }
 
-        // Fetch data when the page loads
+        // Fetch on load, refresh every 30s, show staleness between refreshes.
+        let lastUpdated = null;
         fetchData();
+        setInterval(fetchData, 30000);
+        setInterval(function () {
+            if (lastUpdated == null) return;
+            const s = Math.max(0, Math.round((Date.now() - lastUpdated) / 1000));
+            document.getElementById('roundsUpdated').textContent =
+                'updated ' + (s < 2 ? 'just now' : s + 's ago') + ' · auto-refreshes every 30s';
+        }, 1000);
     </script>
-
-<br> <br>
-<a href="https://liquisabi.com">Check CoinJoin rounds history on LiquiSabi</a>
-<br> <br>
-
-<div id="latest-flow" style="margin:1em auto;max-width:1100px;padding:8px;">
-    <iframe id="latestFlowFrame" title="Latest CoinJoin transaction flow" loading="lazy"
-            src="/latest.html"
-            style="width:100%;height:640px;border:0;border-radius:21px;max-inline-size:100%;background:rgb(10,12,16);"></iframe>
 </div>
 
-<div id="latest-stats" style="margin:1em auto;max-width:1100px;padding:8px;">
-    <h3>Recent history</h3>
-    <div id="latestStats"></div>
-</div>
-<script>
-    // Parse `coinjoin-stats.py latest` text (2 lines per round) into a table that
-    // reuses the round-monitor table styling at the top of the page.
-    fetch('/latest-stats.txt', { cache: 'no-store' })
-        .then(r => r.ok ? r.text() : Promise.reject())
-        .then(t => {
-            const lines = t.split('\n');
-            let rows = '';
-            for (let i = 0; i < lines.length; i++) {
-                const h = lines[i].match(/^\s+(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)\s+([0-9a-f]{64})/);
-                if (!h) continue;
-                const d = (lines[i + 1] || '').match(/in\/out (\d+)\/(\d+)\s+mining ([\d,]+) sat\s+coord ([\d,]+) sat\s+([\d.]+) sat\/vB/);
-                const txid = h[2];
-                const short = txid.slice(0, 8) + '…' + txid.slice(-8);
-                rows += `<tr>
-                    <td>${h[1]} UTC</td>
-                    <td><a href="/viewer/#tx=${txid}" title="${txid}">${short}</a></td>
-                    <td>${d ? d[1] + '/' + d[2] : '—'}</td>
-                    <td>${d ? d[3] : '—'}</td>
-                    <td>${d ? d[4] : '—'}</td>
-                    <td>${d ? d[5] : '—'}</td>
-                </tr>`;
-            }
-            if (!rows) { document.getElementById('latest-stats').style.display = 'none'; return; }
-            document.getElementById('latestStats').innerHTML = `
-                <table>
-                    <thead><tr>
-                        <th>Time</th><th>Txid</th><th>In/Out</th>
-                        <th>Mining fee (sat)</th><th>Coord fee (sat)</th><th>Fee rate (sat/vB)</th>
-                    </tr></thead>
-                    <tbody>${rows}</tbody>
-                </table>`;
-        })
-        .catch(() => { document.getElementById('latest-stats').style.display = 'none'; });
-</script>
+<!-- ============ get started ============ -->
+<div class="card" id="get-started">
+    <h2 class="section">Get started</h2>
+    <div class="steps">
+        <h3><span class="n">1</span> Download &amp; install <a href="https://wasabiwallet.io/#download">Wasabi Wallet</a></h3>
 
+        <h3><span class="n">2</span> Copy the magic connect string</h3>
+        <div class="connect">
+            <input type="text" id="myInput2" readonly aria-label="Coordinator connect string"
+                   value='name=Noderunners%20Batched%20Transaction%20Coordinator&network=main&coordinatorUri=https://coinjoin.nl&coordinationFeeRate=0&readMore=https://coinjoin.nl/&absoluteMinInputCount=21'>
+            <button class="copybtn" onclick="myFunction('myInput2', this)">Copy</button>
+        </div>
+
+        <h3><span class="n">3</span> Open Wasabi &amp; accept coinjoin.nl as coordinator</h3>
+        <img class="shot" src="https://kravens.nl/images/wasabi_detected.png" alt="Wasabi: coordinator detected dialog">
+
+        <h3><span class="n">4</span> Restart Wasabi Wallet after saving</h3>
+
+        <h3><span class="n">5</span> Receive bitcoin &amp; press play</h3>
+        <p>Open your wallet, receive the funds you'd like to CoinJoin and press the play button to start!</p>
+    </div>
+    <iframe class="video" loading="lazy" src="https://www.youtube-nocookie.com/embed/dGATztn5Ql8" title="WabiSabi Coinjoin Explained in 3 Minutes" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+</div>
+
+<!-- ============ latest round ============ -->
+<div class="card" id="latest">
+    <h2 class="section">Latest round</h2>
+    <p class="sub">The most recent successful coinjoin, straight from the coordinator.</p>
+    <div id="latest-round">
+        <iframe id="latestRoundFrame" class="viewerframe" title="Latest CoinJoin round" loading="lazy"></iframe>
+        <p id="latestRoundMeta" style="overflow-wrap:anywhere;"></p>
+    </div>
+    <script>
+        fetch('/latest-coinjoin.json', { cache: 'no-store' })
+            .then(r => r.json())
+            .then(d => {
+                if (d && d.txid) {
+                    document.getElementById('latestRoundFrame').src = '/viewer/#tx=' + d.txid;
+                    document.getElementById('latestRoundMeta').textContent =
+                        'txid ' + d.txid + (d.time ? '  ·  ' + d.time + ' UTC' : '');
+                } else {
+                    document.getElementById('latest-round').style.display = 'none';
+                }
+            })
+            .catch(() => { document.getElementById('latest-round').style.display = 'none'; });
+    </script>
+    <div id="latest-flow">
+        <iframe id="latestFlowFrame" class="viewerframe" title="Latest CoinJoin transaction flow" loading="lazy" src="/latest.html"></iframe>
+    </div>
+</div>
+
+<!-- ============ history ============ -->
+<div class="card" id="history">
+    <h2 class="section">History</h2>
+    <p class="sub">Last 10 rounds</p>
+    <div id="latest-stats">
+        <div id="latestStats"></div>
+    </div>
+    <p><a href="https://liquisabi.com">Full CoinJoin rounds history on LiquiSabi</a></p>
+    <script>
+        // Parse `coinjoin-stats.py latest` text (2 lines per round) into a table that
+        // reuses the round-monitor table styling.
+        fetch('/latest-stats.txt', { cache: 'no-store' })
+            .then(r => r.ok ? r.text() : Promise.reject())
+            .then(t => {
+                const lines = t.split('\n');
+                let rows = '';
+                for (let i = 0; i < lines.length; i++) {
+                    const h = lines[i].match(/^\s+(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)\s+([0-9a-f]{64})/);
+                    if (!h) continue;
+                    const d = (lines[i + 1] || '').match(/in\/out (\d+)\/(\d+)\s+mining ([\d,]+) sat\s+coord ([\d,]+) sat\s+([\d.]+) sat\/vB/);
+                    const txid = h[2];
+                    const short = txid.slice(0, 8) + '…' + txid.slice(-8);
+                    rows += `<tr>
+                        <td>${h[1]} UTC</td>
+                        <td><a href="/viewer/#tx=${txid}" title="${txid}">${short}</a></td>
+                        <td>${d ? d[1] + '/' + d[2] : '—'}</td>
+                        <td>${d ? d[3] : '—'}</td>
+                        <td>${d ? d[4] : '—'}</td>
+                        <td>${d ? d[5] : '—'}</td>
+                    </tr>`;
+                }
+                if (!rows) { document.getElementById('latest-stats').style.display = 'none'; return; }
+                document.getElementById('latestStats').innerHTML = `
+                    <table>
+                        <thead><tr>
+                            <th>Time</th><th>Txid</th><th>In/Out</th>
+                            <th>Mining fee (sat)</th><th>Coord fee (sat)</th><th>Fee rate (sat/vB)</th>
+                        </tr></thead>
+                        <tbody>${rows}</tbody>
+                    </table>`;
+            })
+            .catch(() => { document.getElementById('latest-stats').style.display = 'none'; });
+    </script>
+</div>
+
+<!-- ============ hardware wallet signers ============ -->
+<div class="card" id="hardware">
+    <h2 class="section">Hardware wallet signers</h2>
+    <p class="sub">Bonus: coinjoin with the keys on a hardware wallet — built for <b>larger-value
+    coins</b>. Your keys never touch the computer: even a compromised PC can't steal them, and the
+    device itself enforces the coinjoin policy (your coins can only go back to your own wallet,
+    within a capped fee). Unlock, approve once on the device, and rounds sign unattended.
+    Under development.</p>
+    <svg class="hwflow" viewBox="0 0 960 290" role="img" aria-label="Hardware wallet coinjoin flow: Wasabi connects over USB via pytrezord, the device is unlocked with a PIN, the coinjoin is authorized once on the device, then rounds sign unattended">
+        <style>
+            .hwtxt { font-family: 'Anonymous Pro', monospace; fill: whitesmoke; }
+            .hwsub { font-family: 'Anonymous Pro', monospace; fill: #9fb6c9; }
+            .hwacc { fill: #1dbc93; }
+        </style>
+        <!-- panel 1: Wasabi round status -->
+        <g>
+            <rect x="15" y="60" width="240" height="110" rx="14" fill="#0a0c10" stroke="#3c618b"/>
+            <text x="35" y="95" class="hwtxt" font-size="15">Awaiting other</text>
+            <text x="35" y="115" class="hwtxt" font-size="15">participants…</text>
+            <rect x="35" y="130" width="200" height="6" rx="3" fill="#223349"/>
+            <rect x="35" y="130" width="150" height="6" rx="3" class="hwacc"/>
+            <text x="35" y="155" class="hwsub" font-size="12">00:20:00</text>
+            <text x="235" y="155" class="hwsub" font-size="12" text-anchor="end">-00:00:59</text>
+            <text x="135" y="45" class="hwtxt" font-size="16" text-anchor="middle">Wasabi Wallet</text>
+            <text x="135" y="200" class="hwsub" font-size="13" text-anchor="middle">coinjoin rounds</text>
+        </g>
+        <!-- arrow 1: USB bridge -->
+        <g>
+            <line x1="265" y1="115" x2="330" y2="115" stroke="#1dbc93" stroke-width="2"/>
+            <polygon points="330,115 320,110 320,120" class="hwacc"/>
+            <line x1="330" y1="121" x2="265" y2="121" stroke="#1dbc93" stroke-width="2" opacity="0.5"/>
+            <polygon points="265,121 275,116 275,126" class="hwacc" opacity="0.5"/>
+            <text x="298" y="98" class="hwsub" font-size="12" text-anchor="middle">USB ·</text>
+            <text x="298" y="145" class="hwsub" font-size="12" text-anchor="middle">pytrezord</text>
+        </g>
+        <!-- panel 2: device, PIN -->
+        <g>
+            <path d="M355 68 Q355 55 368 55 L462 55 Q475 55 475 68 L475 150 Q475 172 415 205 Q355 172 355 150 Z" fill="#37476b" stroke="#5470a8"/>
+            <rect x="375" y="72" width="80" height="80" rx="6" fill="#0a0c10"/>
+            <text x="415" y="89" class="hwtxt" font-size="10" text-anchor="middle">Enter PIN</text>
+            <g fill="#2a3b52">
+                <rect x="383" y="97" width="18" height="12" rx="2"/><rect x="406" y="97" width="18" height="12" rx="2"/><rect x="429" y="97" width="18" height="12" rx="2"/>
+                <rect x="383" y="113" width="18" height="12" rx="2"/><rect x="406" y="113" width="18" height="12" rx="2"/><rect x="429" y="113" width="18" height="12" rx="2"/>
+            </g>
+            <rect x="383" y="129" width="18" height="12" rx="2" fill="#c74b3c"/>
+            <rect x="406" y="129" width="18" height="12" rx="2" fill="#2a3b52"/>
+            <rect x="429" y="129" width="18" height="12" rx="2" class="hwacc"/>
+            <text x="415" y="45" class="hwtxt" font-size="16" text-anchor="middle">1. Unlock</text>
+            <text x="415" y="225" class="hwsub" font-size="13" text-anchor="middle">PIN on device</text>
+        </g>
+        <!-- arrow 2 -->
+        <g>
+            <line x1="490" y1="118" x2="545" y2="118" stroke="#1dbc93" stroke-width="2"/>
+            <polygon points="545,118 535,113 535,123" class="hwacc"/>
+        </g>
+        <!-- panel 3: device, Wabi authorize -->
+        <g>
+            <path d="M565 68 Q565 55 578 55 L672 55 Q685 55 685 68 L685 150 Q685 172 625 205 Q565 172 565 150 Z" fill="#37476b" stroke="#5470a8"/>
+            <rect x="585" y="72" width="80" height="80" rx="6" fill="#0a0c10"/>
+            <ellipse cx="610" cy="102" rx="4" ry="10" fill="whitesmoke"/>
+            <ellipse cx="640" cy="102" rx="4" ry="10" fill="whitesmoke"/>
+            <rect x="594" y="105" width="8" height="3" rx="1.5" fill="#e8a0a0"/>
+            <rect x="648" y="105" width="8" height="3" rx="1.5" fill="#e8a0a0"/>
+            <path d="M620 119 Q625 125 630 119" stroke="whitesmoke" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+            <text x="625" y="142" class="hwtxt" font-size="10" text-anchor="middle">Wabi</text>
+            <text x="625" y="45" class="hwtxt" font-size="16" text-anchor="middle">2. Authorize</text>
+            <text x="625" y="225" class="hwsub" font-size="13" text-anchor="middle">approve policy once</text>
+        </g>
+        <!-- arrow 3 -->
+        <g>
+            <line x1="700" y1="118" x2="755" y2="118" stroke="#1dbc93" stroke-width="2"/>
+            <polygon points="755,118 745,113 745,123" class="hwacc"/>
+        </g>
+        <!-- panel 4: unattended signing -->
+        <g>
+            <rect x="770" y="60" width="180" height="110" rx="14" fill="#0a0c10" stroke="#1dbc93"/>
+            <circle cx="810" cy="115" r="20" fill="none" stroke="#1dbc93" stroke-width="3"/>
+            <path d="M800 115 L807 123 L822 105" stroke="#1dbc93" stroke-width="4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+            <text x="845" y="108" class="hwtxt" font-size="14">rounds sign</text>
+            <text x="845" y="128" class="hwtxt" font-size="14">unattended</text>
+            <text x="860" y="45" class="hwtxt" font-size="16" text-anchor="middle">3. Coinjoin</text>
+            <text x="860" y="200" class="hwsub" font-size="13" text-anchor="middle">within device policy</text>
+        </g>
+    </svg>
+    <p>
+        <a href="https://github.com/kravens/coinjoin.nl/tree/main/pytrezord">pytrezord (lightweight Trezor bridge)</a> ·
+        <a href="https://github.com/kravens/WalletWasabi/tree/feature/trezor-coinjoin">feature/trezor-coinjoin (Wasabi branch, under development)</a>
+    </p>
+</div>
+
+<!-- ============ footer ============ -->
+<div class="card footer">
+    <h3>Disclaimer</h3>
+    <p>User error (registration over clearnet without Tor) or malicious coordinators can lead to loss
+    of UTXO privacy. Always update to the latest Wasabi Wallet version when possible and do your own
+    research — start here:</p>
+    <p>
+    <b>Literature:</b>
+    <a href="https://eprint.iacr.org/2021/206.pdf">WabiSabi: centrally coordinated coinjoins with variable amounts (protocol paper)</a> ·
+    <a href="https://github.com/nopara73/ZeroLink">ZeroLink: the Bitcoin fungibility framework (Wasabi 1.0 basis)</a> ·
+    <a href="https://dl.acm.org/doi/10.1145/3528580.3528585">The unique dressing of transactions: Wasabi coinjoin detection</a> ·
+    <a href="https://arxiv.org/pdf/2109.10229">Adoption and actual privacy of decentralized coinjoin implementations</a> ·
+    <a href="https://eprint.iacr.org/2022/285.pdf">Usability of cryptocurrency wallets providing coinjoin transactions</a>
+    </p>
+    <p>
+    <b>Critiques &amp; attacks:</b>
+    <a href="https://bitcoinmagazine.com/bigread/how-coinjoins-achieve-anonymity">Kogman: How coinjoin anonymity can be undermined using clustering</a> ·
+    <a href="https://bitcoinmagazine.com/builders/bitcoin-without-privacy-is-a-surveillance-system">Kogman: Bitcoin without privacy is a surveillance system</a> ·
+    <a href="https://groups.google.com/g/bitcoindev/c/CbfbEGozG7c/m/fKuKwo6kDAAJ">Yuval Kogman (nothingmuch) on centralized coinjoin deanonymization</a> ·
+    <a href="https://arxiv.org/pdf/2510.17284">Analysis of input–output mappings in arbitrary-value coinjoins (paper)</a>
+    </p>
+    <p>
+    <b>Sybil resistance &amp; JoinMarket research:</b>
+    <a href="https://groups.google.com/g/bitcoindev/c/xKlbd2tDfxs/m/PIvWIIu0AwAJ">Sybil resistance in different coinjoin implementations (bitcoindev, with waxwing &amp; nothingmuch)</a> ·
+    <a href="https://gist.github.com/chris-belcher/18ea0e6acdb885a2bfbdee43dcd6b5af">Fidelity bonds design (Chris Belcher)</a> ·
+    <a href="https://reyify.com/blog">waxwing's (Adam Gibson) blog</a>
+    </p>
+    <p>
+    <b>Comparisons &amp; counterpoints:</b>
+    <a href="https://petertodd.org/2025/coinjoin-comparison">Peter Todd's coinjoin comparison</a> ·
+    <a href="https://youtu.be/eIBTSe4OABI?t=19002">Kruw presentation BTC++ Riga 2025</a>
+    </p>
+    <h3>Funding</h3>
+    <p>The <a href='https://coinjoin.nl'>coinjoin.nl</a> coordinator is a not-for-profit community
+    project; future fee-revenue goes directly to zapping bitcoin privacy devs on nostr and to
+    hardware maintenance of the coordinator (recent purchases for the project: Raspberry Pi 5,
+    M.2 NVMe drive and a UPS battery).</p>
+    <p>Even with a 0% coordinator fee, there can be dust (pieces of bitcoin too small to economically
+    spend) collection revenue for WabiSabi coordinators.</p>
+    <p>
+        <a class="gh" href="https://github.com/kravens/coinjoin.nl" title="Source on GitHub">
+            <svg viewBox="0 0 16 16" width="28" height="28" fill="currentColor" aria-hidden="true">
+                <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38
+                0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01
+                1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95
+                0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0
+                1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0
+                3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.012
+                8.012 0 0 0 16 8c0-4.42-3.58-8-8-8z"/>
+            </svg><br>Source on GitHub
+        </a>
+    </p>
 </div>
 
 </body>
