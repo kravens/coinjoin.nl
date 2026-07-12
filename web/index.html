@@ -126,6 +126,9 @@
     a.copybtn { display: inline-block; text-decoration: none; }
     a.copybtn:link, a.copybtn:visited { color: #fff; background-color: #3c618b; }
     a.copybtn:hover, a.copybtn:active { color: #fff; background-color: #4a76a8; text-decoration: none; }
+    /* coordinator toggle: radio-style copy buttons */
+    .coordswitch { display: flex; flex-wrap: wrap; justify-content: center; gap: 0.6em; margin: 0.4em 0 1em; }
+    .coordbtn.coordactive { background: #1dbc93; color: #0a0c10; }
 
     /* ---------- links ---------- */
     a:link { color: orange; text-decoration: none; }
@@ -265,6 +268,11 @@
 <!-- ============ live rounds ============ -->
 <div class="card" id="live">
     <h2 class="section">Live rounds</h2>
+    <p class="coordswitch">
+        <button class="copybtn coordbtn coordactive" data-coord="local" onclick="switchCoord(this)">coinjoin.nl</button>
+        <button class="copybtn coordbtn" data-coord="kruw" onclick="switchCoord(this)">coinjoin.kruw.io</button>
+        <button class="copybtn coordbtn" data-coord="opencoord" onclick="switchCoord(this)">opencoordinator.org</button>
+    </p>
     <div id="content"><p class="sub">loading…</p></div>
     <p><a href="https://coinjoin.nl/wabisabi/human-monitor">Raw round status (human-monitor)</a></p>
     <script>
@@ -289,17 +297,39 @@
             } catch { return {}; }
         }
 
+        // Other coordinators send no CORS headers, so their monitors are read
+        // through same-origin nginx proxies (see nginx/coinjoin.nl.conf).
+        // Fee rates come from the status endpoint, which is only proxied for
+        // our own coordinator.
+        const COORDS = {
+            local: { url: 'https://coinjoin.nl/wabisabi/human-monitor', fees: true },
+            kruw: { url: '/ext/kruw/human-monitor', fees: false },
+            opencoord: { url: '/ext/opencoord/human-monitor', fees: false },
+        };
+        let currentCoord = 'local';
+
+        function switchCoord(btn) {
+            currentCoord = btn.dataset.coord;
+            document.querySelectorAll('.coordbtn').forEach(b => b.classList.toggle('coordactive', b === btn));
+            document.getElementById('content').innerHTML = '<p class="sub">loading…</p>';
+            lastUpdated = null;
+            fetchData();
+        }
+
         async function fetchData() {
+            const coord = currentCoord;
             try {
                 const [response, feeRates] = await Promise.all([
-                    fetch('https://coinjoin.nl/wabisabi/human-monitor'),
-                    fetchFeeRates()
+                    fetch(COORDS[coord].url, { cache: 'no-store' }),
+                    COORDS[coord].fees ? fetchFeeRates() : Promise.resolve({})
                 ]);
                 if (!response.ok) throw new Error('Network response was not ok');
                 const data = await response.json();
+                if (coord !== currentCoord) return; // user switched while fetching
                 displayData(data, feeRates);
                 lastUpdated = Date.now();
             } catch (error) {
+                if (coord !== currentCoord) return;
                 const contentDiv = document.getElementById('content');
                 contentDiv.innerHTML = `<p class="error">Error fetching data: ${error.message}</p>`;
             }
@@ -308,6 +338,8 @@
         function displayData(data, feeRates) {
             feeRates = feeRates || {};
             const contentDiv = document.getElementById('content');
+            // Older/newer coordinators serialize as RoundStates/roundStates etc.
+            data = { RoundStates: data.RoundStates || data.roundStates };
             if (data.RoundStates && data.RoundStates.length > 0) {
                 let tableHTML = `
                     <table>
@@ -323,11 +355,14 @@
                         <tbody>
                 `;
                 data.RoundStates.forEach(state => {
-                    const fr = feeRates[(state.RoundId || '').toLowerCase()];
+                    const rid = state.RoundId || state.roundId || '';
+                    const inputCount = state.InputCount ?? state.inputCount ?? '—';
+                    const remaining = state.InputRegistrationRemaining ?? state.inputRegistrationRemaining ?? '';
+                    const phase = state.Phase ?? state.phase ?? '—';
+                    const fr = feeRates[rid.toLowerCase()];
                     const frCell = fr != null ? fr.toFixed(1) : '—';
-                    const rid = state.RoundId || '';
                     const ridShort = rid.length > 13 ? rid.slice(0, 6) + '…' + rid.slice(-4) : rid;
-                    const raw = String(state.InputRegistrationRemaining || '');
+                    const raw = String(remaining);
                     const secs = parseRemaining(raw);
                     const cell = secs == null
                         ? `<td>${raw}</td>`
@@ -335,9 +370,9 @@
                     tableHTML += `
                         <tr>
                             <td class="rid" title="${rid}">${ridShort}</td>
-                            <td>${state.InputCount}</td>
+                            <td>${inputCount}</td>
                             ${cell}
-                            <td>${state.Phase}</td>
+                            <td>${phase}</td>
                             <td>${frCell}</td>
                         </tr>
                     `;
@@ -350,8 +385,9 @@
         }
 
         // "0d 3h 25m 40s" or "hh:mm:ss" -> seconds, null when unparseable.
+        // Components may be negative ("0d 0h -2m -7s" = registration closed).
         function parseRemaining(raw) {
-            const dhms = raw.match(/^\s*(?:(\d+)d\s*)?(?:(\d+)h\s*)?(?:(\d+)m\s*)?(?:(\d+)s)?\s*$/);
+            const dhms = raw.match(/^\s*(?:(-?\d+)d\s*)?(?:(-?\d+)h\s*)?(?:(-?\d+)m\s*)?(?:(-?\d+)s)?\s*$/);
             if (dhms && (dhms[1] || dhms[2] || dhms[3] || dhms[4])) {
                 return (+dhms[1] || 0) * 86400 + (+dhms[2] || 0) * 3600 + (+dhms[3] || 0) * 60 + (+dhms[4] || 0);
             }
