@@ -184,12 +184,22 @@
         text-align: left;
         border-bottom: 1px solid rgba(221, 221, 221, 0.35);
     }
-    td.rid { word-break: break-all; } /* never let round ids overflow */
+    /* full round id on wide screens; ellipsis when the column runs out of room */
+    td.rid span {
+        display: inline-block;
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        vertical-align: bottom;
+    }
+    @media (max-width: 1100px) { td.rid { max-width: 20vw; } }
     @media (max-width: 600px) {
         table { width: 100%; }
         th, td { padding: 6px 4px; font-size: 0.85em; }
         .card { padding: 18px 10px 22px; }
         .viewerframe { height: 420px; }
+        td.rid { max-width: 26vw; }
     }
     .error { color: #e8b04b; }
 
@@ -366,7 +376,6 @@
                     const phase = state.Phase ?? state.phase ?? '—';
                     const fr = feeRates[rid.toLowerCase()];
                     const frCell = fr != null ? fr.toFixed(1) : '—';
-                    const ridShort = rid.length > 13 ? rid.slice(0, 6) + '…' + rid.slice(-4) : rid;
                     const raw = String(remaining);
                     const secs = parseRemaining(raw);
                     const cell = secs == null
@@ -374,7 +383,7 @@
                         : `<td class="remaining" data-secs="${secs}">${formatRemaining(secs)}</td>`;
                     tableHTML += `
                         <tr>
-                            <td class="rid" title="${rid}">${ridShort}</td>
+                            <td class="rid" title="${rid}"><span>${rid}</span></td>
                             <td>${inputCount}</td>
                             ${cell}
                             <td>${phase}</td>
