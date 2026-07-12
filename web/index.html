@@ -236,6 +236,7 @@
     <nav class="sections">
         <a class="copybtn" href="#get-started">Get started</a>
         <a href="#live">Live rounds</a>
+        <a href="#learn">Learn more</a>
         <a href="#latest">Latest round</a>
         <a href="#history">History</a>
         <a href="#hardware">Hardware wallet</a>
@@ -441,17 +442,28 @@
         <h3><span class="n">5</span> Receive bitcoin &amp; press play</h3>
         <p>Open your wallet, receive the funds you'd like to CoinJoin and press the play button to start!</p>
     </div>
+</div>
+
+<!-- ============ learn more ============ -->
+<div class="card" id="learn">
+    <h2 class="section">Learn more</h2>
+    <p class="sub">Watch the 3-minute explainer, then scroll through the inputs and outputs of the
+    latest real round below it — experience for yourself how UTXO linking analysis works and how a
+    coinjoin frustrates it.</p>
     <iframe class="video" loading="lazy" src="https://www.youtube-nocookie.com/embed/dGATztn5Ql8" title="WabiSabi Coinjoin Explained in 3 Minutes" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+    <div id="latest-round">
+        <iframe id="latestRoundFrame" class="viewerframe" title="Explore the latest CoinJoin round" loading="lazy"></iframe>
+    </div>
 </div>
 
 <!-- ============ latest round ============ -->
 <div class="card" id="latest">
     <h2 class="section">Latest round</h2>
     <p class="sub">The most recent successful coinjoin, straight from the coordinator.</p>
-    <div id="latest-round">
-        <iframe id="latestRoundFrame" class="viewerframe" title="Latest CoinJoin round" loading="lazy"></iframe>
-        <p id="latestRoundMeta" style="overflow-wrap:anywhere;"></p>
+    <div id="latest-flow">
+        <iframe id="latestFlowFrame" class="viewerframe" title="Latest CoinJoin transaction flow" loading="lazy" src="/latest.html"></iframe>
     </div>
+    <p id="latestRoundMeta" style="overflow-wrap:anywhere;"></p>
     <script>
         fetch('/latest-coinjoin.json', { cache: 'no-store' })
             .then(r => r.json())
@@ -466,9 +478,6 @@
             })
             .catch(() => { document.getElementById('latest-round').style.display = 'none'; });
     </script>
-    <div id="latest-flow">
-        <iframe id="latestFlowFrame" class="viewerframe" title="Latest CoinJoin transaction flow" loading="lazy" src="/latest.html"></iframe>
-    </div>
 </div>
 
 <!-- ============ history ============ -->
