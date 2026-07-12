@@ -184,7 +184,6 @@
         .card { padding: 18px 10px 22px; }
         .viewerframe { height: 420px; }
     }
-    #roundsUpdated { font-size: 0.85em; opacity: 0.75; }
     .error { color: #e8b04b; }
 
     /* ---------- embedded viewers ---------- */
@@ -266,8 +265,7 @@
 <!-- ============ live rounds ============ -->
 <div class="card" id="live">
     <h2 class="section">Live rounds</h2>
-    <p class="sub"><span id="roundsUpdated">loading…</span></p>
-    <div id="content"></div>
+    <div id="content"><p class="sub">loading…</p></div>
     <p><a href="https://coinjoin.nl/wabisabi/human-monitor">Raw round status (human-monitor)</a></p>
     <script>
         async function fetchFeeRates() {
@@ -329,11 +327,16 @@
                     const frCell = fr != null ? fr.toFixed(1) : '—';
                     const rid = state.RoundId || '';
                     const ridShort = rid.length > 13 ? rid.slice(0, 6) + '…' + rid.slice(-4) : rid;
+                    const raw = String(state.InputRegistrationRemaining || '');
+                    const secs = parseRemaining(raw);
+                    const cell = secs == null
+                        ? `<td>${raw}</td>`
+                        : `<td class="remaining" data-secs="${secs}">${formatRemaining(secs)}</td>`;
                     tableHTML += `
                         <tr>
                             <td class="rid" title="${rid}">${ridShort}</td>
                             <td>${state.InputCount}</td>
-                            <td>${state.InputRegistrationRemaining}</td>
+                            ${cell}
                             <td>${state.Phase}</td>
                             <td>${frCell}</td>
                         </tr>
@@ -346,15 +349,37 @@
             }
         }
 
-        // Fetch on load, refresh every 30s, show staleness between refreshes.
+        // "0d 3h 25m 40s" or "hh:mm:ss" -> seconds, null when unparseable.
+        function parseRemaining(raw) {
+            const dhms = raw.match(/^\s*(?:(\d+)d\s*)?(?:(\d+)h\s*)?(?:(\d+)m\s*)?(?:(\d+)s)?\s*$/);
+            if (dhms && (dhms[1] || dhms[2] || dhms[3] || dhms[4])) {
+                return (+dhms[1] || 0) * 86400 + (+dhms[2] || 0) * 3600 + (+dhms[3] || 0) * 60 + (+dhms[4] || 0);
+            }
+            const hms = raw.match(/^\s*(\d+):(\d\d):(\d\d)\s*$/);
+            if (hms) {
+                return +hms[1] * 3600 + +hms[2] * 60 + +hms[3];
+            }
+            return null;
+        }
+
+        function formatRemaining(secs) {
+            secs = Math.max(0, Math.round(secs));
+            const d = Math.floor(secs / 86400), h = Math.floor(secs / 3600) % 24,
+                  m = Math.floor(secs / 60) % 60, s = secs % 60;
+            return (d > 0 ? d + 'd ' : '') + h + 'h ' + m + 'm ' + s + 's';
+        }
+
+        // Fetch on load, refresh every 30s; between refreshes the remaining
+        // times count down live from the last snapshot.
         let lastUpdated = null;
         fetchData();
         setInterval(fetchData, 30000);
         setInterval(function () {
             if (lastUpdated == null) return;
-            const s = Math.max(0, Math.round((Date.now() - lastUpdated) / 1000));
-            document.getElementById('roundsUpdated').textContent =
-                'updated ' + (s < 2 ? 'just now' : s + 's ago') + ' · auto-refreshes every 30s';
+            const elapsed = (Date.now() - lastUpdated) / 1000;
+            document.querySelectorAll('td.remaining').forEach(function (td) {
+                td.textContent = formatRemaining(+td.dataset.secs - elapsed);
+            });
         }, 1000);
     </script>
 </div>
