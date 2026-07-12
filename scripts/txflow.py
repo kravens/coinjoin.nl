@@ -1003,6 +1003,24 @@ def explore(txid, base, source):
             try: relinkc[t] = relink_scan(raw, base)
             except Exception: relinkc[t] = (0, 0)
         threading.Thread(target=work, daemon=True).start()
+    poll = {"t": 0.0, "busy": False, "flash": None}   # unconfirmed tx: watch for it being mined
+    def poll_status():
+        if meta.get("confirmed") or poll["busy"] or time.monotonic() - poll["t"] < 30: return
+        poll["busy"] = True; t = cur
+        def work():
+            try:
+                st = fetch_json(f"{base}/api/tx/{t}/status")
+                if st.get("confirmed"):
+                    if t in rawc: rawc[t]["status"] = st
+                    m = metac.get(t)                  # same dict `meta` points at -> updates the header
+                    if m is not None:
+                        m["confirmed"] = True; m["height"] = st.get("block_height")
+                    poll["flash"] = f"◆ mined - confirmed in block #{st.get('block_height'):,}"
+            except Exception:
+                pass
+            finally:
+                poll["t"] = time.monotonic(); poll["busy"] = False
+        threading.Thread(target=work, daemon=True).start()
     def back_targets():                               # funding txids, largest input first
         items = [(((vin.get("prevout") or {}).get("value",0)), vin.get("txid"))
                  for vin in graw(cur).get("vin", []) if not vin.get("is_coinbase") and vin.get("txid")]
@@ -1096,6 +1114,8 @@ def explore(txid, base, source):
             nw, nh = term_canvas(interactive)             # terminal resized -> resize the canvas
             if (nw, nh) != (W, H): apply_canvas(nw, nh); o("\x1b[2J"); viz = build(meta, io_off); parts.clear()
             kick_relink(cur)                              # background toxic-change scan for this tx
+            poll_status()                                 # unconfirmed? watch each new block for it
+            if poll["flash"]: flash, flasht = poll["flash"], 60; poll["flash"] = None
             ch, col = blank()
             vsel = sel - io_off                            # cursor row inside the visible window
             isel = vsel if 0 <= vsel < len(viz["nin"]) else None
