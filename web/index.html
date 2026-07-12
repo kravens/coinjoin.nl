@@ -143,11 +143,15 @@
         margin: 1.1em 0 0.4em;
     }
     .steps h3 .n {
-        display: inline-block;
-        min-width: 1.55em;
-        margin-right: 0.35em;
-        padding: 0.05em 0;
+        /* fixed square + flex centering = a true circle with the digit dead-center */
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 1.6em;
+        height: 1.6em;
         border-radius: 50%;
+        margin-right: 0.4em;
+        vertical-align: -0.3em;
         background: #1dbc93;
         color: #0a0c10;
     }
