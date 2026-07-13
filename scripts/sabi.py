@@ -272,15 +272,21 @@ def draw_logo(ch, col, y, x, rows, color, dimf=0.35):
     return cols
 
 # ---- layout / canvas (scales with the terminal; min one row spared) ---------------
-W = H = 0
-def apply_canvas(w, h):
-    global W, H
-    W, H = w, h
-def term_canvas(interactive=True):
+# Small terminals: the canvas keeps a comfortable virtual size (>=100x31) and emit()
+# shows a TWxTH viewport of it (VOFF = vertical scroll) - no line wrapping, no garbage.
+W = H = 0                                             # virtual canvas size
+TW = TH = 0                                           # real terminal size (viewport)
+VOFF = 0                                              # viewport scroll offset (thin mode)
+def apply_canvas(tw, th):
+    global W, H, TW, TH, VOFF
+    TW, TH = tw, th
+    W = max(100, min(tw, 760)); H = max(31, min(th, 216))
+    if TH >= H and TW >= W: VOFF = 0
+def term_canvas(interactive=True):                    # -> the REAL terminal size
     if not interactive: return 118, 40
     try: c, l = shutil.get_terminal_size((118, 40))
     except Exception: c, l = 118, 40
-    return max(100, min(c, 760)), max(29, min(l - 1, 216))
+    return max(20, min(c, 760)), max(8, min(l - 1, 216))
 apply_canvas(118, 40)
 
 def blank(): return [[" "]*W for _ in range(H)], [[BG]*W for _ in range(H)]
@@ -290,10 +296,11 @@ def put(ch, col, r, c, s, color):
 def rput(ch, col, r, c_end, s, color): put(ch, col, r, c_end-len(str(s)), s, color)
 
 def emit(o, ch, col):                                 # RLE truecolor frame, synchronized output
-    out = ["\x1b[?2026h\x1b[H"]
-    for r in range(H):
+    out = ["\x1b[?2026h\x1b[H"]                       # emits the TWxTH viewport at VOFF
+    cw = min(W, TW)
+    for r in range(VOFF, min(H, VOFF + TH)):
         last = None; line = []
-        for c in range(W):
+        for c in range(cw):
             g = ch[r][c]
             if g == " ": line.append(" "); continue
             cc = col[r][c]
@@ -313,7 +320,8 @@ def draw_box(ch, col, y, x, w, h, color):
 def draw_overlay(ch, col, title, lines, tcol=WHITE):  # lines: str or (str, color)
     def txt(l): return l[0] if isinstance(l, tuple) else l
     w = max([len(title)] + [len(txt(l)) for l in lines]) + 6; h = len(lines) + 4
-    x0 = max(0, (W-w)//2); y0 = max(0, (H-h)//2)
+    vw, vh = min(W, TW), min(H, TH)                   # center inside the visible viewport
+    x0 = max(0, (vw-w)//2); y0 = VOFF + max(0, (vh-h)//2)
     for yy in range(y0, min(y0+h, H)):
         for xx in range(x0, min(x0+w, W)):
             edge = yy in (y0, y0+h-1) or xx in (x0, x0+w-1)
@@ -324,10 +332,319 @@ def draw_overlay(ch, col, title, lines, tcol=WHITE):  # lines: str or (str, colo
         c = l[1] if isinstance(l, tuple) else lerp(BRAND, WHITE, .45)
         put(ch, col, y0+3+i, x0+3, txt(l), c)
 
+# ---- AFK screensaver: the sushi belt (also a privacy screen - balances hidden) -----
+AFK_SECS = 600                                        # 10 min without input
+# ASCII sushi by Daniel Au (alt.ascii-art / rec.arts.ascii, 3 Mar 1995)
+SUSHI = [
+ ("maguro", RED,    ["   ,;'''''''';,  ", " ,'  ________  ',", " ;,;'        ';,'", "   '.________.'  "]),
+ ("toro",   RED,    ["   ,;;;;;;;;;;,  ", " ,;;;;;;;;;;;;;;,", " ;;;'        ';;'", "   '.________.'  "]),
+ ("saba",   BLUE,   ["   ,;'''''''';,  ", " ,'  ||||||||  ',", " |||'        '|||", "   '.________.'  "]),
+ ("ika",    WHITE,  ["    ==========   ", " ///==========\\\\\\", "///='        '=\\\\\\", "   '.________.'  "]),
+ ("sake",   ORANGE, ["   ,iiiiiiiiii,  ", " ,iiiiiiiiiiiiii,", " iii'        'ii'", "   '.________.'  "]),
+ ("hamachi",AMBER,  ["   ,;'''''''';,  ", " ,'  ________  ',", " ;,;'        ';,'", "   '.________.'  "]),
+ ("tamago", AMBER,  ["  ------;;;;------ ", " |______|;;|______|", "   |    |;;|    |  ", "    '.__|;;|__.'   "]),
+ ("tako",   BRAND,  ["    ,;'''''''';, ", "  ,'  _o_o_o_o  ',", " ,,,;'        ';,'", "    '.________.' "]),
+ ("uni",    AMBER,  ["    _ ___  _  ", "  ,@@@@@@@@@@, ", " |'@@@@@@@@@@'|", " |            |", "  '.________.' "]),
+ ("ikura",  ORANGE, ["    _ ___  _   ", "  .oooooooooo. ", " |'oooooooooo'|", " |            |", "  '.________.' "]),
+ ("tekka maki", RED,   ["  ,;'@@';, ", " |',_@@_,'|", " |        |", "  '.____.' "]),
+ ("kappa maki", GREEN, ["  ,;'OO';, ", " |',_OO_,'|", " |        |", "  '.____.' "]),
+ ("california", ORANGE,["  ,;'O@';, ", " |',_@H_,'|", " |        |", "  '.____.' "]),
+]
+
+# pixel-art pieces (block chars; rows given as [(text, color), ...] segments)
+_NORI = (46, 68, 44); _RICE = (226, 228, 236); _ROE = (255, 118, 56); _TAMA = (255, 204, 64)
+SUSHI += [
+ ("salmon", ORANGE, [
+   [("  ", None), ("▄▄▄▄▄▄▄▄▄▄", ORANGE)],
+   [(" ", None), ("██░░██░░████", ORANGE)],
+   [(" ", None), ("▒▒▒▒▒▒▒▒▒▒▒▒", _RICE)],
+   [("  ", None), ("▀▀▀▀▀▀▀▀▀▀", _RICE)]]),
+ ("maguro", RED, [
+   [("  ", None), ("▄▄▄▄▄▄▄▄▄▄", RED)],
+   [(" ", None), ("████████████", RED)],
+   [(" ", None), ("▒▒▒▒▒▒▒▒▒▒▒▒", _RICE)],
+   [("  ", None), ("▀▀▀▀▀▀▀▀▀▀", _RICE)]]),
+ ("tamago", _TAMA, [
+   [("  ", None), ("▄▄▄▄▄▄▄▄▄▄", _TAMA)],
+   [(" ", None), ("████", _TAMA), ("▓▓▓", _NORI), ("█████", _TAMA)],
+   [(" ", None), ("▒▒▒▒", _RICE), ("▓▓▓", _NORI), ("▒▒▒▒▒", _RICE)],
+   [("  ", None), ("▀▀▀▀▀▀▀▀▀▀", _RICE)]]),
+ ("ebi", ORANGE, [
+   [("  ", None), ("▄▄▚▚▄▄▚▚▄▄", ORANGE)],
+   [(" ", None), ("██▚▚██▚▚████", ORANGE)],
+   [(" ", None), ("▒▒▒▒▒▒▒▒▒▒▒▒", _RICE)],
+   [("  ", None), ("▀▀▀▀▀▀▀▀▀▀", _RICE)]]),
+ ("ikura", _ROE, [
+   [("  ", None), ("●●●●●●●●", _ROE)],
+   [(" ", None), ("▐▓▓▓▓▓▓▓▓▌", _NORI)],
+   [(" ", None), ("▐▓▓▓▓▓▓▓▓▌", _NORI)],
+   [("  ", None), ("▀▀▀▀▀▀▀▀", _NORI)]]),
+ ("uramaki", _RICE, [
+   [("  ", None), ("▄████████▄", _RICE)],
+   [(" ", None), ("███", _RICE), ("▓▓▓▓▓▓", ORANGE), ("███", _RICE)],
+   [(" ", None), ("███", _RICE), ("▓▓", GREEN), ("▓▓▓▓", ORANGE), ("███", _RICE)],
+   [("  ", None), ("▀████████▀", _RICE)]]),
+ ("dumpling", (250, 220, 185), [
+   [("    ", None), ("▄▟▙▄", (238, 160, 100))],
+   [("  ", None), ("▄██", (250, 220, 185)), ("▒▒", (238, 160, 100)), ("███▄", (250, 220, 185))],
+   [(" ", None), ("████████████", (250, 220, 185))],
+   [("  ", None), ("▀▀▀▀▀▀▀▀▀▀", (214, 178, 140))]]),
+]
+
+def _piece_width(rows):
+    return max(len(r) if isinstance(r, str) else sum(len(t) for t, _ in r) for r in rows)
+
+# platter-only props (not on the belts)
+_ONIGIRI = ("onigiri", _RICE, [
+   [("   ", None), ("▄██▄", _RICE)],
+   [("  ", None), ("██████", _RICE)],
+   [(" ", None), ("████████", _RICE)],
+   [(" ", None), ("▓▓▓▓▓▓▓▓", _NORI)]])
+_SOY = ("soy", (64, 40, 24), [
+   [(" ", None), ("▄▄▄▄▄▄", (208, 210, 218))],
+   [("▐", (208, 210, 218)), ("▓▓▓▓▓▓", (64, 40, 24)), ("▌", (208, 210, 218))],
+   [(" ", None), ("▀▀▀▀▀▀", (208, 210, 218))]])
+_WASABI = ("wasabi", GREEN, [
+   [("▄▟▙▄", GREEN)],
+   [("▀▀▀▀", (88, 158, 88))]])
+
+def draw_too_small(ch, col, f):                       # btop says 'terminal too small'; we say it with maki
+    makis = [p for p in SUSHI if p[0] in ("tekka maki", "kappa maki", "california")]
+    p = makis[(f // 63) % len(makis)]                 # a fresh maki every ~3 s
+    vw, vh = min(W, TW), min(H, TH)
+    py = max(0, vh//2 - 4)
+    _draw_piece(ch, col, max(0, (vw - _piece_width(p[2]))//2), py, p)
+    msg = "terminal too small"
+    sub = (f"need 44x10 (now {TW}x{TH})" if (f // 84) % 2 == 0
+           else "itamae needs a bigger counter")
+    put(ch, col, min(vh-2, py+5), max(0, (vw-len(msg))//2), msg, WARN)
+    put(ch, col, min(vh-1, py+6), max(0, (vw-len(sub))//2), sub, GREY)
+
+def draw_saver_platter(ch, col, f):                   # omakase still life
+    _saver_chrome(ch, col, "o m a k a s e")
+    def g(name): return next(p for p in SUSHI if p[0] == name)
+    cx, cy = min(W, TW)//2, H//2 - 4
+    plate_w = 86
+    for x in range(cx - plate_w//2, cx + plate_w//2):     # the plate, back rim first
+        put(ch, col, cy+9, x, "▂", lerp(BG, GREY, .5))
+    layout = [(-40, 1, g("ikura")), (-26, 0, _ONIGIRI), (-13, 0, _ONIGIRI),
+              (0, 1, g("dumpling")), (14, 1, g("uramaki")), (28, 1, g("ikura")),
+              (-36, 5, g("salmon")), (-22, 5, g("ebi")), (-8, 5, g("tamago")),
+              (6, 5, g("tekka maki")), (17, 5, g("kappa maki")),
+              (28, 4, _SOY), (29, 7, _WASABI)]
+    for dx, dy, p in layout:                          # back row first, front overlaps
+        _draw_piece(ch, col, cx+dx, cy+dy, p)
+    rnd = random.Random(7)
+    for _ in range(8):                                # a little sparkle over the spread
+        x, y = rnd.randint(cx-44, cx+44), rnd.randint(max(3, cy-4), cy-1)
+        if (x*13 + y*7 + f//8) % 5 == 0: put(ch, col, y, x, "·", lerp(BRAND, GREY, .5))
+
+# bouncing sushi: pieces under gravity, elastic-ish floor, the physics finale
+_BOUNCE = {}
+def draw_saver_bounce(ch, col, f):
+    _saver_chrome(ch, col, "s u s h i   p h y s i c s")
+    vw = min(W, TW); top = VOFF + 3; floor = min(H, VOFF + TH) - 3
+    B = _BOUNCE
+    if B.get("box") != (vw, floor) or f - B.get("lf", f) > 30:   # fresh spawn per session/resize
+        rnd = random.Random()
+        B["box"] = (vw, floor)
+        B["balls"] = [dict(p=SUSHI[rnd.randrange(len(SUSHI))],
+                           x=rnd.uniform(2, max(3, vw-20)), y=rnd.uniform(top, top+5),
+                           vx=rnd.uniform(-1.3, 1.3), vy=rnd.uniform(-0.3, 0.7))
+                      for _ in range(6)]
+    B["lf"] = f
+    for x in range(1, vw-1):
+        put(ch, col, floor+1, x, "▁", lerp(BG, GREY, .5))
+    for b in B["balls"]:
+        w, h = _piece_width(b["p"][2]), len(b["p"][2])
+        b["vy"] += 0.06                               # gravity
+        b["x"] += b["vx"]; b["y"] += b["vy"]
+        if b["x"] < 1: b["x"] = 1; b["vx"] = abs(b["vx"])
+        if b["x"] + w > vw-1: b["x"] = vw-1-w; b["vx"] = -abs(b["vx"])
+        if b["y"] + h > floor + 1:
+            b["y"] = floor + 1 - h; b["vy"] = -abs(b["vy"]) * 0.82
+            if abs(b["vy"]) < 0.4: b["vy"] = -random.uniform(1.0, 1.7)   # keep it lively
+        if b["y"] < top: b["y"] = top; b["vy"] = abs(b["vy"]) * 0.5
+        _draw_piece(ch, col, int(b["x"]), int(b["y"]), b["p"])
+
+def draw_saver_wasabi(ch, col, f):                    # grating fresh wasabi, the sabi way
+    _saver_chrome(ch, col, "f r e s h   w a s a b i")
+    vw = min(W, TW); cx, cy = vw//2, H//2 - 1
+    STEEL, STEEL_D, HOLE = (172, 178, 188), (128, 134, 144), (104, 110, 120)
+    gw, gh = 48, 14
+    for r in range(gh):                               # rounded steel plate, soft row gradient
+        for c in range(gw):
+            nx = (c - gw/2) / (gw/2); ny = (r - gh/2) / (gh/2)
+            if nx*nx + ny*ny*0.75 <= 1.0:
+                put(ch, col, cy - gh//2 + r, cx - gw//2 + c, "█",
+                    clamp8(lerp(STEEL_D, STEEL, r/gh)))
+    for r in range(cy - gh//2 + 2, cy + gh//2 - 1, 2):    # the grating teeth
+        for c in range(cx - gw//2 + 5, cx + 2, 4):
+            put(ch, col, r, c + (r % 4)//2, ":", HOLE)
+    cyc = f % 2100                                    # paste grows, then the plate is cleared
+    amount = min(1.0, cyc / 1500.0)
+    if cyc > 1800:
+        amount = 0.0
+        tag = "◆ itadakimasu"
+        put(ch, col, cy - gh//2 - 2, max(0, (vw-len(tag))//2), tag, clamp8(lerp(GREEN, WHITE, .3)))
+    rnd = random.Random(3)
+    pts = [(int(rnd.gauss(0, 4.5)), int(rnd.gauss(0, 1.8)), rnd.random()) for _ in range(90)]
+    px0, py0 = cx - 8, cy - 2                         # the pile sits on the grating zone
+    for dx, dy, s in pts[:int(90 * amount)]:
+        put(ch, col, py0 + dy, px0 + dx, "█" if s > .3 else "▓",
+            clamp8(lerp((104, 156, 52), (196, 232, 104), s)))
+    def tri(t, m): p = t % (2*m); return p if p < m else 2*m - p
+    sh = tri(int(f*0.7), 5)                           # the rubbing stroke
+    rx, ry = cx + 2 - sh//2, cy + 1 - (sh+1)//2
+    ROOT, SKIN, TIP = (128, 158, 84), (100, 84, 56), (86, 72, 50)
+    for i in range(11):                               # the root, held at a diagonal
+        x, y = rx + i, ry + (i+1)//2
+        c_ = ROOT if i < 7 else (SKIN if i < 9 else TIP)
+        put(ch, col, y, x, "██", c_)
+        if 2 <= i <= 8: put(ch, col, y+1, x, "▀▀", clamp8(lerp(c_, (60, 52, 40), .35)))
+    for k in range(3):                                # fresh flecks at the contact point
+        if (f//2 + k*5) % 4 == 0:
+            put(ch, col, ry + (k % 2), rx - 2 - k, "·", (160, 210, 80))
+
+_GALAXY_CACHE = {}
+def _galaxy_particles():                              # two-arm spiral, deterministic jitter
+    if "p" not in _GALAXY_CACHE:
+        rnd = random.Random(21); pts = []
+        for arm in (0.0, M.pi):
+            for i in range(130):
+                t = i / 130.0
+                pts.append((1.5 + t*16.0 + rnd.uniform(-0.5, 0.5),
+                            arm + t*3.4 + rnd.uniform(-0.09, 0.09), t))
+        for _ in range(45):                           # loose halo stars
+            pts.append((rnd.uniform(3.0, 19.0), rnd.uniform(0, 2*M.pi), 1.0))
+        _GALAXY_CACHE["p"] = pts
+    return _GALAXY_CACHE["p"]
+
+def draw_saver_galaxy(ch, col, f, rainbow=False):     # while a coinjoin runs, the mix spins
+    import colorsys
+    cx, cy = W/2, H/2 - 1
+    ang = f * 0.03
+    sy = min((H-8)/40.0, 1.0); sx = sy * 2.1          # cell aspect + fit
+    for i, (r, th, t) in enumerate(_galaxy_particles()):
+        if rainbow and (i*31 + f//6) % 11 == 0: continue     # twinkle
+        x = int(cx + r*M.cos(th+ang)*sx); y = int(cy + r*M.sin(th+ang)*sy)
+        g = "@#0Ooc*+!;:^"[min(11, int(t*12))]
+        if rainbow:                                   # pastel hue sweeps along the arms
+            rr, gg, bb = colorsys.hsv_to_rgb((0.28 + 0.75*t) % 1.0, 0.45, 1.0)
+            c_ = (int(rr*255), int(gg*255), int(bb*255))
+        else:
+            c_ = clamp8(lerp((168, 214, 255), (66, 112, 190), t))
+        put(ch, col, y, x, g, c_)
+    put(ch, col, int(cy), int(cx), "0", WHITE)
+    pulse = 0.5 + 0.5*M.sin(f*0.09)
+    put(ch, col, 2, max(0, (W-24)//2), "◆ coinjoin in progress", clamp8(lerp(GREEN, WHITE, .35*pulse)))
+    put(ch, col, H-2, max(0, (W-46)//2), "amounts hidden while away  ·  any key returns", lerp(BRAND, GREY, .35))
+    rput(ch, col, 2, W-3, time.strftime("%H:%M"), lerp(BRAND, GREY, .5))
+
+def _draw_piece(ch, col, px, py, piece):              # one sushi at top-left (px, py)
+    name, accent, rows = piece
+    h = len(rows)
+    for i, row in enumerate(rows):
+        y = py + i
+        if isinstance(row, str):                      # classic ascii: topping tinted, rice pale
+            c_ = accent if i < h-2 else lerp(WHITE, GREY, .35)
+            put(ch, col, y, px, row, c_ if i < h-2 else lerp(c_, GREY, .2))
+        else:                                         # pixel piece: explicit per-segment colors
+            x = px
+            for txt, c_ in row:
+                if c_ is not None: put(ch, col, y, x, txt, c_)
+                x += len(txt)
+
+def _saver_chrome(ch, col, title):
+    vw, vb = min(W, TW), min(H, VOFF + TH)            # pin to the VISIBLE window
+    put(ch, col, VOFF+2, max(0, (vw-len(title))//2), title, lerp(BRAND, GREY, .4))
+    put(ch, col, vb-2, max(0, (vw-46)//2),
+        "amounts hidden while away  ·  any key returns", lerp(BRAND, GREY, .35))
+    rput(ch, col, VOFF+2, vw-3, time.strftime("%H:%M"), lerp(BRAND, GREY, .5))
+
+def draw_saver_belt(ch, col, f):                      # horizontal conveyor
+    _saver_chrome(ch, col, "s u s h i   b r e a k")
+    yb = H//2 + 2                                     # belt surface (pieces sit on it)
+    rail = lerp(BG, GREY, .55)
+    for x in range(W):
+        put(ch, col, yb+1, x, "─", rail)
+    for x in range(-(int(f*0.5) % 8), W, 8):          # rollers move with the belt
+        put(ch, col, yb+2, x, "o", lerp(BG, GREY, .4))
+    gap = 7
+    train = []                                        # (cum_x, piece); duplicate to cover the screen
+    cum = 0
+    while cum < W + 200:
+        for p in SUSHI:
+            train.append((cum, p)); cum += _piece_width(p[2]) + gap
+    total = cum
+    off = int(f*0.5) % total
+    for cx, p in train:
+        px = (cx - off) % total                       # seamless wrap around the loop
+        if px > W: px -= total
+        if px + _piece_width(p[2]) < 0 or px > W: continue
+        _draw_piece(ch, col, px, yb - len(p[2]) + 1, p)
+        put(ch, col, yb+3, px+2, p[0], lerp(BRAND, GREY, .55))
+
+def draw_saver_belt_v(ch, col, f):                    # vertical conveyor, drifting upward
+    _saver_chrome(ch, col, "s u s h i   b r e a k")
+    xb = W//2
+    rail = lerp(BG, GREY, .55)
+    for y in range(4, H-3):
+        put(ch, col, y, xb-13, "│", rail); put(ch, col, y, xb+13, "│", rail)
+    for y in range(4 + (int(f*0.35) % 4), H-3, 4):    # rollers move with the belt
+        put(ch, col, y, xb-15, "o", lerp(BG, GREY, .4)); put(ch, col, y, xb+15, "o", lerp(BG, GREY, .4))
+    gap = 3
+    train = []; cum = 0
+    while cum < H + 80:
+        for p in SUSHI:
+            train.append((cum, p)); cum += len(p[2]) + gap
+    total = cum
+    off = int(f*0.35) % total
+    for cy, p in train:
+        py = (cy - off) % total                       # seamless wrap around the loop
+        if py > H: py -= total
+        if py + len(p[2]) < 4 or py > H-4: continue
+        _draw_piece(ch, col, xb - _piece_width(p[2])//2, py, p)
+        put(ch, col, py + len(p[2])//2, xb+18, p[0], lerp(BRAND, GREY, .55))
+
+def draw_saver_belt_r(ch, col, f):                    # round kaiten belt, slowly turning
+    _saver_chrome(ch, col, "k a i t e n   s u s h i")
+    cx, cy = W/2, (H-2)/2 + 0.5
+    rx, ry = max(20, W//2 - 16), max(5, H//2 - 8)
+    ring = lerp(BG, GREY, .5)
+    for k in range(72):                               # the track
+        a = k * M.pi / 36
+        put(ch, col, int(cy + ry*M.sin(a)), int(cx + rx*M.cos(a)), "·", ring)
+    n = 8
+    front = (None, -2.0)
+    for k in range(n):
+        a = 2*M.pi*k/n - f*0.008
+        p = SUSHI[(k*2) % len(SUSHI)]
+        w, h = _piece_width(p[2]), len(p[2])
+        _draw_piece(ch, col, int(cx + rx*M.cos(a) - w/2), int(cy + ry*M.sin(a) - h/2), p)
+        if M.sin(a) > front[1]: front = (p[0], M.sin(a))   # piece nearest the viewer
+    if front[0]:
+        tag = "now serving  ·  " + front[0]
+        put(ch, col, H-4, max(0, (W-len(tag))//2), tag, lerp(GREEN, GREY, .35))
+
+def draw_saver_logo(ch, col, f):                      # the wasabi logo, bouncing (DVD style)
+    def tri(t, m): p = t % max(2*m, 1); return p if p < m else 2*m - p
+    rows = max(6, min(12, H//3))
+    _cells, cols = logo_cells(rows)
+    x = tri(int(f*0.55), max(1, W - cols - 2)) + 1
+    y = tri(int(f*0.3), max(1, H - rows - 6)) + 1
+    pulse = 0.5 + 0.5*M.sin(f*0.05)
+    draw_logo(ch, col, y, x, rows, clamp8(lerp(GREEN, BRAND, pulse)), dimf=0.4)
+    put(ch, col, y+rows+1, x + max(0, cols//2 - 2), "sabi", lerp(BRAND, GREY, .4))
+    put(ch, col, H-2, max(0, (W-46)//2),
+        "amounts hidden while away  ·  any key returns", lerp(BRAND, GREY, .35))
+    rput(ch, col, 2, W-3, time.strftime("%H:%M"), lerp(BRAND, GREY, .5))
+
 # ---- non-blocking key/mouse reader (raw fd; split-escape safe; Ctrl+C = exit) ------
 def make_keyreader(mouse=True):
     KEYS = {"w":"UP","s":"DOWN","\t":"TAB"," ":"SPACE","q":"QUIT","Q":"QUIT",
-            "\r":"ENTER","\n":"ENTER","\x7f":"BACK","\x08":"BACK","?":"HELP"}
+            "\r":"ENTER","\n":"ENTER","\x7f":"BACK","\x08":"BACK","?":"HELP",
+            "\x05":"SAVER"}                           # Ctrl+E: sushi break, right now
     for _d in "123456789": KEYS[_d] = _d
     ARROW = {"A":"UP","B":"DOWN","C":"RIGHT","D":"LEFT"}
     SCAN  = {"H":"UP","P":"DOWN","K":"LEFT","M":"RIGHT","\x0f":"STAB"}
@@ -1248,6 +1565,7 @@ HELP = ["1-6 / Tab / ←→   switch tab          w/s or ↑↓   select row",
         "r                refresh now         ?           this help",
         ".                privacy mode: hide amounts + addresses (receive stays visible)",
         "q                quit                Ctrl+C      quit immediately",
+        "Ctrl+E           sushi break now (screensaver; also auto after 10 min idle)",
         "",
         "any tab    g RECEIVE - label -> fresh address + scannable QR code",
         "dashboard  space/enter load wallet · n create wallet · v recover wallet",
@@ -1271,6 +1589,7 @@ HELP = ["1-6 / Tab / ←→   switch tab          w/s or ↑↓   select row",
         "       no-change round-up/down, modal fields & numbered menu lines"]
 
 def tui(rpc, args, frames=0):
+    global VOFF
     import threading
     interactive = sys.stdin.isatty() and frames == 0
     apply_canvas(*term_canvas(interactive or frames > 0))
@@ -2132,6 +2451,28 @@ def tui(rpc, args, frames=0):
     def draw_header(ch, col, f):
         pulse = 0.5 + 0.5*M.sin(f*0.09)               # slow breathing (~3.3 s)
         on = S.get("cj_on")
+        if TH < 24 or TW < 70:                        # thin terminal: 2-line header, no logo
+            put(ch, col, 0, 2, "S A B I", WHITE)
+            wname = S.get("wallet")
+            if wname:
+                pr, se, np_ = balances(S)
+                put(ch, col, 0, 12, f"{wname}  {btc(pr+se+np_)}", lerp(BRAND, WHITE, .3))
+            if on: rput(ch, col, 0, min(W, TW)-2, "◆ CJ", clamp8(lerp(GREEN, WHITE, .3*pulse)))
+            if S.get("err"):
+                t = "● offline - i install/find daemon"
+                put(ch, col, 1, 2, t, WARN)
+                regions.append((1, 2, 2+len(t)-1, ("ACT", do_install_wasabi)))
+            else:
+                st = S.get("status") or {}
+                seg = f"● #{st.get('bestBlockchainHeight', '?')} · {len(st.get('peers') or [])} peers"
+                cu = S.get("coord_uri")
+                if cu: seg += " · " + coord_host(cu)
+                elif S.get("no_coord") or cu == "": seg += " · no coordinator (c)"
+                put(ch, col, 1, 2, seg, GREY)
+            if S.get("busy"):
+                sp = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"[int(time.time()*10) % 10]
+                rput(ch, col, 1, min(W, TW)-2, sp + " " + str(S["busy"])[:24], AMBER)
+            return 3
         lcol = lerp(GREEN, GLOW, pulse) if on else lerp(BRAND, GREY, .45)
         rows = 7 if H >= 34 else 5
         cols = draw_logo(ch, col, 1, 2, rows, lcol, dimf=0.5 if on else 0.3)
@@ -2223,6 +2564,17 @@ def tui(rpc, args, frames=0):
 
     def draw_tabs(ch, col, y):
         for j in range(1, W-1): put(ch, col, y-1, j, "─", lerp(BG, BRAND, .22))   # header divider
+        if TW < 96:                                   # thin: only the active tab + ◂ ▸ pagers
+            put(ch, col, y, 2, "◂", lerp(BRAND, WHITE, .2))
+            regions.append((y, 2, 3, ("TAB", (tab-1) % 7)))
+            lab = f"{tab+1} {TABS[tab]}"
+            put(ch, col, y, 5, lab, WHITE)
+            xr = 5 + len(lab) + 2
+            put(ch, col, y, xr, "▸", lerp(BRAND, WHITE, .2))
+            regions.append((y, xr, xr+1, ("TAB", (tab+1) % 7)))
+            for j in range(5, 5+len(lab)): put(ch, col, y+1, j, "▔", GREEN)
+            rput(ch, col, y, min(W, TW)-2, f"{tab+1}/7 · ◂▸ tabs", GREY)
+            return y + 2
         x = 2
         counts = {1: len(S.get("coins") or []), 2: len(S.get("history") or []),
                   3: len(S.get("pays") or []), 4: len(queue), 5: len(S.get("rules") or []),
@@ -2565,9 +2917,10 @@ def tui(rpc, args, frames=0):
 
     def draw_pager(ch, col):
         p = S["pager"]; lines = p["lines"]
-        w = min(W-6, max([len(p["title"])] + [len(l) for l in lines]) + 6)
-        h = min(H-4, len(lines) + 6)
-        x0 = (W-w)//2; y0 = (H-h)//2; vis = h - 6
+        vw, vh = min(W, TW), min(H, TH)               # fit + center inside the viewport
+        w = min(vw-6, max([len(p["title"])] + [len(l) for l in lines]) + 6)
+        h = min(vh-4, len(lines) + 6)
+        x0 = max(0, (vw-w)//2); y0 = VOFF + max(0, (vh-h)//2); vis = h - 6
         p["off"] = max(0, min(p.get("off", 0), max(0, len(lines)-vis)))
         for yy in range(y0, y0+h):
             for xx in range(x0, x0+w):
@@ -2625,14 +2978,15 @@ def tui(rpc, args, frames=0):
         except Exception: mlines = []
         w = max(56, max(len(f["label"]) + 34 for f in m["fields"]) + 8, len(m["title"]) + 8,
                 (max(len(l) for l in mlines) + 8) if mlines else 0)
-        w = min(w, W-4)
+        w = min(w, min(W, TW)-4)
         inf = ""
         if m.get("info"):
             try: inf = m["info"]({f["k"]: f["v"] for f in m["fields"]}) or ""
             except Exception: inf = ""
         h = 4 + 3*len(m["fields"]) + (len(mlines)+1 if mlines else 0) \
             + (2 if m.get("warn") else 0) + (2 if inf else 0) + 2
-        x0 = (W-w)//2; y0 = max(1, (H-h)//2)
+        vh = min(H, TH)
+        x0 = max(0, (min(W, TW)-w)//2); y0 = VOFF + max(1, (vh-h)//2)
         for yy in range(y0, min(y0+h, H)):
             for xx in range(x0, min(x0+w, W)):
                 ch[yy][xx] = " "; col[yy][xx] = (16, 18, 26)
@@ -2682,10 +3036,23 @@ def tui(rpc, args, frames=0):
              "n add · i import · +/- no-change round · e edit · x remove · enter send · r raw hex · ? help",
              "n new rule · e edit · space on/off · x delete · a arm/disarm · ? help",
              "w/s pick · enter run · e edit/paste · x enable scripting · l load all wallets · ? help"]
+    def pick_saver():                                 # a coinjoin running -> the galaxy spins
+        return (random.choice(("galaxy", "galaxy2")) if S.get("cj_on")
+                else random.choice(("belt", "beltv", "beltr", "platter", "wasabi", "logo", "bounce")))
+    def saver_on():                                   # amounts auto-hide while away ('.' mode)
+        nonlocal saver, saver_prev_priv
+        saver = pick_saver(); saver_prev_priv = DISCREET["on"]; DISCREET["on"] = True; o("\x1b[2J")
     try:
-        f = 0
+        f = 0; last_act = time.monotonic(); saver = None; saver_prev_priv = False
         while frames == 0 or f < frames:
             ev = getkey() if interactive else None
+            if ev:
+                last_act = time.monotonic()
+                if saver:                             # waking up: swallow the key that woke us
+                    saver = None; DISCREET["on"] = saver_prev_priv   # restore the user's choice
+                    o("\x1b[2J"); ev = None
+            elif interactive and saver is None and time.monotonic() - last_act >= AFK_SECS:
+                saver_on()
             if ev:
                 name, raw = ev
                 if S.get("notice"):
@@ -2698,7 +3065,7 @@ def tui(rpc, args, frames=0):
                     else: S["pager"] = None
                 elif modal:
                     if name == "CLICK" and isinstance(raw, tuple):
-                        mx, my = raw                  # clicks inside a modal: focus field / pick line
+                        mx, my = raw[0], raw[1] + VOFF   # viewport -> canvas coordinates
                         for (ry, rx0, rx1, tok) in regions:
                             if my == ry and rx0 <= mx <= rx1:
                                 if tok[0] == "MFIELD": modal["i"] = tok[1]
@@ -2712,18 +3079,24 @@ def tui(rpc, args, frames=0):
                 elif name == "QUIT":
                     break
                 elif name == "HELP": helpon = True
+                elif name == "SAVER":                 # Ctrl+E: preview the AFK screensaver now
+                    saver_on()
                 elif name and name in "1234567": tab = int(name)-1
                 elif name == "TAB": tab = (tab+1) % 7
                 elif name == "STAB": tab = (tab-1) % 7
                 elif name == "RIGHT": tab = (tab+1) % 7
                 elif name == "LEFT": tab = (tab-1) % 7
-                elif name == "UP": sel[tab] = max(0, sel[tab]-1)
-                elif name == "DOWN": sel[tab] = min(max(0, len(lists_for_tab(tab))-1), sel[tab]+1)
+                elif name == "UP":
+                    if TH < H and not lists_for_tab(tab): VOFF = max(0, VOFF-2)
+                    else: sel[tab] = max(0, sel[tab]-1)
+                elif name == "DOWN":
+                    if TH < H and not lists_for_tab(tab): VOFF = min(max(0, H-TH), VOFF+2)
+                    else: sel[tab] = min(max(0, len(lists_for_tab(tab))-1), sel[tab]+1)
                 elif name in ("WHEELUP", "WHEELDN"):
                     d = -3 if name == "WHEELUP" else 3
                     sel[tab] = max(0, min(max(0, len(lists_for_tab(tab))-1), sel[tab]+d))
                 elif name == "CLICK":
-                    mx, my = raw
+                    mx, my = raw[0], raw[1] + VOFF    # viewport -> canvas coordinates
                     for (ry, rx0, rx1, tok) in regions:
                         if my == ry and rx0 <= mx <= rx1:
                             if tok[0] == "TAB": tab = tok[1]
@@ -2821,7 +3194,13 @@ def tui(rpc, args, frames=0):
                     elif tab == 4 and raw in ("-", "_"): apply_sug("dn")
             if interactive:
                 nw, nh = term_canvas(True)
-                if (nw, nh) != (W, H): apply_canvas(nw, nh); o("\x1b[2J")
+                if (nw, nh) != (TW, TH): apply_canvas(nw, nh); o("\x1b[2J")
+            if TW < 44 or TH < 10:                    # comically small terminal: maki protest screen
+                VOFF = 0
+                ch, col = blank()
+                draw_too_small(ch, col, f)
+                emit(o, ch, col); time.sleep(FRAME); f += 1
+                continue
             regions.clear()
             ch, col = blank()
             y = draw_header(ch, col, f)
@@ -2833,6 +3212,16 @@ def tui(rpc, args, frames=0):
             elif tab == 4: draw_send(ch, col, y)
             elif tab == 5: draw_auto(ch, col, y, f)
             elif tab == 6: draw_scheme(ch, col, y)
+            if TH < H:                                # thin terminal: viewport follows the selection
+                tgt = next((ry for (ry, _x0, _x1, tok) in regions
+                            if tok[0] == "ROW" and tok[1] == tab and tok[2] == sel[tab]), None)
+                if tgt is not None:
+                    if tgt < VOFF + 4: VOFF = max(0, tgt - 4)
+                    elif tgt > VOFF + TH - 4: VOFF = tgt - TH + 4
+                VOFF = max(0, min(VOFF, H - TH))
+            else:
+                VOFF = 0
+            hb = min(H, VOFF + TH)                    # hint/footer pinned to the VISIBLE bottom
             hint = S["flash"] if S.get("flasht", 0) > 0 else HINTS[tab]
             if S.get("werr"):
                 hint = ("✗ no coordinator configured - press c on [4] coinjoin to choose one"
@@ -2841,17 +3230,19 @@ def tui(rpc, args, frames=0):
             hcol = (WARN if hint.startswith(("✗", "wallet rpc"))
                     else clamp8(lerp(GREEN, WHITE, .25)) if hint.startswith(("◆", "✓")) or "✓" in hint[:40]
                     else lerp(BRAND, WHITE, .4))
-            put(ch, col, H-2, max(0, (W-len(hint))//2), hint, hcol)
+            vw = min(W, TW)
+            put(ch, col, hb-2, max(0, (vw-len(hint))//2), hint, hcol)
             st_ = S.get("status") or {}                # status footer strip
             okc = GREEN if not S.get("err") else WARN
-            put(ch, col, H-1, 2, "●", okc)
-            put(ch, col, H-1, 4, (f"#{st_.get('bestBlockchainHeight', '?')}" if not S.get("err")
+            put(ch, col, hb-1, 2, "●", okc)
+            put(ch, col, hb-1, 4, (f"#{st_.get('bestBlockchainHeight', '?')}" if not S.get("err")
                                   else "offline"), GREY)
-            tag = ("sabi · wasabi daemon terminal · coinjoin.nl" if W >= 150 else "sabi · coinjoin.nl")
-            put(ch, col, H-1, max(0, (W-len(tag))//2), tag, lerp(BRAND, WHITE, .25))
+            if vw >= 100:
+                tag = ("sabi · wasabi daemon terminal · coinjoin.nl" if vw >= 150 else "sabi · coinjoin.nl")
+                put(ch, col, hb-1, max(0, (vw-len(tag))//2), tag, lerp(BRAND, WHITE, .25))
             age = int(time.monotonic() - S.get("t_poll", time.monotonic()))
             eye = "● hidden" if DISCREET["on"] else "○ visible"
-            rput(ch, col, H-1, W-2, f"'.' {eye} · sync {age}s · {time.strftime('%H:%M')}",
+            rput(ch, col, hb-1, vw-2, f"'.' {eye} · sync {age}s · {time.strftime('%H:%M')}",
                  lerp(AMBER, GREY, .3) if DISCREET["on"] else GREY)
             if S.get("flasht", 0) > 0: S["flasht"] -= 1
             if helpon: draw_overlay(ch, col, "SABI · keys", HELP)
@@ -2859,6 +3250,16 @@ def tui(rpc, args, frames=0):
                 nt = S["notice"]; draw_overlay(ch, col, nt["title"], nt["lines"], tcol=GREEN)
             elif S.get("pager"): draw_pager(ch, col)
             elif modal: draw_modal(ch, col)
+            if saver:                                 # translucent screensaver: UI stays faintly visible
+                for r in range(H):
+                    rg, rc = ch[r], col[r]
+                    for c in range(W):
+                        if rg[c] != " ": rc[c] = clamp8(lerp(rc[c], BG, .8))
+                {"belt": draw_saver_belt, "beltv": draw_saver_belt_v, "beltr": draw_saver_belt_r,
+                 "platter": draw_saver_platter, "wasabi": draw_saver_wasabi,
+                 "logo": draw_saver_logo, "bounce": draw_saver_bounce,
+                 "galaxy": draw_saver_galaxy,
+                 "galaxy2": lambda c1, c2, f_: draw_saver_galaxy(c1, c2, f_, rainbow=True)}[saver](ch, col, f)
             emit(o, ch, col); time.sleep(FRAME); f += 1
     except KeyboardInterrupt:
         raise
