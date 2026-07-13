@@ -276,12 +276,14 @@ def draw_logo(ch, col, y, x, rows, color, dimf=0.35):
 # shows a TWxTH viewport of it (VOFF = vertical scroll) - no line wrapping, no garbage.
 W = H = 0                                             # virtual canvas size
 TW = TH = 0                                           # real terminal size (viewport)
-VOFF = 0                                              # viewport scroll offset (thin mode)
+VOFF = 0                                              # vertical viewport offset (thin mode)
+HOFF = 0                                              # horizontal viewport offset (thin mode)
 def apply_canvas(tw, th):
-    global W, H, TW, TH, VOFF
+    global W, H, TW, TH, VOFF, HOFF
     TW, TH = tw, th
     W = max(100, min(tw, 760)); H = max(31, min(th, 216))
-    if TH >= H and TW >= W: VOFF = 0
+    if TH >= H: VOFF = 0
+    if TW >= W: HOFF = 0
 def term_canvas(interactive=True):                    # -> the REAL terminal size
     if not interactive: return 118, 40
     try: c, l = shutil.get_terminal_size((118, 40))
@@ -296,11 +298,10 @@ def put(ch, col, r, c, s, color):
 def rput(ch, col, r, c_end, s, color): put(ch, col, r, c_end-len(str(s)), s, color)
 
 def emit(o, ch, col):                                 # RLE truecolor frame, synchronized output
-    out = ["\x1b[?2026h\x1b[H"]                       # emits the TWxTH viewport at VOFF
-    cw = min(W, TW)
+    out = ["\x1b[?2026h\x1b[H"]                       # emits the TWxTH viewport at (HOFF, VOFF)
     for r in range(VOFF, min(H, VOFF + TH)):
         last = None; line = []
-        for c in range(cw):
+        for c in range(HOFF, min(W, HOFF + TW)):
             g = ch[r][c]
             if g == " ": line.append(" "); continue
             cc = col[r][c]
@@ -321,7 +322,7 @@ def draw_overlay(ch, col, title, lines, tcol=WHITE):  # lines: str or (str, colo
     def txt(l): return l[0] if isinstance(l, tuple) else l
     w = max([len(title)] + [len(txt(l)) for l in lines]) + 6; h = len(lines) + 4
     vw, vh = min(W, TW), min(H, TH)                   # center inside the visible viewport
-    x0 = max(0, (vw-w)//2); y0 = VOFF + max(0, (vh-h)//2)
+    x0 = HOFF + max(0, (vw-w)//2); y0 = VOFF + max(0, (vh-h)//2)
     for yy in range(y0, min(y0+h, H)):
         for xx in range(x0, min(x0+w, W)):
             edge = yy in (y0, y0+h-1) or xx in (x0, x0+w-1)
@@ -596,10 +597,10 @@ def _draw_piece(ch, col, px, py, piece):              # one sushi at top-left (p
 
 def _saver_chrome(ch, col, title):
     vw, vb = min(W, TW), min(H, VOFF + TH)            # pin to the VISIBLE window
-    put(ch, col, VOFF+2, max(0, (vw-len(title))//2), title, lerp(BRAND, GREY, .4))
-    put(ch, col, vb-2, max(0, (vw-46)//2),
+    put(ch, col, VOFF+2, HOFF + max(0, (vw-len(title))//2), title, lerp(BRAND, GREY, .4))
+    put(ch, col, vb-2, HOFF + max(0, (vw-46)//2),
         "amounts hidden while away  ·  any key returns", lerp(BRAND, GREY, .35))
-    rput(ch, col, VOFF+2, vw-3, time.strftime("%H:%M"), lerp(BRAND, GREY, .5))
+    rput(ch, col, VOFF+2, HOFF + vw-3, time.strftime("%H:%M"), lerp(BRAND, GREY, .5))
 
 def draw_saver_belt(ch, col, f):                      # horizontal conveyor
     _saver_chrome(ch, col, "s u s h i   b r e a k")
@@ -1605,6 +1606,7 @@ HELP = ["1-6 / Tab / ←→   switch tab          w/s or ↑↓   select row",
         ".                privacy mode: hide amounts + addresses (receive stays visible)",
         "q                quit                Ctrl+C      quit immediately",
         "Ctrl+E           sushi break now (screensaver; also auto after 10 min idle)",
+        "small screens    a/d pan left/right · w/s scroll the page (on list-less tabs)",
         "",
         "any tab    g RECEIVE - label -> fresh address + scannable QR code",
         "dashboard  space/enter load wallet · n create wallet · v recover wallet",
@@ -1628,7 +1630,7 @@ HELP = ["1-6 / Tab / ←→   switch tab          w/s or ↑↓   select row",
         "       no-change round-up/down, modal fields & numbered menu lines"]
 
 def tui(rpc, args, frames=0):
-    global VOFF
+    global VOFF, HOFF
     import threading
     interactive = sys.stdin.isatty() and frames == 0
     apply_canvas(*term_canvas(interactive or frames > 0))
@@ -2918,7 +2920,6 @@ def tui(rpc, args, frames=0):
             put(ch, col, y0+1, 4, "⟳ wallet is synchronizing - sending available once it finishes", AMBER); return
         total = sum(p["amount"] for p in queue)
         put(ch, col, y0, 4, f"PAYMENT QUEUE ({len(queue)})   one on-chain transaction, many recipients", GREY)
-        put(ch, col, y0, 70, "n add · e edit · x remove · u subtract-fee · enter send", GREY)
         if not queue:
             put(ch, col, y0+2, 4, "empty - press n to queue the first payment", GREY)
         for i, p in enumerate(queue[:H-y0-9]):
@@ -3009,7 +3010,7 @@ def tui(rpc, args, frames=0):
         vw, vh = min(W, TW), min(H, TH)               # fit + center inside the viewport
         w = min(vw-6, max([len(p["title"])] + [len(l) for l in lines]) + 6)
         h = min(vh-4, len(lines) + 6)
-        x0 = max(0, (vw-w)//2); y0 = VOFF + max(0, (vh-h)//2); vis = h - 6
+        x0 = HOFF + max(0, (vw-w)//2); y0 = VOFF + max(0, (vh-h)//2); vis = h - 6
         p["off"] = max(0, min(p.get("off", 0), max(0, len(lines)-vis)))
         for yy in range(y0, y0+h):
             for xx in range(x0, x0+w):
@@ -3075,7 +3076,7 @@ def tui(rpc, args, frames=0):
         h = 4 + 3*len(m["fields"]) + (len(mlines)+1 if mlines else 0) \
             + (2 if m.get("warn") else 0) + (2 if inf else 0) + 2
         vh = min(H, TH)
-        x0 = max(0, (min(W, TW)-w)//2); y0 = VOFF + max(1, (vh-h)//2)
+        x0 = HOFF + max(0, (min(W, TW)-w)//2); y0 = VOFF + max(1, (vh-h)//2)
         for yy in range(y0, min(y0+h, H)):
             for xx in range(x0, min(x0+w, W)):
                 ch[yy][xx] = " "; col[yy][xx] = (16, 18, 26)
@@ -3154,7 +3155,7 @@ def tui(rpc, args, frames=0):
                     else: S["pager"] = None
                 elif modal:
                     if name == "CLICK" and isinstance(raw, tuple):
-                        mx, my = raw[0], raw[1] + VOFF   # viewport -> canvas coordinates
+                        mx, my = raw[0] + HOFF, raw[1] + VOFF   # viewport -> canvas coordinates
                         for (ry, rx0, rx1, tok) in regions:
                             if my == ry and rx0 <= mx <= rx1:
                                 if tok[0] == "MFIELD": modal["i"] = tok[1]
@@ -3185,7 +3186,7 @@ def tui(rpc, args, frames=0):
                     d = -3 if name == "WHEELUP" else 3
                     sel[tab] = max(0, min(max(0, len(lists_for_tab(tab))-1), sel[tab]+d))
                 elif name == "CLICK":
-                    mx, my = raw[0], raw[1] + VOFF    # viewport -> canvas coordinates
+                    mx, my = raw[0] + HOFF, raw[1] + VOFF   # viewport -> canvas coordinates
                     for (ry, rx0, rx1, tok) in regions:
                         if my == ry and rx0 <= mx <= rx1:
                             if tok[0] == "TAB": tab = tok[1]
@@ -3222,7 +3223,10 @@ def tui(rpc, args, frames=0):
                         rl["on"] = not rl.get("on"); save_rules(S["wallet"], S["rules"])
                 elif raw:
                     r = raw.lower()
-                    if tab == 2 and r == "r": do_copy_rawtx()
+                    if TW < W and r == "d": HOFF = min(W - TW, HOFF + 6)
+                    elif TW < W and r == "a" and (HOFF > 0 or tab not in (3, 5)):
+                        HOFF = max(0, HOFF - 6)       # 'a' pans back; at the left edge it
+                    elif tab == 2 and r == "r": do_copy_rawtx()   # keeps its rules/arm meaning
                     elif tab == 4 and r == "r": do_copy_last_send()
                     elif r == "r": S["kick"] = True; flash("refreshing ...", 20)
                     elif r == ".":                                # privacy mode: hide amounts + addresses
@@ -3310,6 +3314,7 @@ def tui(rpc, args, frames=0):
                 VOFF = max(0, min(VOFF, H - TH))
             else:
                 VOFF = 0
+            HOFF = max(0, min(HOFF, W - TW)) if TW < W else 0
             hb = min(H, VOFF + TH)                    # hint/footer pinned to the VISIBLE bottom
             hint = S["flash"] if S.get("flasht", 0) > 0 else HINTS[tab]
             if S.get("werr"):
@@ -3320,18 +3325,18 @@ def tui(rpc, args, frames=0):
                     else clamp8(lerp(GREEN, WHITE, .25)) if hint.startswith(("◆", "✓")) or "✓" in hint[:40]
                     else lerp(BRAND, WHITE, .4))
             vw = min(W, TW)
-            put(ch, col, hb-2, max(0, (vw-len(hint))//2), hint, hcol)
+            put(ch, col, hb-2, HOFF + max(0, (vw-len(hint))//2), hint, hcol)
             st_ = S.get("status") or {}                # status footer strip
             okc = GREEN if not S.get("err") else WARN
-            put(ch, col, hb-1, 2, "●", okc)
-            put(ch, col, hb-1, 4, (f"#{st_.get('bestBlockchainHeight', '?')}" if not S.get("err")
+            put(ch, col, hb-1, HOFF+2, "●", okc)
+            put(ch, col, hb-1, HOFF+4, (f"#{st_.get('bestBlockchainHeight', '?')}" if not S.get("err")
                                   else "offline"), GREY)
             if vw >= 100:
                 tag = ("sabi · wasabi daemon terminal · coinjoin.nl" if vw >= 150 else "sabi · coinjoin.nl")
-                put(ch, col, hb-1, max(0, (vw-len(tag))//2), tag, lerp(BRAND, WHITE, .25))
+                put(ch, col, hb-1, HOFF + max(0, (vw-len(tag))//2), tag, lerp(BRAND, WHITE, .25))
             age = int(time.monotonic() - S.get("t_poll", time.monotonic()))
             eye = "● hidden" if DISCREET["on"] else "○ visible"
-            rput(ch, col, hb-1, vw-2, f"'.' {eye} · sync {age}s · {time.strftime('%H:%M')}",
+            rput(ch, col, hb-1, HOFF + vw-2, f"'.' {eye} · sync {age}s · {time.strftime('%H:%M')}",
                  lerp(AMBER, GREY, .3) if DISCREET["on"] else GREY)
             if S.get("flasht", 0) > 0: S["flasht"] -= 1
             if helpon: draw_overlay(ch, col, "SABI · keys", HELP)
