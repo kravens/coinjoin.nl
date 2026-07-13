@@ -391,6 +391,28 @@ SUSHI += [
    [("  ", None), ("▀▀▀▀▀▀▀▀▀▀", (214, 178, 140))]]),
 ]
 
+# sashimi (no rice): slanted slices, marbling drawn with colour segments
+_SAL, _SALF, _SALD = (250, 120, 80), (255, 214, 192), (204, 88, 58)   # salmon + fat lines
+_AKA, _AKAH, _AKAD = (198, 38, 54), (238, 96, 106), (150, 26, 40)     # tuna akami
+_WGY, _MARB, _WGYD = (232, 108, 118), (255, 238, 234), (188, 74, 86)  # wagyu + marbling
+SUSHI += [
+ ("salmon sashimi", _SAL, [
+   [("   ", None), ("▄▄▄▄▄▄▄▄▄▄", _SAL)],
+   [("  ", None), ("██", _SAL), ("▒▒", _SALF), ("███", _SAL), ("▒▒", _SALF), ("██", _SAL)],
+   [(" ", None), ("██", _SAL), ("▒▒", _SALF), ("███", _SAL), ("▒▒", _SALF), ("██", _SAL)],
+   [(" ", None), ("▀▀▀▀▀▀▀▀▀▀", _SALD)]]),
+ ("tuna sashimi", _AKA, [
+   [("   ", None), ("▄▄▄▄▄▄▄▄▄▄", _AKAH)],
+   [("  ", None), ("████", _AKA), ("▒", _AKAH), ("██████", _AKA)],
+   [(" ", None), ("███████████", _AKA)],
+   [(" ", None), ("▀▀▀▀▀▀▀▀▀▀", _AKAD)]]),
+ ("wagyu", _WGY, [
+   [("   ", None), ("▄▄▄▄▄▄▄▄▄▄", _WGY)],
+   [("  ", None), ("█", _WGY), ("▒", _MARB), ("██", _WGY), ("▒▒", _MARB), ("█", _WGY), ("▒", _MARB), ("██", _WGY)],
+   [(" ", None), ("█", _WGY), ("▒▒", _MARB), ("█", _WGY), ("▒", _MARB), ("██", _WGY), ("▒▒", _MARB), ("█", _WGY)],
+   [(" ", None), ("▀▀▀▀▀▀▀▀▀▀", _WGYD)]]),
+]
+
 def _piece_width(rows):
     return max(len(r) if isinstance(r, str) else sum(len(t) for t, _ in r) for r in rows)
 
@@ -448,23 +470,41 @@ def draw_saver_bounce(ch, col, f):
     if B.get("box") != (vw, floor) or f - B.get("lf", f) > 30:   # fresh spawn per session/resize
         rnd = random.Random()
         B["box"] = (vw, floor)
-        B["balls"] = [dict(p=SUSHI[rnd.randrange(len(SUSHI))],
+        pcs = [SUSHI[rnd.randrange(len(SUSHI))] for _ in range(6)]
+        B["balls"] = [dict(p=p, w=_piece_width(p[2]), h=len(p[2]),
                            x=rnd.uniform(2, max(3, vw-20)), y=rnd.uniform(top, top+5),
                            vx=rnd.uniform(-1.3, 1.3), vy=rnd.uniform(-0.3, 0.7))
-                      for _ in range(6)]
+                      for p in pcs]
     B["lf"] = f
     for x in range(1, vw-1):
         put(ch, col, floor+1, x, "▁", lerp(BG, GREY, .5))
-    for b in B["balls"]:
-        w, h = _piece_width(b["p"][2]), len(b["p"][2])
+    balls = B["balls"]
+    for b in balls:                                   # integrate + walls
         b["vy"] += 0.06                               # gravity
         b["x"] += b["vx"]; b["y"] += b["vy"]
         if b["x"] < 1: b["x"] = 1; b["vx"] = abs(b["vx"])
-        if b["x"] + w > vw-1: b["x"] = vw-1-w; b["vx"] = -abs(b["vx"])
-        if b["y"] + h > floor + 1:
-            b["y"] = floor + 1 - h; b["vy"] = -abs(b["vy"]) * 0.82
+        if b["x"] + b["w"] > vw-1: b["x"] = vw-1-b["w"]; b["vx"] = -abs(b["vx"])
+        if b["y"] + b["h"] > floor + 1:
+            b["y"] = floor + 1 - b["h"]; b["vy"] = -abs(b["vy"]) * 0.82
             if abs(b["vy"]) < 0.4: b["vy"] = -random.uniform(1.0, 1.7)   # keep it lively
         if b["y"] < top: b["y"] = top; b["vy"] = abs(b["vy"]) * 0.5
+    for i in range(len(balls)):                       # sushi-on-sushi: AABB, elastic (equal mass
+        for j in range(i+1, len(balls)):              # -> velocity swap on the least-overlap axis)
+            a, b = balls[i], balls[j]
+            ox = min(a["x"]+a["w"], b["x"]+b["w"]) - max(a["x"], b["x"])
+            oy = min(a["y"]+a["h"], b["y"]+b["h"]) - max(a["y"], b["y"])
+            if ox <= 0 or oy <= 0: continue
+            if ox < oy * 2.1:                         # cells are ~2:1, compare in physical units
+                d = 1 if a["x"] < b["x"] else -1
+                a["x"] -= d*ox/2; b["x"] += d*ox/2
+                if (b["vx"] - a["vx"]) * d < 0:
+                    a["vx"], b["vx"] = b["vx"]*0.95, a["vx"]*0.95
+            else:
+                d = 1 if a["y"] < b["y"] else -1
+                a["y"] -= d*oy/2; b["y"] += d*oy/2
+                if (b["vy"] - a["vy"]) * d < 0:
+                    a["vy"], b["vy"] = b["vy"]*0.9, a["vy"]*0.9
+    for b in balls:
         _draw_piece(ch, col, int(b["x"]), int(b["y"]), b["p"])
 
 def draw_saver_wasabi(ch, col, f):                    # grating fresh wasabi, the sabi way
