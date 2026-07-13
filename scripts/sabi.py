@@ -2140,8 +2140,14 @@ def tui(rpc, args, frames=0):
         put(ch, col, 1, x0+9, "· wasabi daemon terminal", GREY)
         st = S.get("status") or {}
         if S.get("err"):
-            put(ch, col, 3, x0, "daemon unreachable: " + short(S["err"], 46), WARN)
-            put(ch, col, 4, x0, "start it:  wassabee daemon   (JsonRpcServerEnabled: true)", GREY)
+            e = str(S["err"]).lower()
+            msg = ("daemon offline - wasabi is not running (or its RPC is disabled)"
+                   if ("refused" in e or "10061" in e or "111" in e)
+                   else "daemon unreachable: " + short(S["err"], 44))
+            put(ch, col, 3, x0, "● " + msg, WARN)
+            cta = "i  find or install the wasabi daemon - verified · or click here"
+            put(ch, col, 4, x0, cta, clamp8(lerp(GREEN, WHITE, .2)))
+            regions.append((4, x0, x0+len(cta)-1, ("ACT", do_install_wasabi)))
         else:
             def dot_(okk): return ("●", GREEN if okk else WARN)
             g, c_ = dot_(str(st.get("torStatus", "")).lower().startswith(("running", "turned off")))
@@ -2250,10 +2256,6 @@ def tui(rpc, args, frames=0):
         put(ch, col, y0, 4, "WALLETS ON THIS DAEMON", GREY)   # keys live in GETTING STARTED + hint bar
         if not wl:
             put(ch, col, y0+2, 4, "none found yet " + ("(daemon offline?)" if S.get("err") else "..."), GREY)
-            if S.get("err"):
-                cta = "i  install wasabi daemon - verified download (or click here)"
-                put(ch, col, y0+4, 4, cta, clamp8(lerp(GREEN, WHITE, .2)))
-                regions.append((y0+4, 4, 4+len(cta)-1, ("ACT", do_install_wasabi)))
         for i, name in enumerate(wl[:H-y0-6]):
             y = y0+2+i; on = (i == sel[0] % max(1, len(wl)))
             cur = (name == S.get("wallet")); ld = (name in loaded)
@@ -2769,7 +2771,7 @@ def tui(rpc, args, frames=0):
                     elif r == "l" and tab in (0, 6): do_load_all()   # load every wallet
                     elif tab == 0 and r == "n": do_create_wallet()
                     elif tab == 0 and r == "v": do_recover_wallet()
-                    elif tab == 0 and r == "i": do_install_wasabi()
+                    elif r == "i" and (tab == 0 or S.get("err")): do_install_wasabi()
                     elif tab == 6 and r == "e":
                         it6 = SCHEME_ITEMS[sel[6] % len(SCHEME_ITEMS)]
                         do_scheme_edit(S.get("sc_custom") or (it6[3] if it6[0] == "scm" else ""))
