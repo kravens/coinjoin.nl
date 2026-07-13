@@ -522,6 +522,251 @@ class BitcoindRpc:                                    # the user's own node, cre
             raise RpcError(str(resp["error"].get("message", resp["error"])))
         return resp.get("result") if isinstance(resp, dict) else resp
 
+# ---- wasabi release discovery + verification (mirrors the wallet's own updater) ----
+# Wasabi announces releases as a nostr kind-1 event from the team key; tags carry the
+# version and per-asset download URLs. SHA256SUMS.wasabisig is a secp256k1 ECDSA (DER,
+# base64) over SHA256(SHA256SUMS.asc); the installer's sha256 must match its line in
+# SHA256SUMS.asc. Trust roots below are pinned from WalletWasabi/Helpers/Constants.cs.
+WASABI_NOSTR_NPUB = "npub129hpcwy3h7uhpzwzts6utkt2p5st7lf4qpzp3d2j0p6z56lvkpgspngzeq"
+WASABI_RELEASE_PUBKEY = "02c8ab8eea76c83788e246a1baee10c04a134ec11be6553946f6ae65e47ae9a608"
+NOSTR_RELAYS = ["wss://relay.primal.net", "wss://nos.lol", "wss://nostr.mom"]
+
+# secp256k1, verification only (no key material ever touches this code)
+_P  = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F
+_N  = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
+_GX = 0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798
+_GY = 0x483ADA7726A3C4655DA4FBFC0E1108A8FD17B448A68554199C47D08FFB10D4B8
+
+def _pt_add(a, b):
+    if a is None: return b
+    if b is None: return a
+    if a[0] == b[0] and (a[1] + b[1]) % _P == 0: return None
+    if a == b:
+        l = (3*a[0]*a[0]) * pow(2*a[1], -1, _P) % _P
+    else:
+        l = (b[1]-a[1]) * pow(b[0]-a[0], -1, _P) % _P
+    x = (l*l - a[0] - b[0]) % _P
+    return (x, (l*(a[0]-x) - a[1]) % _P)
+
+def _pt_mul(k, pt):
+    r = None
+    while k:
+        if k & 1: r = _pt_add(r, pt)
+        pt = _pt_add(pt, pt); k >>= 1
+    return r
+
+def _lift_x(x):                                       # BIP340: point with even y, or None
+    if not (0 < x < _P): return None
+    y2 = (pow(x, 3, _P) + 7) % _P
+    y = pow(y2, (_P+1)//4, _P)
+    if y*y % _P != y2: return None
+    return (x, y if y % 2 == 0 else _P - y)
+
+def _pub_decode(pub33):                               # compressed pubkey bytes -> point
+    x = int.from_bytes(pub33[1:33], "big")
+    pt = _lift_x(x)
+    if pt is None: raise ValueError("bad pubkey")
+    return pt if (pub33[0] == 2) == (pt[1] % 2 == 0) else (pt[0], _P - pt[1])
+
+def schnorr_verify(pub_x32, msg32, sig64):            # BIP340 (nostr event signatures)
+    import hashlib
+    P_ = _lift_x(int.from_bytes(pub_x32, "big"))
+    r = int.from_bytes(sig64[:32], "big"); s = int.from_bytes(sig64[32:], "big")
+    if P_ is None or r >= _P or s >= _N: return False
+    tag = hashlib.sha256(b"BIP0340/challenge").digest()
+    e = int.from_bytes(hashlib.sha256(tag + tag + sig64[:32] + pub_x32 + msg32).digest(), "big") % _N
+    R = _pt_add(_pt_mul(s, (_GX, _GY)), _pt_mul(_N - e, P_))
+    return R is not None and R[1] % 2 == 0 and R[0] == r
+
+def ecdsa_verify_der(pub33, msg32, der):              # wasabisig over sha256(SHA256SUMS.asc)
+    try:
+        i = 0
+        if der[i] != 0x30: return False
+        i += 2
+        if der[i] != 0x02: return False
+        lr = der[i+1]; r = int.from_bytes(der[i+2:i+2+lr], "big"); i += 2 + lr
+        if der[i] != 0x02: return False
+        ls = der[i+1]; s = int.from_bytes(der[i+2:i+2+ls], "big")
+        if not (0 < r < _N and 0 < s < _N): return False
+        e = int.from_bytes(msg32, "big")
+        w = pow(s, -1, _N)
+        R = _pt_add(_pt_mul(e*w % _N, (_GX, _GY)), _pt_mul(r*w % _N, _pub_decode(pub33)))
+        return R is not None and R[0] % _N == r
+    except Exception:
+        return False
+
+def npub_to_hex(npub):                                # bech32 (BIP173) npub -> 32-byte hex
+    charset = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"
+    data = [charset.index(c) for c in npub.lower().split("1", 1)[1]][:-6]   # drop checksum
+    acc = bits = 0; out = bytearray()
+    for v in data:
+        acc = (acc << 5) | v; bits += 5
+        if bits >= 8:
+            bits -= 8; out.append((acc >> bits) & 0xFF)
+    return out.hex()
+
+def _ws_recv_frame(sock):                             # -> (opcode, payload) one RFC6455 frame
+    def rx(n):
+        b = b""
+        while len(b) < n:
+            c = sock.recv(n - len(b))
+            if not c: raise OSError("websocket closed")
+            b += c
+        return b
+    h = rx(2)
+    op = h[0] & 0x0F; ln = h[1] & 0x7F
+    if ln == 126: ln = int.from_bytes(rx(2), "big")
+    elif ln == 127: ln = int.from_bytes(rx(8), "big")
+    mask = rx(4) if h[1] & 0x80 else None
+    pl = rx(ln) if ln else b""
+    if mask: pl = bytes(b ^ mask[i % 4] for i, b in enumerate(pl))
+    return op, pl
+
+def _ws_send(sock, payload, op=1):                    # client frames are masked
+    import secrets
+    mask = secrets.token_bytes(4)
+    ln = len(payload)
+    hd = bytes([0x80 | op]) + (bytes([0x80 | ln]) if ln < 126 else
+         (b"\xfe" + ln.to_bytes(2, "big") if ln < 65536 else b"\xff" + ln.to_bytes(8, "big")))
+    sock.sendall(hd + mask + bytes(b ^ mask[i % 4] for i, b in enumerate(payload)))
+
+def nostr_fetch_release(relay, author_hex, timeout=15):
+    import socket, ssl, base64, secrets, hashlib
+    from urllib.parse import urlparse
+    u = urlparse(relay); host = u.hostname; port = u.port or 443
+    raw = socket.create_connection((host, port), timeout=timeout)
+    sock = ssl.create_default_context().wrap_socket(raw, server_hostname=host)
+    try:
+        key = base64.b64encode(secrets.token_bytes(16)).decode()
+        sock.sendall((f"GET / HTTP/1.1\r\nHost: {host}\r\nUpgrade: websocket\r\n"
+                      f"Connection: Upgrade\r\nSec-WebSocket-Key: {key}\r\n"
+                      f"Sec-WebSocket-Version: 13\r\n\r\n").encode())
+        hdr = b""
+        while b"\r\n\r\n" not in hdr:
+            c = sock.recv(1024)
+            if not c: raise OSError("handshake failed")
+            hdr += c
+        if b" 101" not in hdr.split(b"\r\n", 1)[0]: raise OSError("upgrade refused")
+        sub = json.dumps(["REQ", "sabi", {"kinds": [1], "authors": [author_hex], "limit": 1}])
+        _ws_send(sock, sub.encode())
+        deadline = time.time() + timeout; best = None
+        while time.time() < deadline:
+            op, pl = _ws_recv_frame(sock)
+            if op == 9: _ws_send(sock, pl, op=10); continue      # ping -> pong
+            if op == 8: break                                    # close
+            if op != 1: continue
+            try: msg = json.loads(pl.decode())
+            except Exception: continue
+            if msg[0] == "EOSE": break
+            if msg[0] == "EVENT" and len(msg) >= 3:
+                ev = msg[2]
+                if ev.get("pubkey") != author_hex or ev.get("kind") != 1: continue
+                ser = json.dumps([0, ev["pubkey"], ev["created_at"], ev["kind"],
+                                  ev["tags"], ev["content"]],
+                                 separators=(",", ":"), ensure_ascii=False).encode()
+                if hashlib.sha256(ser).hexdigest() != ev.get("id"): continue     # forged id
+                if not schnorr_verify(bytes.fromhex(ev["pubkey"]),
+                                      bytes.fromhex(ev["id"]), bytes.fromhex(ev["sig"])):
+                    continue                                     # forged signature
+                if best is None or ev["created_at"] > best["created_at"]: best = ev
+        _ws_send(sock, b"", op=8)
+        return best
+    finally:
+        try: sock.close()
+        except Exception: pass
+
+def wasabi_release_info(timeout=15):                  # -> dict(version=str, assets={name: url})
+    author = npub_to_hex(WASABI_NOSTR_NPUB)
+    err = None
+    for relay in NOSTR_RELAYS:
+        try:
+            ev = nostr_fetch_release(relay, author, timeout)
+        except Exception as e:
+            err = e; continue
+        if not ev: continue
+        tags = {t[0]: t[1] for t in ev.get("tags", []) if len(t) >= 2}
+        ver = tags.pop("version", None)
+        if not ver: continue
+        assets = {n: u for n, u in tags.items() if str(u).startswith("https://")}
+        return dict(version=ver, assets=assets, relay=relay, content=ev.get("content", ""))
+    raise RpcError(f"no verified release event from any relay ({err})")
+
+def pick_release_asset(version):                      # portable archive with wassabeed for this OS
+    import platform
+    arm = platform.machine().lower() in ("arm64", "aarch64")
+    if os.name == "nt": return f"Wasabi-{version}-win-x64.zip"
+    if sys.platform == "darwin": return f"Wasabi-{version}-macOS-{'arm64' if arm else 'x64'}.zip"
+    return f"Wasabi-{version}-linux-{'arm64' if arm else 'x64'}.tar.gz"   # tar keeps +x bits
+
+def _download(url, path, progress=None, timeout=60):
+    if not str(url).startswith("https://"): raise RpcError("refusing non-https download")
+    req = urllib.request.Request(url, headers={"User-Agent": "sabi/1.0 (coinjoin.nl)"})
+    with urllib.request.urlopen(req, timeout=timeout) as r, open(path, "wb") as f:
+        total = int(r.headers.get("Content-Length") or 0); done = 0
+        while True:
+            chunk = r.read(262144)
+            if not chunk: break
+            f.write(chunk); done += len(chunk)
+            if progress: progress(done, total)
+    return path
+
+def wasabi_install(info, progress=lambda s: None):    # -> (wassabeed path, archive sha256 hex)
+    # verify EVERYTHING before anything is extracted or run - same chain as wasabi itself
+    import hashlib, base64, tempfile, zipfile, tarfile
+    ver = info["version"]; assets = info["assets"]
+    asset = pick_release_asset(ver)
+    for need in (asset, "SHA256SUMS.asc", "SHA256SUMS.wasabisig"):
+        if need not in assets: raise RpcError(f"release event lacks asset '{need}'")
+    tmp = tempfile.mkdtemp(prefix=f"sabi-wasabi-{ver}-")
+    progress("fetching signature files ...")
+    asc = open(_download(assets["SHA256SUMS.asc"], os.path.join(tmp, "SHA256SUMS.asc")), "rb").read()
+    was = open(_download(assets["SHA256SUMS.wasabisig"], os.path.join(tmp, "s.wasabisig")), "rb").read()
+    progress("verifying release signature ...")
+    if not ecdsa_verify_der(bytes.fromhex(WASABI_RELEASE_PUBKEY),
+                            hashlib.sha256(asc).digest(), base64.b64decode(was)):
+        raise RpcError("SIGNATURE INVALID - SHA256SUMS.asc is not signed by the wasabi team key")
+    expected = None
+    for line in asc.decode("utf-8", "replace").splitlines():
+        parts = [p for p in line.split("  ./") if p]
+        if len(parts) == 2 and parts[1].strip() == asset: expected = parts[0].strip().lower()
+    if not expected: raise RpcError(f"{asset} not listed in the signed SHA256SUMS")
+    apath = os.path.join(tmp, asset)
+    def pcb(done, total):
+        progress(f"downloading {asset}  {done//1048576} / {total//1048576} MB"
+                 if total else f"downloading {asset}  {done//1048576} MB")
+    _download(assets[asset], apath, pcb)
+    progress("checking sha256 ...")
+    h = hashlib.sha256()
+    with open(apath, "rb") as f:
+        for chunk in iter(lambda: f.read(1048576), b""): h.update(chunk)
+    got = h.hexdigest()
+    if got != expected:
+        os.remove(apath)
+        raise RpcError(f"HASH MISMATCH - expected {expected[:16]}..., got {got[:16]}... (download deleted)")
+    dest = os.path.join(os.path.expanduser("~"), f"wasabi-{ver}")
+    progress(f"extracting to {dest} ...")
+    if asset.endswith(".zip"):
+        with zipfile.ZipFile(apath) as zf:
+            zf.extractall(dest)
+            if os.name != "nt":                       # restore unix modes (zip loses them)
+                for zi in zf.infolist():
+                    m = (zi.external_attr >> 16) & 0o7777
+                    if m: os.chmod(os.path.join(dest, zi.filename), m)
+    else:
+        with tarfile.open(apath) as tf: tf.extractall(dest)
+    exe = None
+    want = "wassabeed.exe" if os.name == "nt" else "wassabeed"
+    for root, _dirs, files in os.walk(dest):
+        if want in files: exe = os.path.join(root, want); break
+    if not exe: raise RpcError(f"extracted, but {want} not found under {dest}")
+    if os.name != "nt":
+        try: os.chmod(exe, 0o755)
+        except Exception: pass
+    try:                                              # remember it so find_daemon works next start
+        open(os.path.join(os.path.expanduser("~"), ".sabi-daemon"), "w", encoding="utf-8").write(exe)
+    except Exception: pass
+    return exe, got
+
 class DemoRpc:                                        # --demo : plausible fake daemon, no network
     def __init__(self):
         rnd = random.Random(21)
@@ -1006,6 +1251,7 @@ HELP = ["1-6 / Tab / ←→   switch tab          w/s or ↑↓   select row",
         "",
         "any tab    g RECEIVE - label -> fresh address + scannable QR code",
         "dashboard  space/enter load wallet · n create wallet · v recover wallet",
+        "           i install wasabi: nostr release + signature/sha256 verified download",
         "wallet     k address book · x exclude coin from coinjoin · y copy address",
         "           click anon/amount/confs headers to sort (newest confirmed on top)",
         "history    u speed up (fee bump) · c cancel unconfirmed tx · y copy txid",
@@ -1286,6 +1532,87 @@ def tui(rpc, args, frames=0):
                    [dict(k="uri", label="coordinator (number, URL, or 'none')", v="", mask=False,
                          hint="e.g. 1 · or https://your.coordinator/ (.onion ok via the daemon's Tor)")],
                    cb, lines=lines)
+
+    def do_install_wasabi():                          # find existing wassabeed, else verified install
+        exe0 = find_daemon(getattr(args, "daemon", None))
+        if exe0:
+            def cb0(v):
+                a = v.get("ok", "").strip().lower()
+                if a == "i": _install_wizard(); return
+                if a != "y": flash("cancelled"); return
+                if launch_daemon(exe0):
+                    S["kick"] = True
+                    flash("◆ wassabeed starting (tor bootstrap takes a bit) - wallets appear when RPC is up", 130)
+                else:
+                    flash("✗ could not start it - run it yourself: " + exe0, 110)
+            open_modal("WASABI DAEMON FOUND",
+                       [dict(k="ok", label="start it? (y/n · i = install latest instead)", v="y",
+                             mask=False, hint="no download needed")],
+                       cb0, lines=lambda: ["found an existing wassabeed on this machine:",
+                                           "  " + exe0, "",
+                                           "sabi can start it now - or fetch + verify the latest",
+                                           "release instead (i)."])
+            return
+        _install_wizard()
+
+    def _install_wizard():                            # guided, verified wasabi install (nostr)
+        def stage3(exe, sha, ver):                    # everything verified - offer to start it
+            def cb(v):
+                if v.get("ok", "").strip().lower() != "y":
+                    flash(f"not started - wassabeed is ready at {exe}", 110); return
+                if launch_daemon(exe):
+                    S["kick"] = True
+                    flash("◆ wassabeed starting (tor bootstrap takes a bit) - then: n create wallet, v recover", 140)
+                else:
+                    flash("✗ could not start it - run it yourself: " + exe, 110)
+            open_modal(f"WASABI {ver} VERIFIED ✓",
+                       [dict(k="ok", label="start wassabeed now? (y/n)", v="y", mask=False,
+                             hint="after it syncs: create or recover your wallet on this tab")],
+                       cb, lines=lambda: [
+                           "signature   VALID - signed by the wasabi team key",
+                           "sha256      " + sha[:32], "            " + sha[32:],
+                           "wassabeed   " + exe, "",
+                           "sabi remembered this path (~/.sabi-daemon) for future starts."])
+        def stage2(info):
+            ver = info["version"]; asset = pick_release_asset(ver)
+            from urllib.parse import urlparse
+            host = urlparse(str(info["assets"].get(asset, ""))).netloc or "?"
+            def cb(v):
+                if v.get("ok", "").strip().lower() != "y": flash("cancelled - nothing downloaded"); return
+                def fn():
+                    exe, sha = wasabi_install(info, progress=lambda s: S.update(busy=str(s)))
+                    stage3(exe, sha, ver)
+                    return "verified ✓"
+                act("installing wasabi", fn)
+            open_modal("DOWNLOAD WASABI " + ver + "?",
+                       [dict(k="ok", label="download + verify now? (y/n)", v="", mask=False,
+                             hint="~100 MB - progress shows in the header")],
+                       cb, lines=lambda: [
+                           f"release      Wasabi {ver}   (nostr event verified: schnorr sig by team npub)",
+                           f"this machine {asset}",
+                           f"host         {host}", "",
+                           "before anything is extracted or run, sabi verifies:",
+                           "  1. the wasabi team's secp256k1 signature over SHA256SUMS.asc",
+                           "  2. the archive's sha256 against that signed list",
+                           "a failed check deletes the download and stops."])
+        def cb1(v):
+            if v.get("ok", "").strip().lower() != "y": flash("cancelled"); return
+            def fn():
+                info = wasabi_release_info()
+                stage2(info)
+                return f"found Wasabi {info['version']} (event signature valid)"
+            act("checking nostr relays for the latest release", fn)
+        open_modal("INSTALL WASABI DAEMON",
+                   [dict(k="ok", label="fetch latest release info? (y/n)", v="", mask=False,
+                         hint="read-only step - you approve again before any download")],
+                   cb1, lines=lambda: [
+                       "sabi installs the official wasabi daemon (wassabeed) for you:", "",
+                       " 1  fetch the release announcement over nostr",
+                       "    relays: " + ", ".join(r.split("//")[1] for r in NOSTR_RELAYS),
+                       " 2  verify the announcement (schnorr, wasabi team npub)",
+                       " 3  download - verify team ECDSA signature + sha256 (pinned keys)",
+                       " 4  extract - and only with your approval, start wassabeed", "",
+                       "nothing runs before every check passes."])
 
     def do_create_wallet():
         def cb(v):
@@ -1920,9 +2247,13 @@ def tui(rpc, args, frames=0):
     def draw_dashboard(ch, col, y0):
         wl = S.get("wallets") or []
         loaded = S.get("loaded") or set()
-        put(ch, col, y0, 4, "WALLETS ON THIS DAEMON   space load · l load all · n create", GREY)
+        put(ch, col, y0, 4, "WALLETS ON THIS DAEMON", GREY)   # keys live in GETTING STARTED + hint bar
         if not wl:
             put(ch, col, y0+2, 4, "none found yet " + ("(daemon offline?)" if S.get("err") else "..."), GREY)
+            if S.get("err"):
+                cta = "i  install wasabi daemon - verified download (or click here)"
+                put(ch, col, y0+4, 4, cta, clamp8(lerp(GREEN, WHITE, .2)))
+                regions.append((y0+4, 4, 4+len(cta)-1, ("ACT", do_install_wasabi)))
         for i, name in enumerate(wl[:H-y0-6]):
             y = y0+2+i; on = (i == sel[0] % max(1, len(wl)))
             cur = (name == S.get("wallet")); ld = (name in loaded)
@@ -1935,6 +2266,7 @@ def tui(rpc, args, frames=0):
         put(ch, col, y0, 50, "GETTING STARTED", GREY)
         for i, l in enumerate(["space / l    load one / load ALL wallets",
                                "n / v        create / recover a wallet",
+                               "i            find or install the wasabi daemon",
                                "2 wallet     balances & coins",
                                "4 coinjoin   start mixing (the logo breathes green)",
                                "6 auto       rules: hot -> cold via coinjoin",
@@ -2341,7 +2673,7 @@ def tui(rpc, args, frames=0):
             do_native_report(pl6) if kd6 == "rpc" else do_scheme_run(pl6)
 
     # ---------- main loop --------------------------------------------------------------
-    HINTS = ["space load · l load ALL · n create · v recover · g receive · 1-7 tabs · ? help · q",
+    HINTS = ["space load · l load ALL · n create · v recover · i install wasabi · g receive · ? help · q",
              "w/s coins · g receive · k addresses · x exclude · y copy · ? help",
              "w/s scroll · u speed up · c cancel · y copy txid · r copy raw hex · ? help",
              "space start/stop · o one round · c coordinator · a rules · b sweep · p pay-in-cj · ? help",
@@ -2437,6 +2769,7 @@ def tui(rpc, args, frames=0):
                     elif r == "l" and tab in (0, 6): do_load_all()   # load every wallet
                     elif tab == 0 and r == "n": do_create_wallet()
                     elif tab == 0 and r == "v": do_recover_wallet()
+                    elif tab == 0 and r == "i": do_install_wasabi()
                     elif tab == 6 and r == "e":
                         it6 = SCHEME_ITEMS[sel[6] % len(SCHEME_ITEMS)]
                         do_scheme_edit(S.get("sc_custom") or (it6[3] if it6[0] == "scm" else ""))
@@ -2559,6 +2892,11 @@ def wasabi_config():                                  # auto-detect like wcli.sh
 def find_daemon(extra=None):                          # locate the Wasabi daemon executable
     import shutil as _sh
     cands = [extra] if extra else []
+    try:                                              # path remembered from a sabi-verified install
+        p = open(os.path.join(os.path.expanduser("~"), ".sabi-daemon"), encoding="utf-8").read().strip()
+        if p: cands.append(p)
+    except Exception:
+        pass
     for name in ("wassabeed", "WalletWasabi.Daemon", "wassabee"):
         w = _sh.which(name)
         if w: cands.append(w)
@@ -2665,8 +3003,8 @@ def main():
                             print("\nstill warming up (Tor bootstrap takes a bit) - "
                                   "sabi will keep retrying inside.", file=sys.stderr)
                 else:
-                    print("wasabi daemon executable not found - start it yourself, or pass "
-                          "--daemon PATH so sabi can.", file=sys.stderr)
+                    print("wasabi daemon executable not found - press i on the dashboard and sabi "
+                          "downloads + verifies it for you (or pass --daemon PATH).", file=sys.stderr)
         for attempt in range(3):                       # quick pre-flight probe: say what we found
             try:
                 WasabiRpc(a.rpc, a.user, a.password).call("getstatus", timeout=3)
