@@ -352,41 +352,41 @@ SUSHI = [
 ]
 
 # pixel-art pieces (block chars; rows given as [(text, color), ...] segments)
-_NORI = (46, 68, 44); _RICE = (226, 228, 236); _ROE = (255, 118, 56); _TAMA = (255, 204, 64)
+_NORI = (46, 68, 44); _RICE = (240, 242, 248); _ROE = (255, 118, 56); _TAMA = (255, 204, 64)
 SUSHI += [
  ("salmon", ORANGE, [
    [("  ", None), ("▄▄▄▄▄▄▄▄▄▄", ORANGE)],
    [(" ", None), ("██░░██░░████", ORANGE)],
-   [(" ", None), ("▒▒▒▒▒▒▒▒▒▒▒▒", _RICE)],
+   [(" ", None), ("████████████", _RICE)],
    [("  ", None), ("▀▀▀▀▀▀▀▀▀▀", _RICE)]]),
  ("maguro", RED, [
    [("  ", None), ("▄▄▄▄▄▄▄▄▄▄", RED)],
    [(" ", None), ("████████████", RED)],
-   [(" ", None), ("▒▒▒▒▒▒▒▒▒▒▒▒", _RICE)],
+   [(" ", None), ("████████████", _RICE)],
    [("  ", None), ("▀▀▀▀▀▀▀▀▀▀", _RICE)]]),
  ("tamago", _TAMA, [
    [("  ", None), ("▄▄▄▄▄▄▄▄▄▄", _TAMA)],
-   [(" ", None), ("████", _TAMA), ("▓▓▓", _NORI), ("█████", _TAMA)],
-   [(" ", None), ("▒▒▒▒", _RICE), ("▓▓▓", _NORI), ("▒▒▒▒▒", _RICE)],
+   [(" ", None), ("████", _TAMA), ("███", _NORI), ("█████", _TAMA)],
+   [(" ", None), ("████", _RICE), ("███", _NORI), ("█████", _RICE)],
    [("  ", None), ("▀▀▀▀▀▀▀▀▀▀", _RICE)]]),
  ("ebi", ORANGE, [
    [("  ", None), ("▄▄▚▚▄▄▚▚▄▄", ORANGE)],
    [(" ", None), ("██▚▚██▚▚████", ORANGE)],
-   [(" ", None), ("▒▒▒▒▒▒▒▒▒▒▒▒", _RICE)],
+   [(" ", None), ("████████████", _RICE)],
    [("  ", None), ("▀▀▀▀▀▀▀▀▀▀", _RICE)]]),
  ("ikura", _ROE, [
    [("  ", None), ("●●●●●●●●", _ROE)],
-   [(" ", None), ("▐▓▓▓▓▓▓▓▓▌", _NORI)],
-   [(" ", None), ("▐▓▓▓▓▓▓▓▓▌", _NORI)],
+   [(" ", None), ("▐████████▌", _NORI)],
+   [(" ", None), ("▐████████▌", _NORI)],
    [("  ", None), ("▀▀▀▀▀▀▀▀", _NORI)]]),
  ("uramaki", _RICE, [
    [("  ", None), ("▄████████▄", _RICE)],
-   [(" ", None), ("███", _RICE), ("▓▓▓▓▓▓", ORANGE), ("███", _RICE)],
-   [(" ", None), ("███", _RICE), ("▓▓", GREEN), ("▓▓▓▓", ORANGE), ("███", _RICE)],
+   [(" ", None), ("███", _RICE), ("██████", ORANGE), ("███", _RICE)],
+   [(" ", None), ("███", _RICE), ("██", GREEN), ("████", ORANGE), ("███", _RICE)],
    [("  ", None), ("▀████████▀", _RICE)]]),
  ("dumpling", (250, 220, 185), [
    [("    ", None), ("▄▟▙▄", (238, 160, 100))],
-   [("  ", None), ("▄██", (250, 220, 185)), ("▒▒", (238, 160, 100)), ("███▄", (250, 220, 185))],
+   [("  ", None), ("▄██", (250, 220, 185)), ("██", (238, 160, 100)), ("███▄", (250, 220, 185))],
    [(" ", None), ("████████████", (250, 220, 185))],
    [("  ", None), ("▀▀▀▀▀▀▀▀▀▀", (214, 178, 140))]]),
 ]
@@ -398,18 +398,18 @@ _WGY, _MARB, _WGYD = (232, 108, 118), (255, 238, 234), (188, 74, 86)  # wagyu + 
 SUSHI += [
  ("salmon sashimi", _SAL, [
    [("   ", None), ("▄▄▄▄▄▄▄▄▄▄", _SAL)],
-   [("  ", None), ("██", _SAL), ("▒▒", _SALF), ("███", _SAL), ("▒▒", _SALF), ("██", _SAL)],
-   [(" ", None), ("██", _SAL), ("▒▒", _SALF), ("███", _SAL), ("▒▒", _SALF), ("██", _SAL)],
+   [("  ", None), ("██", _SAL), ("██", _SALF), ("███", _SAL), ("██", _SALF), ("██", _SAL)],
+   [(" ", None), ("██", _SAL), ("██", _SALF), ("███", _SAL), ("██", _SALF), ("██", _SAL)],
    [(" ", None), ("▀▀▀▀▀▀▀▀▀▀", _SALD)]]),
  ("tuna sashimi", _AKA, [
    [("   ", None), ("▄▄▄▄▄▄▄▄▄▄", _AKAH)],
-   [("  ", None), ("████", _AKA), ("▒", _AKAH), ("██████", _AKA)],
+   [("  ", None), ("████", _AKA), ("█", _AKAH), ("██████", _AKA)],
    [(" ", None), ("███████████", _AKA)],
    [(" ", None), ("▀▀▀▀▀▀▀▀▀▀", _AKAD)]]),
  ("wagyu", _WGY, [
    [("   ", None), ("▄▄▄▄▄▄▄▄▄▄", _WGY)],
-   [("  ", None), ("█", _WGY), ("▒", _MARB), ("██", _WGY), ("▒▒", _MARB), ("█", _WGY), ("▒", _MARB), ("██", _WGY)],
-   [(" ", None), ("█", _WGY), ("▒▒", _MARB), ("█", _WGY), ("▒", _MARB), ("██", _WGY), ("▒▒", _MARB), ("█", _WGY)],
+   [("  ", None), ("█", _WGY), ("█", _MARB), ("██", _WGY), ("██", _MARB), ("█", _WGY), ("█", _MARB), ("██", _WGY)],
+   [(" ", None), ("█", _WGY), ("██", _MARB), ("█", _WGY), ("█", _MARB), ("██", _WGY), ("██", _MARB), ("█", _WGY)],
    [(" ", None), ("▀▀▀▀▀▀▀▀▀▀", _WGYD)]]),
 ]
 
@@ -421,10 +421,10 @@ _ONIGIRI = ("onigiri", _RICE, [
    [("   ", None), ("▄██▄", _RICE)],
    [("  ", None), ("██████", _RICE)],
    [(" ", None), ("████████", _RICE)],
-   [(" ", None), ("▓▓▓▓▓▓▓▓", _NORI)]])
+   [(" ", None), ("████████", _NORI)]])
 _SOY = ("soy", (64, 40, 24), [
    [(" ", None), ("▄▄▄▄▄▄", (208, 210, 218))],
-   [("▐", (208, 210, 218)), ("▓▓▓▓▓▓", (64, 40, 24)), ("▌", (208, 210, 218))],
+   [("▐", (208, 210, 218)), ("██████", (64, 40, 24)), ("▌", (208, 210, 218))],
    [(" ", None), ("▀▀▀▀▀▀", (208, 210, 218))]])
 _WASABI = ("wasabi", GREEN, [
    [("▄▟▙▄", GREEN)],
@@ -586,9 +586,8 @@ def _draw_piece(ch, col, px, py, piece):              # one sushi at top-left (p
     h = len(rows)
     for i, row in enumerate(rows):
         y = py + i
-        if isinstance(row, str):                      # classic ascii: topping tinted, rice pale
-            c_ = accent if i < h-2 else lerp(WHITE, GREY, .35)
-            put(ch, col, y, px, row, c_ if i < h-2 else lerp(c_, GREY, .2))
+        if isinstance(row, str):                      # classic ascii: topping tinted, rice bright
+            put(ch, col, y, px, row, accent if i < h-2 else (238, 240, 246))
         else:                                         # pixel piece: explicit per-segment colors
             x = px
             for txt, c_ in row:
@@ -1892,6 +1891,59 @@ def tui(rpc, args, frames=0):
                          hint="e.g. 1 · or https://your.coordinator/ (.onion ok via the daemon's Tor)")],
                    cb, lines=lines)
 
+    def start_daemon_assist(exe):                     # secure the RPC, start, wait, onboard
+        cfg0 = wasabi_config()
+        if cfg0 and cfg0.get("user") and cfg0.get("password"):
+            _start_daemon(exe, None, None)            # config already carries credentials
+            return
+        def cb(v):                                    # sabi never starts an auth-less RPC
+            u = (v.get("user") or "").strip() or "sabi"
+            p = v.get("password") or ""
+            if not p:
+                flash("✗ an RPC password is required before starting the daemon", 100); return
+            _start_daemon(exe, u, p)
+        open_modal("SECURE THE DAEMON RPC",
+                   [dict(k="user", label="RPC username", v="sabi", mask=False,
+                         hint="default: sabi - edit if you like"),
+                    dict(k="password", label="RPC password (required)", v="", mask=True,
+                         hint="protects the local wallet RPC - pick a fresh one")],
+                   cb, lines=lambda: [
+                       "the daemon's JSON-RPC can spend from your wallets, so it must",
+                       "not run without authentication. sabi starts wassabeed with",
+                       "these credentials and stores them in wasabi's Config.json."])
+
+    def _start_daemon(exe, u, p):                     # launch + wait for RPC + adopt config
+        if not launch_daemon(exe, u, p):
+            flash("✗ could not start it - run it yourself: " + exe, 110); return
+        if u:
+            rpc.user, rpc.password = u, p             # sabi authenticates the same way
+        flash("◆ wassabeed starting - waiting for its RPC (tor bootstrap takes a bit) ...", 120)
+        def w():
+            deadline = time.monotonic() + RPC_WAIT_SECS
+            while time.monotonic() < deadline:
+                try:
+                    rpc.call("getstatus", timeout=3); break
+                except Exception:
+                    time.sleep(2)
+            else:
+                S["flash"], S["flasht"] = (f"✗ no RPC answer after {RPC_WAIT_SECS}s - is it already "
+                                           "running with RPC off? see Logs.txt in the wasabi data dir", 160)
+                return
+            S["err"] = None; S["kick"] = True
+            cfg = wasabi_config()                     # a first run just created its Config.json
+            if cfg:
+                S["cfgpath"] = cfg["path"]; S["logpath"] = cfg["log"]
+                if S.get("coord_uri") is None: S["coord_uri"] = cfg.get("coordinator")
+                if u or not cfg["enabled"]:           # persist enabled + creds for MANUAL starts
+                    apply_rpc_config(cfg["path"], u, p)
+            if not (S.get("coord_uri") or "").strip():
+                S["flash"], S["flasht"] = ("◆ daemon is up ✓ - next: press c on [4] coinjoin "
+                                           "to pick a coordinator", 180)
+            else:
+                S["flash"], S["flasht"] = ("◆ daemon is up ✓ - create (n) or recover (v) "
+                                           "a wallet on [1] dashboard", 180)
+        threading.Thread(target=w, daemon=True).start()
+
     def do_install_wasabi():                          # find existing wassabeed, else verified install
         exe0 = find_daemon(getattr(args, "daemon", None))
         if exe0:
@@ -1899,18 +1951,19 @@ def tui(rpc, args, frames=0):
                 a = v.get("ok", "").strip().lower()
                 if a == "i": _install_wizard(); return
                 if a != "y": flash("cancelled"); return
-                if launch_daemon(exe0):
-                    S["kick"] = True
-                    flash("◆ wassabeed starting (tor bootstrap takes a bit) - wallets appear when RPC is up", 130)
-                else:
-                    flash("✗ could not start it - run it yourself: " + exe0, 110)
+                start_daemon_assist(exe0)
+            def lines0():
+                ls = ["found an existing wassabeed on this machine:", "  " + exe0, ""]
+                if not S.get("err"):
+                    ls += ["note: a daemon already ANSWERS RPC right now - starting a",
+                           "second one does nothing. i = install the latest release.", ""]
+                ls += ["sabi starts it with RPC enabled, waits for it to answer,",
+                       "then guides you to a coordinator and your first wallet."]
+                return ls
             open_modal("WASABI DAEMON FOUND",
                        [dict(k="ok", label="start it? (y/n · i = install latest instead)", v="y",
                              mask=False, hint="no download needed")],
-                       cb0, lines=lambda: ["found an existing wassabeed on this machine:",
-                                           "  " + exe0, "",
-                                           "sabi can start it now - or fetch + verify the latest",
-                                           "release instead (i)."])
+                       cb0, lines=lines0)
             return
         _install_wizard()
 
@@ -1919,14 +1972,10 @@ def tui(rpc, args, frames=0):
             def cb(v):
                 if v.get("ok", "").strip().lower() != "y":
                     flash(f"not started - wassabeed is ready at {exe}", 110); return
-                if launch_daemon(exe):
-                    S["kick"] = True
-                    flash("◆ wassabeed starting (tor bootstrap takes a bit) - then: n create wallet, v recover", 140)
-                else:
-                    flash("✗ could not start it - run it yourself: " + exe, 110)
+                start_daemon_assist(exe)
             open_modal(f"WASABI {ver} VERIFIED ✓",
                        [dict(k="ok", label="start wassabeed now? (y/n)", v="y", mask=False,
-                             hint="after it syncs: create or recover your wallet on this tab")],
+                             hint="sabi starts it with RPC on and waits for it to answer")],
                        cb, lines=lambda: [
                            "signature   VALID - signed by the wasabi team key",
                            "sha256      " + sha[:32], "            " + sha[32:],
@@ -3356,10 +3405,18 @@ def find_daemon(extra=None):                          # locate the Wasabi daemon
         if c and os.path.isfile(c): return c
     return None
 
-def launch_daemon(exe):                               # start it detached; it logs to its own Logs.txt
+RPC_WAIT_SECS = 90                                    # post-start grace for the daemon's RPC
+
+def launch_daemon(exe, rpc_user=None, rpc_pass=None):  # start it detached; logs to its own Logs.txt
     import subprocess
     try:
-        kw = dict(stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        # a FRESH wasabi writes JsonRpcServerEnabled:false - the env var overrides it. RPC
+        # credentials ride along the same way so the daemon never runs an auth-less RPC.
+        env = {**os.environ, "WASABI_JSONRPCSERVERENABLED": "true"}
+        if rpc_user and rpc_pass:
+            env["WASABI_JSONRPCUSER"] = rpc_user; env["WASABI_JSONRPCPASSWORD"] = rpc_pass
+        kw = dict(stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                  env=env)
         if os.name == "nt":
             kw["creationflags"] = 0x00000008 | 0x00000200   # DETACHED | NEW_PROCESS_GROUP
         else:
@@ -3368,6 +3425,18 @@ def launch_daemon(exe):                               # start it detached; it lo
         return True
     except Exception as e:
         print(f"could not start the daemon: {e}", file=sys.stderr)
+        return False
+
+def apply_rpc_config(path, user=None, password=None):  # persist enabled + credentials, minimal edit
+    try:
+        cfg = json.load(open(path, encoding="utf-8-sig"))
+        cfg["JsonRpcServerEnabled"] = True
+        if user is not None: cfg["JsonRpcUser"] = user
+        if password is not None: cfg["JsonRpcPassword"] = password
+        json.dump(cfg, open(path, "w", encoding="utf-8"), indent=2)
+        return True
+    except Exception as e:
+        print(f"could not edit {path}: {e}", file=sys.stderr)
         return False
 
 def enable_rpc_in_config(path):                       # flip JsonRpcServerEnabled with minimal edit
