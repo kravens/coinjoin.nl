@@ -387,18 +387,18 @@ SUSHI = [
 
 # maki rolls: outer nori wrap (green), rice ring (white), 2-char filling (accent)
 SUSHI += [
- ("tekka maki", RED, [
-   [("  ,;'", NORI), ("@@", RED), ("';, ", NORI)],
+ ("tekka maki", RED, [                                # top: rice grains; sides+base: nori wrap
+   [("  ,;'", RICE), ("@@", RED), ("';, ", RICE)],
    [(" |", NORI), ("',_", RICE), ("@@", RED), ("_,'", RICE), ("|", NORI)],
    [(" |", NORI), ("        ", RICE), ("|", NORI)],
    [("  '.____.' ", NORI)]]),
  ("kappa maki", GREEN, [
-   [("  ,;'", NORI), ("OO", GREEN), ("';, ", NORI)],
+   [("  ,;'", RICE), ("OO", GREEN), ("';, ", RICE)],
    [(" |", NORI), ("',_", RICE), ("OO", GREEN), ("_,'", RICE), ("|", NORI)],
    [(" |", NORI), ("        ", RICE), ("|", NORI)],
    [("  '.____.' ", NORI)]]),
  ("california", ORANGE, [
-   [("  ,;'", NORI), ("O@", ORANGE), ("';, ", NORI)],
+   [("  ,;'", RICE), ("O@", ORANGE), ("';, ", RICE)],
    [(" |", NORI), ("',_", RICE), ("@H", ORANGE), ("_,'", RICE), ("|", NORI)],
    [(" |", NORI), ("        ", RICE), ("|", NORI)],
    [("  '.____.' ", NORI)]]),
