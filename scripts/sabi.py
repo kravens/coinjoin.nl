@@ -1726,6 +1726,7 @@ HELP = ["1-6 / Tab / ←→   switch tab          w/s or ↑↓   select row",
         "any tab    g RECEIVE - label -> fresh address + scannable QR code",
         "dashboard  space/enter load wallet · n create wallet · v recover wallet",
         "           i install wasabi: nostr release + signature/sha256 verified download",
+        "           p connect to a running daemon on other RPC address/user/pass (RaspiBlitz)",
         "           t import a TREZOR (coinjoin signs on the device via the bridge)",
         "wallet     k address book · x exclude coin from coinjoin · y copy address",
         "           click anon/amount/confs headers to sort (newest confirmed on top)",
@@ -2099,6 +2100,29 @@ def tui(rpc, args, frames=0):
                 S["flash"], S["flasht"] = ("◆ daemon is up ✓ - create (n) or recover (v) "
                                            "a wallet on [1] dashboard", 180)
         threading.Thread(target=w, daemon=True).start()
+
+    def do_rpc_connect():                             # point sabi at a RUNNING daemon (never starts one)
+        def cb(v):
+            url = (v.get("url") or "").strip()
+            if url:
+                if "://" not in url: url = "http://" + url
+                rpc.url = url.rstrip("/")
+            rpc.user = (v.get("user") or "").strip() or None
+            rpc.password = v.get("password") or None
+            S["kick"] = True
+            flash("reconnecting to " + rpc.url + " ...", 80)
+        open_modal("CONNECT TO A RUNNING DAEMON",
+                   [dict(k="url", label="RPC address", v=getattr(rpc, "url", "http://127.0.0.1:37128"),
+                         mask=False, hint="e.g. http://127.0.0.1:37128"),
+                    dict(k="user", label="RPC username", v=getattr(rpc, "user", "") or "", mask=False,
+                         hint="blank if the daemon has no auth"),
+                    dict(k="password", label="RPC password", v="", mask=True, hint="")],
+                   cb, lines=lambda: [
+                       "use this when a daemon is already running with settings sabi",
+                       "didn't auto-detect - e.g. RaspiBlitz sets the RPC user/pass and",
+                       "port through WASABI_* env vars, not Config.json.", "",
+                       "this only changes how sabi CONNECTS; it starts nothing and",
+                       "edits no files. (or launch sabi with --rpc/--user/--pass.)"])
 
     def do_install_wasabi():                          # find existing wassabeed, else verified install
         running = not S.get("err")                    # sabi is already talking to a daemon
@@ -2791,13 +2815,18 @@ def tui(rpc, args, frames=0):
         st = S.get("status") or {}
         if S.get("err"):
             e = str(S["err"]).lower()
-            msg = ("daemon offline - wasabi is not running (or its RPC is disabled)"
-                   if ("refused" in e or "10061" in e or "111" in e)
-                   else "daemon unreachable: " + short(S["err"], 44))
-            put(ch, col, 3, x0, "● " + msg, WARN)
-            cta = "i  find or install the wasabi daemon - verified · or click here"
+            reachable = ("401" in e or "auth" in e)   # answering, just rejecting our credentials
+            if reachable:
+                put(ch, col, 3, x0, "● daemon is running but rejected the RPC login", AMBER)
+                cta = "p  set the RPC address / user / password - or click here"
+            else:
+                msg = ("daemon offline - wasabi is not running (or its RPC is disabled)"
+                       if ("refused" in e or "10061" in e or "111" in e or "urlopen" in e)
+                       else "daemon unreachable: " + short(S["err"], 44))
+                put(ch, col, 3, x0, "● " + msg, WARN)
+                cta = "i  find/install daemon · p  set RPC address/login · or click"
             put(ch, col, 4, x0, cta, clamp8(lerp(GREEN, WHITE, .2)))
-            regions.append((4, x0, x0+len(cta)-1, ("ACT", do_install_wasabi)))
+            regions.append((4, x0, x0+len(cta)-1, ("ACT", do_rpc_connect if reachable else do_install_wasabi)))
         else:
             def dot_(okk): return ("●", GREEN if okk else WARN)
             g, c_ = dot_(str(st.get("torStatus", "")).lower().startswith(("running", "turned off")))
@@ -3505,6 +3534,7 @@ def tui(rpc, args, frames=0):
                     elif tab == 0 and r == "t": do_import_trezor()
                     elif tab == 3 and r == "e": do_enable_cj_account()
                     elif r == "i" and (tab == 0 or S.get("err")): do_install_wasabi()
+                    elif r == "p" and (tab == 0 or S.get("err")): do_rpc_connect()
                     elif tab == 6 and r == "e":
                         it6 = SCHEME_ITEMS[sel[6] % len(SCHEME_ITEMS)]
                         do_scheme_edit(S.get("sc_custom") or (it6[3] if it6[0] == "scm" else ""))
