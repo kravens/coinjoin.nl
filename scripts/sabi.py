@@ -22,6 +22,10 @@ except Exception: pass
 BG=(10,12,16); BRAND=(176,186,236); GREEN=(46,214,122); GLOW=(120,255,170)
 ORANGE=(247,147,26); WHITE=(236,239,246); GREY=(110,120,134); DIM=(44,40,36)
 BLUE=(96,156,236); RED=(232,92,104); AMBER=(255,176,32); WARN=(255,92,92)
+def qpulse(f, w, step=6):                             # breathing, quantized to STEP frames:
+    return 0.5 + 0.5*M.sin((f - f % step) * w)        # rows stay identical between steps, so
+                                                      # the frame diff sends nothing (remote!)
+
 def lerp(a,b,t): return (a[0]+(b[0]-a[0])*t, a[1]+(b[1]-a[1])*t, a[2]+(b[2]-a[2])*t)
 def clamp8(c): return (max(0,min(255,int(c[0]))),max(0,min(255,int(c[1]))),max(0,min(255,int(c[2]))))
 
@@ -607,7 +611,7 @@ def draw_galaxy_infall(ch, col, f, angf):
 def draw_saver_galaxy(ch, col, f, rainbow=False):     # while a coinjoin runs, the mix spins
     import colorsys
     cx, cy = W/2, H/2 - 1
-    ang = f * 0.03
+    ang = (f - f % 2) * 0.03
     sy = min((H-8)/40.0, 1.0); sx = sy * 2.1          # cell aspect + fit
     for i, (r, th, t) in enumerate(_galaxy_particles()):
         if rainbow and (i*31 + f//6) % 11 == 0: continue     # twinkle
@@ -621,14 +625,14 @@ def draw_saver_galaxy(ch, col, f, rainbow=False):     # while a coinjoin runs, t
         put(ch, col, y, x, g, c_)
     put(ch, col, int(cy), int(cx), "0", WHITE)
     draw_galaxy_infall(ch, col, f, 0.03)
-    pulse = 0.5 + 0.5*M.sin(f*0.09)
+    pulse = qpulse(f, 0.09)
     put(ch, col, 2, max(0, (W-24)//2), "◆ coinjoin in progress", clamp8(lerp(GREEN, WHITE, .35*pulse)))
     put(ch, col, H-2, max(0, (W-46)//2), "amounts hidden while away  ·  any key returns", lerp(BRAND, GREY, .35))
     rput(ch, col, 2, W-3, time.strftime("%H:%M"), lerp(BRAND, GREY, .5))
 
 def draw_saver_galaxy_sushi(ch, col, f):              # spiral of rice grains, sashimi in the arms
     cx, cy = W/2, H/2 - 1
-    ang = f * 0.02                                    # a heavier galaxy turns a little slower
+    ang = (f - f % 2) * 0.02                          # a heavier galaxy turns a little slower
     sy = min((H-8)/40.0, 1.0); sx = sy * 2.1
     for i, (r, th, t) in enumerate(_galaxy_particles()):
         if (i*17 + f//8) % 13 == 0: continue          # grains glint in and out
@@ -644,7 +648,7 @@ def draw_saver_galaxy_sushi(ch, col, f):              # spiral of rice grains, s
         _draw_piece(ch, col, int(cx + r*M.cos(th)*sx - w/2), int(cy + r*M.sin(th)*sy - h/2), p)
     _draw_piece(ch, col, int(cx)-2, int(cy)-1, _WASABI)          # a wasabi core holds it together
     draw_galaxy_infall(ch, col, f, 0.02)
-    pulse = 0.5 + 0.5*M.sin(f*0.09)
+    pulse = qpulse(f, 0.09)
     put(ch, col, 2, max(0, (W-24)//2), "◆ coinjoin in progress", clamp8(lerp(GREEN, WHITE, .35*pulse)))
     put(ch, col, H-2, max(0, (W-46)//2), "amounts hidden while away  ·  any key returns", lerp(BRAND, GREY, .35))
     rput(ch, col, 2, W-3, time.strftime("%H:%M"), lerp(BRAND, GREY, .5))
@@ -739,9 +743,10 @@ def draw_saver_logo(ch, col, f):                      # the wasabi logo, bouncin
     def tri(t, m): p = t % max(2*m, 1); return p if p < m else 2*m - p
     rows = max(6, min(12, H//3))
     _cells, cols = logo_cells(rows)
-    x = tri(int(f*0.55), max(1, W - cols - 2)) + 1
-    y = tri(int(f*0.3), max(1, H - rows - 6)) + 1
-    pulse = 0.5 + 0.5*M.sin(f*0.05)
+    fq = f - f % 3                                    # 7fps motion: 1/3 the remote traffic
+    x = tri(int(fq*0.55), max(1, W - cols - 2)) + 1
+    y = tri(int(fq*0.3), max(1, H - rows - 6)) + 1
+    pulse = qpulse(f, 0.05)
     draw_logo(ch, col, y, x, rows, clamp8(lerp(GREEN, BRAND, pulse)), dimf=0.4)
     put(ch, col, y+rows+1, x + max(0, cols//2 - 2), "sabi", lerp(BRAND, GREY, .4))
     put(ch, col, H-2, max(0, (W-46)//2),
@@ -2692,7 +2697,7 @@ def tui(rpc, args, frames=0):
         return []
 
     def draw_header(ch, col, f):
-        pulse = 0.5 + 0.5*M.sin(f*0.09)               # slow breathing (~3.3 s)
+        pulse = qpulse(f, 0.09)                       # slow breathing (~3.3 s)
         on = S.get("cj_on")
         if TH < 24 or TW < 70:                        # thin terminal: 2-line header, no logo
             put(ch, col, 0, 2, "S A B I", WHITE)
@@ -3009,7 +3014,7 @@ def tui(rpc, args, frames=0):
             regions.append((y, 4, W-4, ("ROW", 2, gi)))
 
     def draw_coinjoin(ch, col, y0, f):
-        pulse = 0.5 + 0.5*M.sin(f*0.09)
+        pulse = qpulse(f, 0.09)
         on = S.get("cj_on")
         rows = min(13, max(8, H - y0 - 12))
         lcol = lerp(GREEN, GLOW, pulse) if on else lerp(BRAND, GREY, .35)
@@ -3034,7 +3039,7 @@ def tui(rpc, args, frames=0):
         put(ch, col, y0+1, x0, "COINJOIN  ·  ", GREY)
         put(ch, col, y0+1, x0+13, stat, clamp8(lerp(GREEN, WHITE, .4*pulse)) if on else GREY)
         if S.get("hw_auth"):
-            p2 = 0.5 + 0.5*M.sin(f*0.3)
+            p2 = qpulse(f, 0.3, step=3)
             left = max(0, 200 - int(time.monotonic() - S["hw_auth"]))
             put(ch, col, y0+2, x0, f"▸▸ CONFIRM ON YOUR TREZOR NOW ◂◂   hold to approve · {left}s left",
                 clamp8(lerp(AMBER, WHITE, .5*p2)))
@@ -3134,7 +3139,7 @@ def tui(rpc, args, frames=0):
     def draw_auto(ch, col, y0, f):
         if not S.get("wallet"):
             put(ch, col, y0+1, 4, "no wallet loaded - go to [1] dashboard and press enter", ORANGE); return
-        armed = S.get("armed"); pulse = 0.5 + 0.5*M.sin(f*0.15)
+        armed = S.get("armed"); pulse = qpulse(f, 0.15)
         put(ch, col, y0, 4, f"AUTOMATION RULES · {S['wallet']}", GREY)
         stat = "◆ ARMED - rules are live" if armed else "disarmed - press a to arm (password)"
         put(ch, col, y0, 44, stat, clamp8(lerp(GREEN, WHITE, .4*pulse)) if armed else AMBER)
