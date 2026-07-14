@@ -1203,7 +1203,21 @@ def wasabi_install(info, progress=lambda s: None):    # -> (wassabeed path, arch
         if want in files: exe = os.path.join(root, want); break
     if not exe: raise RpcError(f"extracted, but {want} not found under {dest}")
     if os.name != "nt":
-        try: os.chmod(exe, 0o755)
+        # +x every native binary, not just wassabeed: the daemon launches BUNDLED Tor/HWI
+        # under BundledApps/Binaries, and a zip (or a stripped tar) leaves them non-exec ->
+        # "Permission denied" starting Tor. Detect ELF/Mach-O by magic so only binaries get +x.
+        progress("making bundled binaries executable ...")
+        made = 0
+        for root, _dirs, files in os.walk(dest):
+            for fn in files:
+                fp = os.path.join(root, fn)
+                try:
+                    with open(fp, "rb") as fh: magic = fh.read(4)
+                    if magic[:4] == b"\x7fELF" or magic in (b"\xcf\xfa\xed\xfe", b"\xfe\xed\xfa\xcf"):
+                        os.chmod(fp, os.stat(fp).st_mode | 0o755); made += 1
+                except Exception:
+                    pass
+        try: os.chmod(exe, 0o755)                      # wassabeed itself, regardless
         except Exception: pass
     try:                                              # remember it so find_daemon works next start
         open(os.path.join(os.path.expanduser("~"), ".sabi-daemon"), "w", encoding="utf-8").write(exe)
