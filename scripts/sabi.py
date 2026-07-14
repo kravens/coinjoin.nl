@@ -375,11 +375,11 @@ SUSHI = [
    [("   ,iiiiiiiiii,  ", ORANGE)], [(" ,iiiiiiiiiiiiii,", ORANGE)],
    [(" iii'        'ii'", ORANGE)], [("   '.________.'  ", RICE)]]),
  ("hamachi",AMBER,  ["   ,;'''''''';,  ", " ,'  ________  ',", " ;,;'        ';,'", "   '.________.'  "]),
- ("tamago", AMBER,  [                                 # nori strap (;;) drawn green, egg amber
+ ("tamago", AMBER,  [                                 # egg amber, nori strap |;;| green, rice base
    [("  ------", AMBER), (";;;;", NORI), ("------ ", AMBER)],
-   [(" |______|", AMBER), (";;", NORI), ("|______|", AMBER)],
-   [("   |    |", AMBER), (";;", NORI), ("|    |  ", AMBER)],
-   [("    '.__|", AMBER), (";;", NORI), ("|__.'   ", AMBER)]]),
+   [(" |______", AMBER), ("|;;|", NORI), ("______|", AMBER)],
+   [("   |    ", AMBER), ("|;;|", NORI), ("    |  ", AMBER)],
+   [("    '.__", RICE), ("|;;|", NORI), ("__.'   ", RICE)]]),
  ("tako",   BRAND,  ["    ,;'''''''';, ", "  ,'  _o_o_o_o  ',", " ,,,;'        ';,'", "    '.________.' "]),
  ("uni",    AMBER,  ["    _ ___  _  ", "  ,@@@@@@@@@@, ", " |'@@@@@@@@@@'|", " |            |", "  '.________.' "]),
  ("ikura",  ORANGE, ["    _ ___  _   ", "  .oooooooooo. ", " |'oooooooooo'|", " |            |", "  '.________.' "]),
