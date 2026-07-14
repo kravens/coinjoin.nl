@@ -8,7 +8,7 @@
 #          then run the daemon:   wassabee daemon  (or wassabeed)              #
 #  Run:    python3 sabi.py [--rpc http://127.0.0.1:37128] [--wallet NAME]      #
 #          [--user U --pass P]   ·   python3 sabi.py --demo   (no daemon)      #
-#  Keys:   1-5 tabs · Tab/arrows switch · w/s select · enter act · ? help      #
+#  Keys:   1-7 tabs · WASD/arrows navigate · enter act · ? help · q quit        #
 #          mouse: click tabs/rows, wheel scrolls (Linux/macOS terminals)       #
 ################################################################################
 import sys, os, time, math, random, json, argparse, shutil, re, tempfile, urllib.request
@@ -844,7 +844,8 @@ def draw_saver_logo(ch, col, f):                      # the wasabi logo, bouncin
 
 # ---- non-blocking key/mouse reader (raw fd; split-escape safe; Ctrl+C = exit) ------
 def make_keyreader(mouse=True):
-    KEYS = {"w":"UP","s":"DOWN","\t":"TAB"," ":"SPACE","q":"QUIT","Q":"QUIT",
+    KEYS = {"w":"UP","a":"LEFT","s":"DOWN","d":"RIGHT",   # WASD = arrow keys (nav only)
+            "\t":"TAB"," ":"SPACE","q":"QUIT","Q":"QUIT",
             "\r":"ENTER","\n":"ENTER","\x7f":"BACK","\x08":"BACK","?":"HELP",
             "\x05":"SAVER"}                           # Ctrl+E: sushi break, right now
     for _d in "123456789": KEYS[_d] = _d
@@ -1828,13 +1829,13 @@ def set_coordinator_in_config(path, uri):
 # ---- the TUI ------------------------------------------------------------------------
 TABS = ["dashboard", "wallet", "history", "coinjoin", "send", "auto", "scheme"]
 
-HELP = ["1-6 / Tab / ←→   switch tab          w/s or ↑↓   select row",
+HELP = ["WASD / ↑↓←→      w up · s down (rows) · a/d = ←→ switch tab · Tab too",
         "enter            primary action      y           copy (address / txid)",
         "r                refresh now         ?           this help",
         ".                privacy mode: hide amounts + addresses (receive stays visible)",
         "q                quit                Ctrl+C      quit immediately",
         "Ctrl+E           sushi break now (screensaver; also auto after 10 min idle)",
-        "small screens    a/d pan left/right · w/s scroll the page (on list-less tabs)",
+        "small screens    [ / ] pan left/right · w/s scroll the page (on list-less tabs)",
         "",
         "any tab    g RECEIVE - label -> fresh address + scannable QR code",
         "dashboard  space/enter load wallet · n create wallet · v recover wallet",
@@ -1846,13 +1847,13 @@ HELP = ["1-6 / Tab / ←→   switch tab          w/s or ↑↓   select row",
         "history    u speed up (fee bump) · c cancel unconfirmed tx · y copy txid",
         "           r copy raw hex (fetched from YOUR node; also works after send)",
         "coinjoin   space start/stop · o single round · b sweep to other wallet",
-        "           p pay inside coinjoin · x cancel selected payment · a rules",
+        "           p pay inside coinjoin · x cancel selected payment · e trezor acct",
         "           c choose coordinator (edits Config.json - daemon restart needed)",
         "send       n add payment · i import pasted list · e edit · x remove",
         "           + / - apply no-change round-up/down (exact coin match, no change output)",
         "           u subtract-fee · enter send (live fee estimate in the confirm)",
-        "auto       programmable rules: when np/pr/tot ≥ threshold -> start/single/",
-        "           sweep->cold-wallet/stop · optional night window · bell on fire",
+        "auto       n new rule · e edit · space on/off · x delete · m arm/disarm",
+        "           rules: when np/pr/tot ≥ threshold -> start/single/sweep/stop",
         "",
         "mouse: click tabs/rows · click the selected row again (or double-click)",
         "       to open/run it · click addresses & txids to copy them · wheel scrolls",
@@ -2079,9 +2080,6 @@ def tui(rpc, args, frames=0):
                    [dict(k="password", label="wallet password", v="", mask=True,
                          hint="joins now; sabi auto-stops after one completed round")], cb)
 
-    def do_cj_auto():
-        nonlocal tab
-        tab = 5                                       # automation now lives on the [6] auto tab
 
     def do_cj_sweep():
         if wo(): return
@@ -3275,7 +3273,7 @@ def tui(rpc, args, frames=0):
         cu = S.get("coord_uri")
         put(ch, col, y0+7, x0, "coordinator  " + (coord_host(cu) if cu else "?"),
             lerp(BRAND, WHITE, .25) if cu else GREY)
-        put(ch, col, y0+8, x0, "space start/stop   o one round   a rules   b sweep", lerp(BRAND, WHITE, .35))
+        put(ch, col, y0+8, x0, "space start/stop   o one round   b sweep   c coordinator", lerp(BRAND, WHITE, .35))
         put(ch, col, y0+9, x0, "p pay inside coinjoin   x cancel payment   c coordinator", lerp(BRAND, WHITE, .35))
         pays = S.get("pays") or []
         py = y0 + 11
@@ -3390,7 +3388,7 @@ def tui(rpc, args, frames=0):
                 rput(ch, col, y, W-4, f"fired {ago//60}m ago" if ago < 3600 else f"fired {ago//3600}h ago", GREY)
             regions.append((y, 4, W-4, ("ROW", 5, i)))
         yb = y0 + max(9, len(rules)+3)
-        put(ch, col, yb, 4, "n new rule · e edit · space on/off · x delete · a arm/disarm", GREY)
+        put(ch, col, yb, 4, "n new rule · e edit · space on/off · x delete · m arm/disarm", GREY)
         put(ch, col, yb+1, 4, "rules check every ~4s while sabi runs · each rule fires at most once per 10 min",
             lerp(BRAND, GREY, .3))
         put(ch, col, yb+2, 4, "sweep target may be a watch-only wallet: hot -> cold via coinjoin, "
@@ -3515,7 +3513,7 @@ def tui(rpc, args, frames=0):
              "u speed up · y copy txid · ? help",
              "space start/stop · c coordinator · ? help",
              "n add payment · enter send · ? help",
-             "n new rule · a arm · ? help",
+             "n new rule · m arm · ? help",
              "enter run · e edit · ? help"]
     def draw_block_anim(ch, col, over=False):         # block found: numbered sushi drops on a belt
         a = S.get("blockanim")
@@ -3650,10 +3648,9 @@ def tui(rpc, args, frames=0):
                         rl["on"] = not rl.get("on"); save_rules(S["wallet"], S["rules"])
                 elif raw:
                     r = raw.lower()
-                    if TW < W and r == "d": HOFF = min(W - TW, HOFF + 6)
-                    elif TW < W and r == "a" and (HOFF > 0 or tab not in (3, 5)):
-                        HOFF = max(0, HOFF - 6)       # 'a' pans back; at the left edge it
-                    elif tab == 2 and r == "r": do_copy_rawtx()   # keeps its rules/arm meaning
+                    if TW < W and raw == "]": HOFF = min(W - TW, HOFF + 6)   # thin: pan the viewport
+                    elif TW < W and raw == "[": HOFF = max(0, HOFF - 6)
+                    elif tab == 2 and r == "r": do_copy_rawtx()
                     elif tab == 4 and r == "r": do_copy_last_send()
                     elif r == "r": S["kick"] = True; flash("refreshing ...", 20)
                     elif r == ".":                                # privacy mode: hide amounts + addresses
@@ -3679,7 +3676,7 @@ def tui(rpc, args, frames=0):
                     elif tab == 5 and r == "x" and (S.get("rules") or []):
                         S["rules"].pop(sel[5] % len(S["rules"])); sel[5] = max(0, sel[5]-1)
                         save_rules(S["wallet"], S["rules"])
-                    elif tab == 5 and r == "a": do_arm()
+                    elif tab == 5 and r == "m": do_arm()          # 'm' arm/disarm (a is LEFT now)
                     elif tab == 1 and r == "x": do_toggle_exclude()
                     elif tab == 1 and r == "k": do_list_keys()
                     elif tab == 4 and r == "i": do_import()
@@ -3695,7 +3692,6 @@ def tui(rpc, args, frames=0):
                             flash("txid copied ✓" if ok else "clipboard unavailable")
                     elif tab == 3 and r == "c": do_coordinator()
                     elif tab == 3 and r == "o": do_cj_single()
-                    elif tab == 3 and r == "a": do_cj_auto()
                     elif tab == 3 and r == "b": do_cj_sweep()
                     elif tab == 3 and r == "p": do_pay_in_cj()
                     elif tab == 3 and r == "x": do_cancel_pay()
