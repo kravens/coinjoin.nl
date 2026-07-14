@@ -269,13 +269,30 @@ def logo_cells(rows):                                 # -> [(r, c, glyph, shade 
     _LOGO_CACHE[rows] = (cells, cols)
     return _LOGO_CACHE[rows]
 
-def draw_logo(ch, col, y, x, rows, color, dimf=0.35):
+def draw_logo(ch, col, y, x, rows, color, dimf=0.35, shear=0.0, bob=0):
     cells, cols = logo_cells(rows)
+    cy = rows / 2.0                                   # shear about the middle row -> perspective lean
     for r, c, g, s in cells:
-        yy, xx = y+r, x+c
+        yy = y + r + bob
+        xx = x + c + int(round(shear * (r - cy)))
         if 0 <= yy < H and 0 <= xx < W:
             ch[yy][xx] = g; col[yy][xx] = clamp8(lerp(lerp(BG, color, dimf), color, s))
     return cols
+
+def logo_anim(f):                                     # occasional personality; else rest (0,0,None)
+    # a brief action every ~30s, deterministic from the frame counter (cheap, remote-friendly).
+    CYCLE, DUR = 630, 60
+    t = f % CYCLE
+    if t >= DUR: return 0.0, 0, None
+    kind = (f // CYCLE) % 3
+    p = t / DUR
+    if kind == 0:                                     # tilt left, tilt right, settle
+        return 0.85 * M.sin(p * 4 * M.pi) * (1 - p), 0, None
+    if kind == 1:                                     # two little nods
+        return 0.0, (1 if int(t) % 12 < 5 else 0), None
+    # kind 2: nibble - a sushi sits at the mouth, the W leans in, then it's gone ("eaten")
+    if t < 30: return (0.45 * min(1.0, t / 12.0)), (1 if 16 < t < 26 else 0), True
+    return 0.0, 0, None
 
 # ---- layout / canvas (scales with the terminal; min one row spared) ---------------
 # Small terminals: the canvas keeps a comfortable virtual size (>=100x31) and emit()
@@ -2886,7 +2903,10 @@ def tui(rpc, args, frames=0):
             return 3
         lcol = lerp(GREEN, GLOW, pulse) if on else lerp(BRAND, GREY, .45)
         rows = 7 if H >= 34 else 5
-        cols = draw_logo(ch, col, 1, 2, rows, lcol, dimf=0.5 if on else 0.3)
+        shear, bob, snack = logo_anim(f)              # the corner W has moods
+        cols = draw_logo(ch, col, 1, 2, rows, lcol, dimf=0.5 if on else 0.3, shear=shear, bob=bob)
+        if snack:                                     # a little sushi at the mouth, about to be eaten
+            put(ch, col, 1 + rows//2 + bob, 2 + cols, "●", clamp8(lerp(ORANGE, WHITE, .2)))
         x0 = cols + 6
         put(ch, col, 1, x0, "S A B I", WHITE)
         put(ch, col, 1, x0+9, "· wasabi daemon terminal", GREY)
