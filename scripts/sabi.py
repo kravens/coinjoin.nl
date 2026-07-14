@@ -3263,13 +3263,13 @@ def tui(rpc, args, frames=0):
             do_native_report(pl6) if kd6 == "rpc" else do_scheme_run(pl6)
 
     # ---------- main loop --------------------------------------------------------------
-    HINTS = ["space load · l load ALL · n create · v recover · t trezor · i install wasabi · ? help · q",
-             "w/s coins · g receive · k addresses · x exclude · y copy · ? help",
-             "w/s scroll · u speed up · c cancel · y copy txid · r copy raw hex · ? help",
-             "space start/stop · o one round · c coordinator · e trezor account · b sweep · ? help",
-             "n add · i import · +/- no-change round · e edit · x remove · enter send · r raw hex · ? help",
-             "n new rule · e edit · space on/off · x delete · a arm/disarm · ? help",
-             "w/s pick · enter run · e edit/paste · x enable scripting · l load all wallets · ? help"]
+    HINTS = ["space load wallet · n create · ? help",  # the rest lives in ? and GETTING STARTED
+             "g receive · y copy address · ? help",
+             "u speed up · y copy txid · ? help",
+             "space start/stop · c coordinator · ? help",
+             "n add payment · enter send · ? help",
+             "n new rule · a arm · ? help",
+             "enter run · e edit · ? help"]
     def draw_block_anim(ch, col, over=False):         # block found: numbered sushi drops on a belt
         a = S.get("blockanim")
         el = time.monotonic() - a["t0"]
