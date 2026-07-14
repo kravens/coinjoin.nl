@@ -522,6 +522,12 @@ SUSHI += [
    [(" ", None), ("▀▀▀▀▀▀▀▀▀▀", _WGYD)]]),
 ]
 
+# tiny 3x2 nigiri for the logo's snack (topping with a stripe over a rice base)
+MINI_SUSHI = {
+    "salmon": ("mini", _SAL, [[("▄", _SAL), ("▄", _SALF), ("▄", _SAL)], [("▀▀▀", RICE)]]),
+    "wagyu":  ("mini", _WGY, [[("▄", _WGY), ("▄", _MARB), ("▄", _WGY)], [("▀▀▀", RICE)]]),
+}
+
 def _piece_width(rows):
     return max(len(r) if isinstance(r, str) else sum(len(t) for t, _ in r) for r in rows)
 
@@ -2930,8 +2936,9 @@ def tui(rpc, args, frames=0):
         turn, bob, pitch, snack, kind = logo_anim(f)  # the corner W has moods, and talks
         cols = draw_logo(ch, col, 1, 2, rows, lcol, dimf=0.5 if on else 0.3,
                          turn=turn, bob=bob, pitch=pitch, depth=2)
-        if snack:                                     # a little sushi at the mouth, about to be eaten
-            put(ch, col, 1 + rows//2 + bob, 2 + cols, "●", clamp8(lerp(ORANGE, WHITE, .2)))
+        if snack:                                     # a miniature nigiri at the mouth, about to be eaten
+            mini = MINI_SUSHI["salmon" if (f // 660 // 3) % 2 == 0 else "wagyu"]
+            _draw_piece(ch, col, 2 + cols, max(0, 1 + rows//2 - 1 + bob), mini)
         x0 = cols + 6
         if kind >= 0:                                 # a katakana speech blip above S A B I
             say = "｢" + logo_says(kind, S) + "｣"
