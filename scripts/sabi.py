@@ -269,7 +269,7 @@ def logo_cells(rows):                                 # -> [(r, c, glyph, shade 
     _LOGO_CACHE[rows] = (cells, cols)
     return _LOGO_CACHE[rows]
 
-def draw_logo(ch, col, y, x, rows, color, dimf=0.35, turn=0.0, bob=0, depth=1):
+def draw_logo(ch, col, y, x, rows, color, dimf=0.35, turn=0.0, bob=0, pitch=0.0, depth=1):
     cells, cols = logo_cells(rows)
     cxc = (cols - 1) / 2.0                            # yaw: rotate about the vertical centre line
     scale = 1.0 - 0.34 * abs(turn)                    # face foreshortens as it turns to a side
@@ -280,31 +280,32 @@ def draw_logo(ch, col, y, x, rows, color, dimf=0.35, turn=0.0, bob=0, depth=1):
     def place(r, c, g, cc, ox, oy):
         yy = y + r + bob + oy; xx = x + int(round(cxc + (c - cxc) * scale)) + ox
         if 0 <= yy < H and 0 <= xx < W: ch[yy][xx] = g; col[yy][xx] = cc
-    for step in range(depth, 0, -1):                  # constant block thickness (down-right drop)
+    for step in range(depth, 0, -1):                  # block thickness; pitch tips it forward (rises up)
+        oy = int(round(step * (1 - 1.7 * pitch)))
         wall = side if step > 1 else edge
-        for r, c, g, s in cells: place(r, c, g, wall, step, step)
+        for r, c, g, s in cells: place(r, c, g, wall, step, oy)
     for step in range(side_steps, 0, -1):             # the turned-away side wall
         for r, c, g, s in cells: place(r, c, g, side if step > 1 else edge, exd*step, 0)
     for r, c, g, s in cells:                          # lit face on top
         place(r, c, g, clamp8(lerp(lerp(BG, color, dimf), color, s)), 0, 0)
     return cols
 
-def logo_anim(f):                                     # -> (turn, bob, snack, kind); rest = (0,0,None,-1)
+def logo_anim(f):                                     # -> (turn, bob, pitch, snack, kind); rest (0,0,0,None,-1)
     # a brief action every ~30s, deterministic from the frame counter (cheap, remote-friendly).
     CYCLE, DUR = 660, 74
     t = f % CYCLE
-    if t >= DUR: return 0.0, 0, None, -1
+    if t >= DUR: return 0.0, 0, 0.0, None, -1
     cyc = f // CYCLE
     kind = cyc % 3
     p = t / DUR
     if kind == 0:                                     # turn to look left or right, then face front again
         side = 1 if (cyc // 3) % 2 == 0 else -1       # alternate direction each time
-        return side * M.sin(p * M.pi), 0, None, 0     # 0 -> full turn -> 0 (a glance)
-    if kind == 1:                                     # one barely-there nod, then still
-        return 0.0, (1 if 0.46 < p < 0.54 else 0), None, 1
+        return side * M.sin(p * M.pi), 0, 0.0, None, 0
+    if kind == 1:                                     # a slow, subtle forward tip (face stays put)
+        return 0.0, 0, 0.5 * M.sin(p * M.pi), None, 1
     # kind 2: nibble - faces slightly toward the mouth sushi, then it's gone ("eaten")
-    if t < 40: return (0.3 * M.sin(p * M.pi)), (1 if 0.55 < p < 0.68 else 0), True, 2
-    return 0.0, 0, None, 2
+    if t < 40: return (0.3 * M.sin(p * M.pi)), (1 if 0.55 < p < 0.68 else 0), 0.0, True, 2
+    return 0.0, 0, 0.0, None, 2
 
 # halfwidth katakana (single terminal cell each) - the W talks
 def logo_says(kind, S):
@@ -2926,8 +2927,9 @@ def tui(rpc, args, frames=0):
             return 3
         lcol = lerp(GREEN, GLOW, pulse) if on else lerp(BRAND, GREY, .45)
         rows = 7 if H >= 34 else 5
-        turn, bob, snack, kind = logo_anim(f)         # the corner W has moods, and talks
-        cols = draw_logo(ch, col, 1, 2, rows, lcol, dimf=0.5 if on else 0.3, turn=turn, bob=bob, depth=2)
+        turn, bob, pitch, snack, kind = logo_anim(f)  # the corner W has moods, and talks
+        cols = draw_logo(ch, col, 1, 2, rows, lcol, dimf=0.5 if on else 0.3,
+                         turn=turn, bob=bob, pitch=pitch, depth=2)
         if snack:                                     # a little sushi at the mouth, about to be eaten
             put(ch, col, 1 + rows//2 + bob, 2 + cols, "●", clamp8(lerp(ORANGE, WHITE, .2)))
         x0 = cols + 6
