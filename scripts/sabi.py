@@ -2927,7 +2927,7 @@ def tui(rpc, args, frames=0):
         lcol = lerp(GREEN, GLOW, pulse) if on else lerp(BRAND, GREY, .45)
         rows = 7 if H >= 34 else 5
         turn, bob, snack, kind = logo_anim(f)         # the corner W has moods, and talks
-        cols = draw_logo(ch, col, 1, 2, rows, lcol, dimf=0.5 if on else 0.3, turn=turn, bob=bob)
+        cols = draw_logo(ch, col, 1, 2, rows, lcol, dimf=0.5 if on else 0.3, turn=turn, bob=bob, depth=2)
         if snack:                                     # a little sushi at the mouth, about to be eaten
             put(ch, col, 1 + rows//2 + bob, 2 + cols, "●", clamp8(lerp(ORANGE, WHITE, .2)))
         x0 = cols + 6
