@@ -1667,6 +1667,7 @@ HELP = ["1-6 / Tab / ←→   switch tab          w/s or ↑↓   select row",
         "any tab    g RECEIVE - label -> fresh address + scannable QR code",
         "dashboard  space/enter load wallet · n create wallet · v recover wallet",
         "           i install wasabi: nostr release + signature/sha256 verified download",
+        "           t import a TREZOR (coinjoin signs on the device via the bridge)",
         "wallet     k address book · x exclude coin from coinjoin · y copy address",
         "           click anon/amount/confs headers to sort (newest confirmed on top)",
         "history    u speed up (fee bump) · c cancel unconfirmed tx · y copy txid",
@@ -1697,6 +1698,7 @@ def tui(rpc, args, frames=0):
              wloading=False, logpath=getattr(args, "logpath", None),
              cfgpath=getattr(args, "cfgpath", None), loaded=set(),
              no_coord=False, coord_uri=getattr(args, "coord", None), coord_menu=None,
+             hw_auth=None,
              last_send=None, coin_sort=("confs", False),
              sc_out=None, sc_custom=None, sc_running=False, sc_needs_enable=False, sc_hist=[],
              sync_h=None, sync_h0=None, sync_rate=0.0, sync_t=0.0,
@@ -1756,11 +1758,34 @@ def tui(rpc, args, frames=0):
         try: return f"≈ ${sats/1e8*float(xr):,.0f}" if xr and sats else ""
         except Exception: return ""
 
-    def wo():                                         # watch-only wallets can't sign
-        if (S.get("winfo") or {}).get("isWatchOnly"):
+    def wo():                                         # pure watch-only can't sign; hardware can
+        wi = S.get("winfo") or {}
+        if wi.get("isWatchOnly") and not wi.get("isHardwareWallet"):
             flash("◇ watch-only wallet - it can't sign; open its hot counterpart", 80)
             return True
         return False
+
+    def hw():
+        return bool((S.get("winfo") or {}).get("isHardwareWallet"))
+
+    def hw_auth_watch():                              # the device wants a hold-to-confirm NOW
+        S["hw_auth"] = time.monotonic()
+        flash("◆ CONFIRM ON YOUR TREZOR - hold to approve the coinjoin batch", 170)
+        ding()
+        def w():
+            deadline = time.monotonic() + 200         # matches the daemon's 3-minute device window
+            while time.monotonic() < deadline:
+                if not S.get("hw_auth"): return       # stopped / cancelled meanwhile
+                if (S.get("cj_status") or "").lower() not in ("", "idle"):
+                    S["hw_auth"] = None
+                    ding()
+                    S["flash"], S["flasht"] = "✓ trezor authorized - mixing unattended from here on", 150
+                    return
+                time.sleep(1.5)
+            if S.get("hw_auth"):
+                S["hw_auth"] = None
+                S["flash"], S["flasht"] = "✗ no authorization seen - device prompt timed out? start coinjoin again", 160
+        threading.Thread(target=w, daemon=True).start()
 
     def parse_batch(txt):                             # "addr amount [label]" per line/; -> payments
         out = []
@@ -1854,15 +1879,17 @@ def tui(rpc, args, frames=0):
         if S.get("cj_on"):
             def fn():
                 rpc.call("stopcoinjoin", [], wallet=S["wallet"])
-                S["cj_on"] = False; S["single"] = False
+                S["cj_on"] = False; S["single"] = False; S["hw_auth"] = None
             act("coinjoin stopped", fn); return
         def cb(v):
             def fn():
                 rpc.call("startcoinjoin", [v.get("password", ""), True, True], wallet=S["wallet"])
                 S["cj_on"] = True
+                if hw(): hw_auth_watch()
             act("coinjoin started ◆", fn)
         open_modal("START COINJOIN", [dict(k="password", label="wallet password", v="", mask=True,
-                   hint="mixes until everything is private, then stops")], cb)
+                   hint=("leave empty - authorize ON THE DEVICE"
+                         if hw() else "mixes until everything is private, then stops"))], cb)
 
     def do_cj_single():
         if wo(): return
@@ -1872,6 +1899,7 @@ def tui(rpc, args, frames=0):
                 base = sum(1 for h_ in S.get("history") or [] if is_cj_row(h_))
                 rpc.call("startcoinjoin", [v.get("password", ""), False, True], wallet=S["wallet"])
                 S["cj_on"] = True; S["single"] = True; S["single_base"] = base
+                if hw(): hw_auth_watch()
                 return "watching for the round to confirm"
             act("single round joined ◆", fn)
         open_modal("JOIN ONE COINJOIN ROUND",
@@ -1890,8 +1918,10 @@ def tui(rpc, args, frames=0):
             outw = v.get("output", "").strip()
             if not outw or outw == S.get("wallet"):
                 flash("✗ sweep needs a DIFFERENT output wallet name", 80); return
-            act("coinjoin sweep started ◆",
-                lambda: rpc.call("startcoinjoinsweep", [v.get("password", ""), outw], wallet=S["wallet"]))
+            def fn():
+                rpc.call("startcoinjoinsweep", [v.get("password", ""), outw], wallet=S["wallet"])
+                if hw(): hw_auth_watch()
+            act("coinjoin sweep started ◆", fn)
         open_modal("COINJOIN SWEEP  ·  mix everything to another wallet",
                    [dict(k="password", label="wallet password", v="", mask=True, hint=""),
                     dict(k="output", label="output wallet name", v=(others[0] if others else ""),
@@ -2079,6 +2109,51 @@ def tui(rpc, args, frames=0):
                        " 3  download - verify team ECDSA signature + sha256 (pinned keys)",
                        " 4  extract - and only with your approval, start wassabeed", "",
                        "nothing runs before every check passes."])
+
+    def do_import_trezor():                           # trezor coinjoin wallet via the daemon bridge
+        def cb(v):
+            name = (v.get("name") or "").strip()
+            if not name: flash("✗ wallet needs a name"); return
+            cj = v.get("coinjoin", "y").strip().lower() not in ("n", "no", "false", "0")
+            def fn():
+                # reading the SLIP-25 account asks for confirmation ON THE DEVICE (3 min window)
+                r = rpc.call("importtrezorwallet", [name, cj], timeout=200) or {}
+                S["kick"] = True
+                S["notice"] = dict(title="TREZOR WALLET IMPORTED", lines=[
+                    "", f"  wallet       {r.get('walletName', name)}",
+                    f"  fingerprint  {r.get('masterKeyFingerprint', '?')}",
+                    f"  coinjoin     {'enabled (SLIP-25 account)' if r.get('coinjoinEnabled') else 'off'}", "",
+                    "  load it on [1] dashboard - coinjoin authorization happens",
+                    "  on the device when you start mixing.", "", "  press any key"])
+                return r.get("walletName", name)
+            act("importing from trezor - CONFIRM ON THE DEVICE", fn)
+        open_modal("IMPORT TREZOR WALLET",
+                   [dict(k="name", label="wallet name", v="", mask=False, hint=""),
+                    dict(k="coinjoin", label="enable coinjoin account? (y/n)", v="y", mask=False,
+                         hint="adds the SLIP-25 coinjoin account - confirm on the device")],
+                   cb, lines=lambda: [
+                       "imports the connected trezor through the daemon's bridge.",
+                       "the device will ask you to confirm exporting the accounts -",
+                       "keep it connected and unlocked. nothing leaves the device",
+                       "except public keys; coinjoins are signed on the trezor."])
+
+    def do_enable_cj_account():                       # add the SLIP-25 account to a loaded trezor wallet
+        if not S.get("wallet"): flash("load a wallet first (tab 1, enter)"); return
+        if not hw(): flash("this wallet is not a hardware wallet", 70); return
+        def cb(v):
+            if v.get("ok", "").strip().lower() != "y": flash("cancelled"); return
+            def fn():
+                r = rpc.call("enablecoinjoin", [], wallet=S["wallet"], timeout=200) or {}
+                lines = ["", "  coinjoin account  " + str(r.get("coinjoinAccountKeyPath", "?")), ""]
+                if r.get("restartRequired"):
+                    lines += ["  ⟳ RESTART the daemon - a loaded wallet only reads its",
+                              "  accounts at startup, then start coinjoin as usual.", ""]
+                S["notice"] = dict(title="TREZOR COINJOIN ENABLED", lines=lines + ["  press any key"])
+                return "enabled"
+            act("enabling coinjoin account - CONFIRM ON THE DEVICE", fn)
+        open_modal("ENABLE TREZOR COINJOIN",
+                   [dict(k="ok", label="type y to continue (device will prompt)", v="", mask=False,
+                         hint="3 minute window for the on-device confirmation")], cb)
 
     def do_create_wallet():
         def cb(v):
@@ -2619,6 +2694,8 @@ def tui(rpc, args, frames=0):
             if S.get("busy"):
                 sp = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"[int(time.time()*10) % 10]
                 rput(ch, col, 1, min(W, TW)-2, sp + " " + str(S["busy"])[:24], AMBER)
+            elif S.get("hw_auth"):
+                rput(ch, col, 1, min(W, TW)-2, "◆ CONFIRM ON TREZOR", clamp8(lerp(AMBER, WHITE, .5*pulse)))
             return 3
         lcol = lerp(GREEN, GLOW, pulse) if on else lerp(BRAND, GREY, .45)
         rows = 7 if H >= 34 else 5
@@ -2689,13 +2766,19 @@ def tui(rpc, args, frames=0):
                 put(ch, col, 5, x0+len(wname)+2, btc(tot), WHITE)
                 fx = usd(tot)
                 if fx: put(ch, col, 5, x0+len(wname)+2+len(btc(tot))+2, fx, GREY)
-            if (S.get("winfo") or {}).get("isWatchOnly"):
+            wi_ = S.get("winfo") or {}
+            if wi_.get("isHardwareWallet"):
+                rput(ch, col, 5, W-2, "◇ HARDWARE · signs on device", lerp(GREEN, GREY, .3))
+            elif wi_.get("isWatchOnly"):
                 rput(ch, col, 5, W-2, "◇ WATCH-ONLY", AMBER)
         else:
             put(ch, col, 5, x0, "no wallet loaded - pick one on [1] dashboard", ORANGE)
         if S.get("busy"):                             # action in flight: spinner, never a frozen UI
             sp = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"[int(time.time()*10) % 10]
             put(ch, col, 2, x0, f"{sp} {S['busy']} ...", AMBER)
+        elif S.get("hw_auth"):
+            put(ch, col, 2, x0, "◆ CONFIRM COINJOIN ON YOUR TREZOR - it is waiting for you",
+                clamp8(lerp(AMBER, WHITE, .5*pulse)))
         nload = len(S.get("loaded") or ())
         if nload > 1: put(ch, col, 1, x0+34, f"· {nload} wallets loaded", lerp(GREEN, GREY, .3))
         if DISCREET["on"]:
@@ -2929,6 +3012,11 @@ def tui(rpc, args, frames=0):
         stat = (stat.upper() + " ◆") if on else stat.lower()
         put(ch, col, y0+1, x0, "COINJOIN  ·  ", GREY)
         put(ch, col, y0+1, x0+13, stat, clamp8(lerp(GREEN, WHITE, .4*pulse)) if on else GREY)
+        if S.get("hw_auth"):
+            p2 = 0.5 + 0.5*M.sin(f*0.3)
+            left = max(0, 200 - int(time.monotonic() - S["hw_auth"]))
+            put(ch, col, y0+2, x0, f"▸▸ CONFIRM ON YOUR TREZOR NOW ◂◂   hold to approve · {left}s left",
+                clamp8(lerp(AMBER, WHITE, .5*p2)))
         regions.append((y0+1, x0, x0+13+len(stat)-1, ("ACT", do_cj_toggle)))   # click = start/stop
         pr, se, np_ = balances(S)
         put(ch, col, y0+3, x0, f"daemon says  {S.get('cj_status') or '?'}",
@@ -3175,10 +3263,10 @@ def tui(rpc, args, frames=0):
             do_native_report(pl6) if kd6 == "rpc" else do_scheme_run(pl6)
 
     # ---------- main loop --------------------------------------------------------------
-    HINTS = ["space load · l load ALL · n create · v recover · i install wasabi · g receive · ? help · q",
+    HINTS = ["space load · l load ALL · n create · v recover · t trezor · i install wasabi · ? help · q",
              "w/s coins · g receive · k addresses · x exclude · y copy · ? help",
              "w/s scroll · u speed up · c cancel · y copy txid · r copy raw hex · ? help",
-             "space start/stop · o one round · c coordinator · a rules · b sweep · p pay-in-cj · ? help",
+             "space start/stop · o one round · c coordinator · e trezor account · b sweep · ? help",
              "n add · i import · +/- no-change round · e edit · x remove · enter send · r raw hex · ? help",
              "n new rule · e edit · space on/off · x delete · a arm/disarm · ? help",
              "w/s pick · enter run · e edit/paste · x enable scripting · l load all wallets · ? help"]
@@ -3329,6 +3417,8 @@ def tui(rpc, args, frames=0):
                     elif r == "l" and tab in (0, 6): do_load_all()   # load every wallet
                     elif tab == 0 and r == "n": do_create_wallet()
                     elif tab == 0 and r == "v": do_recover_wallet()
+                    elif tab == 0 and r == "t": do_import_trezor()
+                    elif tab == 3 and r == "e": do_enable_cj_account()
                     elif r == "i" and (tab == 0 or S.get("err")): do_install_wasabi()
                     elif tab == 6 and r == "e":
                         it6 = SCHEME_ITEMS[sel[6] % len(SCHEME_ITEMS)]
