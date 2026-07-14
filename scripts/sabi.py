@@ -1121,13 +1121,23 @@ def wasabi_release_info(timeout=15):                  # -> dict(version=str, ass
         return dict(version=ver, assets=assets, relay=relay, content=ev.get("content", ""))
     raise RpcError(f"no verified release event from any relay ({err})")
 
-def pick_release_asset(version):                      # portable archive with wassabeed, or None
+def pick_release_asset(version):                      # portable archive with wassabeed for this OS
     import platform
     arm = platform.machine().lower() in ("arm64", "aarch64", "armv7l", "armv6l")
     if os.name == "nt": return f"Wasabi-{version}-win-x64.zip"
     if sys.platform == "darwin": return f"Wasabi-{version}-macOS-{'arm64' if arm else 'x64'}.zip"
-    if arm: return None                               # wasabi ships NO arm linux binary (build from source)
-    return f"Wasabi-{version}-linux-x64.tar.gz"       # tar keeps +x bits
+    return f"Wasabi-{version}-linux-{'arm64' if arm else 'x64'}.tar.gz"   # tar keeps +x bits
+
+def resolve_asset_url(assets, name):
+    # The nostr event tags only SOME asset URLs (e.g. linux-x64 but not linux-arm64), yet the
+    # file is on the release and in the signed SHA256SUMS. Derive its URL from any sibling in
+    # the same release directory; integrity still comes from the signed hash, not the URL.
+    if name in assets: return assets[name]
+    for u in assets.values():
+        s = str(u)
+        if s.startswith("https://") and "/" in s:
+            return s.rsplit("/", 1)[0] + "/" + name
+    return None
 
 def _download(url, path, progress=None, timeout=60):
     if not str(url).startswith("https://"): raise RpcError("refusing non-https download")
@@ -1146,9 +1156,10 @@ def wasabi_install(info, progress=lambda s: None):    # -> (wassabeed path, arch
     import hashlib, base64, tempfile, zipfile, tarfile
     ver = info["version"]; assets = info["assets"]
     asset = pick_release_asset(ver)
-    if asset is None: raise RpcError("UNSUPPORTED_ARCH")
-    for need in (asset, "SHA256SUMS.asc", "SHA256SUMS.wasabisig"):
-        if need not in assets: raise RpcError(f"release event lacks asset '{need}'")
+    for need in ("SHA256SUMS.asc", "SHA256SUMS.wasabisig"):
+        if need not in assets: raise RpcError(f"release event lacks '{need}'")
+    asset_url = resolve_asset_url(assets, asset)      # tagged, or derived from a sibling URL
+    if not asset_url: raise RpcError(f"cannot resolve a download URL for {asset}")
     tmp = tempfile.mkdtemp(prefix=f"sabi-wasabi-{ver}-")
     progress("fetching signature files ...")
     asc = open(_download(assets["SHA256SUMS.asc"], os.path.join(tmp, "SHA256SUMS.asc")), "rb").read()
@@ -1166,7 +1177,7 @@ def wasabi_install(info, progress=lambda s: None):    # -> (wassabeed path, arch
     def pcb(done, total):
         progress(f"downloading {asset}  {done//1048576} / {total//1048576} MB"
                  if total else f"downloading {asset}  {done//1048576} MB")
-    _download(assets[asset], apath, pcb)
+    _download(asset_url, apath, pcb)
     progress("checking sha256 ...")
     h = hashlib.sha256()
     with open(apath, "rb") as f:
@@ -2099,20 +2110,8 @@ def tui(rpc, args, frames=0):
                            "sabi remembered this path (~/.sabi-daemon) for future starts."])
         def stage2(info):
             ver = info["version"]; asset = pick_release_asset(ver)
-            if asset is None:                         # ARM Linux (Raspberry Pi): no official binary
-                import platform
-                S["notice"] = dict(title="NO OFFICIAL WASABI BUILD FOR THIS CPU", lines=[
-                    "", f"  release found   Wasabi {ver}  (nostr signature valid)",
-                    f"  this machine    {platform.machine()} / linux", "",
-                    "  wasabi ships x64 linux only - there is no ARM/Pi binary to",
-                    "  download, so it has to be BUILT FROM SOURCE.", "",
-                    "  on RaspiBlitz:  the bonus.wasabid.sh service builds + runs it",
-                    "  otherwise:      dotnet publish WalletWasabi.Daemon (see the repo)", "",
-                    "  once wassabeed exists, start sabi with  --daemon /path/to/wassabeed",
-                    "  and press i again to launch it.", "", "  press any key"])
-                return
             from urllib.parse import urlparse
-            host = urlparse(str(info["assets"].get(asset, ""))).netloc or "?"
+            host = urlparse(str(resolve_asset_url(info["assets"], asset) or "")).netloc or "github.com"
             def cb(v):
                 if v.get("ok", "").strip().lower() != "y": flash("cancelled - nothing downloaded"); return
                 def fn():
