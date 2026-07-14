@@ -1202,22 +1202,32 @@ def wasabi_install(info, progress=lambda s: None):    # -> (wassabeed path, arch
     for root, _dirs, files in os.walk(dest):
         if want in files: exe = os.path.join(root, want); break
     if not exe: raise RpcError(f"extracted, but {want} not found under {dest}")
-    if os.name != "nt":
+    if os.name != "nt":                               # Windows: PE runs without an exec bit - nothing to do
         # +x every native binary, not just wassabeed: the daemon launches BUNDLED Tor/HWI
         # under BundledApps/Binaries, and a zip (or a stripped tar) leaves them non-exec ->
-        # "Permission denied" starting Tor. Detect ELF/Mach-O by magic so only binaries get +x.
+        # "Permission denied" starting Tor. Detect executables by magic so data files (geoip,
+        # dylibs, etc.) are left alone. Covers linux ELF and every macOS Mach-O / universal form.
+        EXEC_MAGIC = {
+            b"\x7fELF",                                # ELF (linux)
+            b"\xcf\xfa\xed\xfe", b"\xfe\xed\xfa\xcf",  # Mach-O 64-bit  (LE / BE)
+            b"\xce\xfa\xed\xfe", b"\xfe\xed\xfa\xce",  # Mach-O 32-bit  (LE / BE)
+            b"\xca\xfe\xba\xbe", b"\xbe\xba\xfe\xca",  # Mach-O universal (FAT)
+        }
         progress("making bundled binaries executable ...")
         made = 0
         for root, _dirs, files in os.walk(dest):
             for fn in files:
                 fp = os.path.join(root, fn)
                 try:
+                    if os.path.islink(fp): continue
                     with open(fp, "rb") as fh: magic = fh.read(4)
-                    if magic[:4] == b"\x7fELF" or magic in (b"\xcf\xfa\xed\xfe", b"\xfe\xed\xfa\xcf"):
-                        os.chmod(fp, os.stat(fp).st_mode | 0o755); made += 1
+                    if magic in EXEC_MAGIC:
+                        st = os.stat(fp).st_mode
+                        os.chmod(fp, st | ((st & 0o444) >> 2))  # +x wherever there is a matching +r
+                        made += 1
                 except Exception:
                     pass
-        try: os.chmod(exe, 0o755)                      # wassabeed itself, regardless
+        try: os.chmod(exe, os.stat(exe).st_mode | 0o755)  # wassabeed itself, regardless
         except Exception: pass
     try:                                              # remember it so find_daemon works next start
         open(os.path.join(os.path.expanduser("~"), ".sabi-daemon"), "w", encoding="utf-8").write(exe)
