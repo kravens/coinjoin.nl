@@ -297,9 +297,20 @@ def put(ch, col, r, c, s, color):
         if 0 <= r < H and 0 <= c+i < W: ch[r][c+i] = k; col[r][c+i] = color
 def rput(ch, col, r, c_end, s, color): put(ch, col, r, c_end-len(str(s)), s, color)
 
-def emit(o, ch, col):                                 # RLE truecolor frame, synchronized output
-    out = ["\x1b[?2026h\x1b[H"]                       # emits the TWxTH viewport at (HOFF, VOFF)
-    for r in range(VOFF, min(H, VOFF + TH)):
+_PREV = {"rows": None, "meta": None}                  # last emitted frame, for row diffing
+def repaint():                                        # force a full clear + repaint on next emit
+    _PREV["rows"] = None
+
+def emit(o, ch, col):                                 # RLE truecolor frame, synchronized output.
+    # Only rows that CHANGED since the last frame are sent (absolute cursor addressing):
+    # a full 21fps repaint is megabytes/s over ssh and tears into glitches on slow links.
+    meta = (W, H, TW, TH, VOFF, HOFF)
+    full = _PREV["meta"] != meta or _PREV["rows"] is None
+    prev = None if full else _PREV["rows"]
+    out = ["\x1b[?2026h"]
+    if full: out.append("\x1b[2J")
+    rows = []
+    for i, r in enumerate(range(VOFF, min(H, VOFF + TH))):
         last = None; line = []
         for c in range(HOFF, min(W, HOFF + TW)):
             g = ch[r][c]
@@ -307,8 +318,13 @@ def emit(o, ch, col):                                 # RLE truecolor frame, syn
             cc = col[r][c]
             if cc != last: line.append("\x1b[38;2;%d;%d;%dm" % cc); last = cc
             line.append(g)
-        out.append("".join(line)+"\x1b[0m")
-    o("\n".join(out)+"\x1b[?2026l"); sys.stdout.flush()
+        s = "".join(line) + "\x1b[0m"
+        rows.append(s)
+        if prev is not None and i < len(prev) and prev[i] == s: continue
+        out.append("\x1b[%d;1H%s" % (i + 2, s))       # +2: frames have always started on line 2
+    _PREV["rows"] = rows; _PREV["meta"] = meta
+    if len(out) > (2 if full else 1):                 # nothing changed -> nothing sent
+        o("".join(out) + "\x1b[?2026l"); sys.stdout.flush()
 
 def draw_box(ch, col, y, x, w, h, color):
     for c in range(x+1, x+w-1):
@@ -3310,7 +3326,7 @@ def tui(rpc, args, frames=0):
                 else random.choice(("belt", "beltv", "beltr", "platter", "wasabi", "logo", "bounce")))
     def saver_on():                                   # amounts auto-hide while away ('.' mode)
         nonlocal saver, saver_prev_priv
-        saver = pick_saver(); saver_prev_priv = DISCREET["on"]; DISCREET["on"] = True; o("\x1b[2J")
+        saver = pick_saver(); saver_prev_priv = DISCREET["on"]; DISCREET["on"] = True; repaint()
         _INFALL.clear()
     try:
         f = 0; last_act = time.monotonic(); saver = None; saver_prev_priv = False
@@ -3320,7 +3336,7 @@ def tui(rpc, args, frames=0):
                 last_act = time.monotonic()
                 if saver:                             # waking up: swallow the key that woke us
                     saver = None; DISCREET["on"] = saver_prev_priv   # restore the user's choice
-                    o("\x1b[2J"); ev = None
+                    repaint(); ev = None
             elif interactive and saver is None and time.monotonic() - last_act >= AFK_SECS:
                 saver_on()
             if ev:
@@ -3469,7 +3485,7 @@ def tui(rpc, args, frames=0):
                     elif tab == 4 and raw in ("-", "_"): apply_sug("dn")
             if interactive:
                 nw, nh = term_canvas(True)
-                if (nw, nh) != (TW, TH): apply_canvas(nw, nh); o("\x1b[2J")
+                if (nw, nh) != (TW, TH): apply_canvas(nw, nh); repaint()
             if TW < 44 or TH < 10:                    # comically small terminal: maki protest screen
                 VOFF = 0
                 ch, col = blank()
