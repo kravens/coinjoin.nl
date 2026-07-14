@@ -2039,6 +2039,15 @@ def tui(rpc, args, frames=0):
                    cb, lines=lines)
 
     def start_daemon_assist(exe):                     # secure the RPC, start, wait, onboard
+        try:                                          # already reachable? never start a 2nd instance
+            rpc.call("getstatus", timeout=3)          # nor change the working credentials
+            S["err"] = None; S["kick"] = True
+            flash("◆ daemon already running and reachable ✓ - nothing to do", 110); return
+        except RpcError as e:
+            if "401" in str(e):                       # up, but wants auth sabi doesn't have
+                flash("◆ daemon is up but needs RPC auth - restart sabi with --user/--pass", 150); return
+        except Exception:
+            pass                                      # genuinely not answering -> start it
         cfg0 = wasabi_config()
         if cfg0 and cfg0.get("user") and cfg0.get("password"):
             _start_daemon(exe, None, None)            # config already carries credentials
@@ -2092,6 +2101,20 @@ def tui(rpc, args, frames=0):
         threading.Thread(target=w, daemon=True).start()
 
     def do_install_wasabi():                          # find existing wassabeed, else verified install
+        running = not S.get("err")                    # sabi is already talking to a daemon
+        if running:                                   # don't touch a working daemon
+            def cb0(v):
+                if v.get("ok", "").strip().lower() == "i": _install_wizard()
+                else: flash("daemon already running - left as is")
+            open_modal("WASABI DAEMON ALREADY RUNNING",
+                       [dict(k="ok", label="type i to install the latest release, or esc", v="",
+                             mask=False, hint="the running daemon is fine - nothing needs starting")],
+                       cb0, lines=lambda: [
+                           "sabi is connected to a running wasabi daemon already.",
+                           "starting another one, or changing the RPC password now,",
+                           "would only break this working connection.", "",
+                           "press i only if you want to download + verify a newer release."])
+            return
         exe0 = find_daemon(getattr(args, "daemon", None))
         if exe0:
             def cb0(v):
@@ -2099,18 +2122,13 @@ def tui(rpc, args, frames=0):
                 if a == "i": _install_wizard(); return
                 if a != "y": flash("cancelled"); return
                 start_daemon_assist(exe0)
-            def lines0():
-                ls = ["found an existing wassabeed on this machine:", "  " + exe0, ""]
-                if not S.get("err"):
-                    ls += ["note: a daemon already ANSWERS RPC right now - starting a",
-                           "second one does nothing. i = install the latest release.", ""]
-                ls += ["sabi starts it with RPC enabled, waits for it to answer,",
-                       "then guides you to a coordinator and your first wallet."]
-                return ls
             open_modal("WASABI DAEMON FOUND",
                        [dict(k="ok", label="start it? (y/n · i = install latest instead)", v="y",
                              mask=False, hint="no download needed")],
-                       cb0, lines=lines0)
+                       cb0, lines=lambda: [
+                           "found an existing wassabeed on this machine:", "  " + exe0, "",
+                           "sabi starts it with RPC enabled, waits for it to answer,",
+                           "then guides you to a coordinator and your first wallet."])
             return
         _install_wizard()
 
