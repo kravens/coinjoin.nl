@@ -310,15 +310,20 @@ def emit(o, ch, col):                                 # RLE truecolor frame, syn
     out = ["\x1b[?2026h"]
     if full: out.append("\x1b[2J")
     rows = []
-    for i, r in enumerate(range(VOFF, min(H, VOFF + TH))):
+    rng = range(VOFF, min(H, VOFF + TH))
+    for i, r in enumerate(rng):
+        # Never print the bottom-right cell: buggy emulators (Termius iOS et al) scroll a
+        # line when it is written, leaving ghost rows above. Trailing blanks are erase-to-
+        # EOL instead of spaces, so the last column is only touched by real content.
+        cend = HOFF + TW - (1 if i == len(rng) - 1 else 0)
         last = None; line = []
-        for c in range(HOFF, min(W, HOFF + TW)):
+        for c in range(HOFF, min(W, cend)):
             g = ch[r][c]
             if g == " ": line.append(" "); continue
             cc = col[r][c]
             if cc != last: line.append("\x1b[38;2;%d;%d;%dm" % cc); last = cc
             line.append(g)
-        s = "".join(line) + "\x1b[0m"
+        s = "".join(line).rstrip() + "\x1b[0m\x1b[K"
         rows.append(s)
         if prev is not None and i < len(prev) and prev[i] == s: continue
         out.append("\x1b[%d;1H%s" % (i + 2, s))       # +2: frames have always started on line 2
