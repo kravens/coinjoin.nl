@@ -364,10 +364,16 @@ AFK_SECS = 600                                        # 10 min without input
 # ASCII sushi by Daniel Au (alt.ascii-art / rec.arts.ascii, 3 Mar 1995)
 SUSHI = [
  ("maguro", RED,    ["   ,;'''''''';,  ", " ,'  ________  ',", " ;,;'        ';,'", "   '.________.'  "]),
- ("toro",   RED,    ["   ,;;;;;;;;;;,  ", " ,;;;;;;;;;;;;;;,", " ;;;'        ';;'", "   '.________.'  "]),
- ("saba",   BLUE,   ["   ,;'''''''';,  ", " ,'  ||||||||  ',", " |||'        '|||", "   '.________.'  "]),
+ ("toro",   RED,    [                                 # marbling drapes down; only the base is rice
+   [("   ,;;;;;;;;;;,  ", RED)], [(" ,;;;;;;;;;;;;;;,", RED)],
+   [(" ;;;'        ';;'", RED)], [("   '.________.'  ", RICE)]]),
+ ("saba",   BLUE,   [                                 # skin stripes drape down; base is rice
+   [("   ,;'''''''';,  ", BLUE)], [(" ,'  ||||||||  ',", BLUE)],
+   [(" |||'        '|||", BLUE)], [("   '.________.'  ", RICE)]]),
  ("ika",    WHITE,  ["    ==========   ", " ///==========\\\\\\", "///='        '=\\\\\\", "   '.________.'  "]),
- ("sake",   ORANGE, ["   ,iiiiiiiiii,  ", " ,iiiiiiiiiiiiii,", " iii'        'ii'", "   '.________.'  "]),
+ ("sake",   ORANGE, [                                 # salmon texture drapes down; base is rice
+   [("   ,iiiiiiiiii,  ", ORANGE)], [(" ,iiiiiiiiiiiiii,", ORANGE)],
+   [(" iii'        'ii'", ORANGE)], [("   '.________.'  ", RICE)]]),
  ("hamachi",AMBER,  ["   ,;'''''''';,  ", " ,'  ________  ',", " ;,;'        ';,'", "   '.________.'  "]),
  ("tamago", AMBER,  [                                 # nori strap (;;) drawn green, egg amber
    [("  ------", AMBER), (";;;;", NORI), ("------ ", AMBER)],
