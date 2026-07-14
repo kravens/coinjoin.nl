@@ -269,30 +269,48 @@ def logo_cells(rows):                                 # -> [(r, c, glyph, shade 
     _LOGO_CACHE[rows] = (cells, cols)
     return _LOGO_CACHE[rows]
 
-def draw_logo(ch, col, y, x, rows, color, dimf=0.35, shear=0.0, bob=0):
+def draw_logo(ch, col, y, x, rows, color, dimf=0.35, shear=0.0, bob=0, depth=1):
     cells, cols = logo_cells(rows)
     cy = rows / 2.0                                   # shear about the middle row -> perspective lean
-    for r, c, g, s in cells:
-        yy = y + r + bob
-        xx = x + c + int(round(shear * (r - cy)))
-        if 0 <= yy < H and 0 <= xx < W:
-            ch[yy][xx] = g; col[yy][xx] = clamp8(lerp(lerp(BG, color, dimf), color, s))
+    side = clamp8(lerp(BG, color, 0.16))              # the extruded 3D side wall (dark)
+    edge = clamp8(lerp(BG, color, 0.30))              # front of the wall, a touch lighter
+    exd = -1 if shear > 0.15 else 1                   # thickness shows on the side away from the lean
+    def place(r, c, g, cc, ox, oy):
+        yy = y + r + bob + oy; xx = x + c + int(round(shear * (r - cy))) + ox
+        if 0 <= yy < H and 0 <= xx < W: ch[yy][xx] = g; col[yy][xx] = cc
+    for step in range(depth, 0, -1):                  # back-to-front dark side layers = block thickness
+        wall = side if step > 1 else edge
+        for r, c, g, s in cells:
+            place(r, c, g, wall, exd*step, step)
+    for r, c, g, s in cells:                          # lit face on top
+        place(r, c, g, clamp8(lerp(lerp(BG, color, dimf), color, s)), 0, 0)
     return cols
 
-def logo_anim(f):                                     # occasional personality; else rest (0,0,None)
+def logo_anim(f):                                     # -> (shear, bob, snack, kind); rest = (0,0,None,-1)
     # a brief action every ~30s, deterministic from the frame counter (cheap, remote-friendly).
     CYCLE, DUR = 630, 60
     t = f % CYCLE
-    if t >= DUR: return 0.0, 0, None
+    if t >= DUR: return 0.0, 0, None, -1
     kind = (f // CYCLE) % 3
     p = t / DUR
     if kind == 0:                                     # tilt left, tilt right, settle
-        return 0.85 * M.sin(p * 4 * M.pi) * (1 - p), 0, None
+        return 0.85 * M.sin(p * 4 * M.pi) * (1 - p), 0, None, 0
     if kind == 1:                                     # two little nods
-        return 0.0, (1 if int(t) % 12 < 5 else 0), None
+        return 0.0, (1 if int(t) % 12 < 5 else 0), None, 1
     # kind 2: nibble - a sushi sits at the mouth, the W leans in, then it's gone ("eaten")
-    if t < 30: return (0.45 * min(1.0, t / 12.0)), (1 if 16 < t < 26 else 0), True
-    return 0.0, 0, None
+    if t < 30: return (0.45 * min(1.0, t / 12.0)), (1 if 16 < t < 26 else 0), True, 2
+    return 0.0, 0, None, 2
+
+# halfwidth katakana (single terminal cell each) - the W talks
+def logo_says(kind, S):
+    if kind == 2: return "ﾓｸﾞﾓｸﾞ"                     # *munch munch* (eating the sushi)
+    st = S.get("status") or {}
+    try: fleft = int(st.get("filtersLeft") or 0)
+    except Exception: fleft = 0
+    if S.get("cj_on"): return "ﾏｾﾞﾏｾﾞ"                # *mixing* (coinjoin running)
+    if fleft > 0: return "ﾄﾞｳｷﾁｭｳ"                    # *syncing* (filters catching up)
+    if len(st.get("peers") or []): return "ｾﾂｿﾞｸ"     # *connected* (p2p peers)
+    return "ｲﾗｯｼｬｲ"                                   # *welcome!* (sushi-chef greeting)
 
 # ---- layout / canvas (scales with the terminal; min one row spared) ---------------
 # Small terminals: the canvas keeps a comfortable virtual size (>=100x31) and emit()
@@ -2903,11 +2921,14 @@ def tui(rpc, args, frames=0):
             return 3
         lcol = lerp(GREEN, GLOW, pulse) if on else lerp(BRAND, GREY, .45)
         rows = 7 if H >= 34 else 5
-        shear, bob, snack = logo_anim(f)              # the corner W has moods
+        shear, bob, snack, kind = logo_anim(f)        # the corner W has moods, and talks
         cols = draw_logo(ch, col, 1, 2, rows, lcol, dimf=0.5 if on else 0.3, shear=shear, bob=bob)
         if snack:                                     # a little sushi at the mouth, about to be eaten
             put(ch, col, 1 + rows//2 + bob, 2 + cols, "●", clamp8(lerp(ORANGE, WHITE, .2)))
         x0 = cols + 6
+        if kind >= 0:                                 # a katakana speech blip above S A B I
+            say = "｢" + logo_says(kind, S) + "｣"
+            put(ch, col, 0, x0, say, clamp8(lerp(GLOW if on else BRAND, WHITE, .3)))
         put(ch, col, 1, x0, "S A B I", WHITE)
         put(ch, col, 1, x0+9, "· wasabi daemon terminal", GREY)
         st = S.get("status") or {}
@@ -3204,7 +3225,7 @@ def tui(rpc, args, frames=0):
         on = S.get("cj_on")
         rows = min(13, max(8, H - y0 - 12))
         lcol = lerp(GREEN, GLOW, pulse) if on else lerp(BRAND, GREY, .35)
-        cols = draw_logo(ch, col, y0+1, 4, rows, lcol, dimf=0.55 if on else 0.28)
+        cols = draw_logo(ch, col, y0+1, 4, rows, lcol, dimf=0.55 if on else 0.28, depth=2)
         x0 = cols + 10
         if not S.get("wallet"):
             put(ch, col, y0+1, x0, "no wallet loaded - go to [1] dashboard and press enter", ORANGE); return
