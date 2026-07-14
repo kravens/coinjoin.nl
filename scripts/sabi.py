@@ -582,17 +582,40 @@ def draw_saver_galaxy(ch, col, f, rainbow=False):     # while a coinjoin runs, t
     put(ch, col, H-2, max(0, (W-46)//2), "amounts hidden while away  ·  any key returns", lerp(BRAND, GREY, .35))
     rput(ch, col, 2, W-3, time.strftime("%H:%M"), lerp(BRAND, GREY, .5))
 
-def _draw_piece(ch, col, px, py, piece):              # one sushi at top-left (px, py)
+def draw_saver_galaxy_sushi(ch, col, f):              # spiral of rice grains, sashimi in the arms
+    cx, cy = W/2, H/2 - 1
+    ang = f * 0.02                                    # a heavier galaxy turns a little slower
+    sy = min((H-8)/40.0, 1.0); sx = sy * 2.1
+    for i, (r, th, t) in enumerate(_galaxy_particles()):
+        if (i*17 + f//8) % 13 == 0: continue          # grains glint in and out
+        x = int(cx + r*M.cos(th+ang)*sx); y = int(cy + r*M.sin(th+ang)*sy)
+        put(ch, col, y, x, "•" if i % 3 else "·",
+            clamp8(lerp((250, 251, 255), (214, 206, 188), t)))   # rice, warming outward
+    slices = [p for p in SUSHI if p[0] in ("salmon sashimi", "tuna sashimi", "wagyu")]
+    for k, (arm, t) in enumerate(((0.0, .30), (0.0, .62), (0.0, .92),
+                                  (M.pi, .30), (M.pi, .62), (M.pi, .92))):
+        p = slices[k % len(slices)]
+        r = 1.5 + t*16.0; th = arm + t*3.4 + ang
+        w, h = _piece_width(p[2]), len(p[2])
+        _draw_piece(ch, col, int(cx + r*M.cos(th)*sx - w/2), int(cy + r*M.sin(th)*sy - h/2), p)
+    _draw_piece(ch, col, int(cx)-2, int(cy)-1, _WASABI)          # a wasabi core holds it together
+    pulse = 0.5 + 0.5*M.sin(f*0.09)
+    put(ch, col, 2, max(0, (W-24)//2), "◆ coinjoin in progress", clamp8(lerp(GREEN, WHITE, .35*pulse)))
+    put(ch, col, H-2, max(0, (W-46)//2), "amounts hidden while away  ·  any key returns", lerp(BRAND, GREY, .35))
+    rput(ch, col, 2, W-3, time.strftime("%H:%M"), lerp(BRAND, GREY, .5))
+
+def _draw_piece(ch, col, px, py, piece, tint=None):   # one sushi at top-left (px, py)
     name, accent, rows = piece
     h = len(rows)
     for i, row in enumerate(rows):
         y = py + i
         if isinstance(row, str):                      # classic ascii: topping tinted, rice bright
-            put(ch, col, y, px, row, accent if i < h-2 else (238, 240, 246))
+            c_ = accent if i < h-2 else (238, 240, 246)
+            put(ch, col, y, px, row, tint(c_) if tint else c_)
         else:                                         # pixel piece: explicit per-segment colors
             x = px
             for txt, c_ in row:
-                if c_ is not None: put(ch, col, y, x, txt, c_)
+                if c_ is not None: put(ch, col, y, x, txt, tint(c_) if tint else c_)
                 x += len(txt)
 
 def _saver_chrome(ch, col, title):
@@ -1343,6 +1366,15 @@ def poller(rpc, S, stop):
                 S["banner"] = rs[0] if rs else None; S["banner_t"] = time.monotonic()
             except Exception: pass
             last_b = time.monotonic()
+        try:                                          # a new block? drop a numbered sushi on the belt
+            _hh = int((S.get("status") or {}).get("bestBlockchainHeight"))
+        except (TypeError, ValueError):
+            _hh = None
+        if _hh:
+            if S.get("_tiph") and _hh > S["_tiph"]:
+                S["blockanim"] = dict(h=_hh, t0=time.monotonic(), y=None, vy=0.0,
+                                      bounced=False, settled=False)
+            S["_tiph"] = _hh
         S["ver"] = S.get("ver", 0) + 1; S["t_poll"] = time.monotonic()
         for _ in range(8):                            # 4s in slices; 'r' kicks an early refresh
             if S.pop("kick", False): break
@@ -3126,8 +3158,42 @@ def tui(rpc, args, frames=0):
              "n add · i import · +/- no-change round · e edit · x remove · enter send · r raw hex · ? help",
              "n new rule · e edit · space on/off · x delete · a arm/disarm · ? help",
              "w/s pick · enter run · e edit/paste · x enable scripting · l load all wallets · ? help"]
+    def draw_block_anim(ch, col):                     # block found: numbered sushi drops on a belt
+        a = S.get("blockanim")
+        el = time.monotonic() - a["t0"]
+        if el > 3.0:
+            S["blockanim"] = None; return
+        vw = min(W, TW)
+        yb = VOFF + min(H, TH)//2 + 3                 # belt surface
+        fade = 1.0 if el < 2.2 else max(0.05, 1.0 - (el - 2.2) / 0.8)
+        tint = (lambda c: clamp8(lerp(BG, c, fade)))
+        def fput(y, x, s, c): put(ch, col, y, x, s, clamp8(lerp(BG, c, fade)))
+        dx = int(el * 7)                              # the belt rolls right
+        drop_x = HOFF + max(4, vw//3)
+        for x in range(HOFF+1, HOFF+vw-1): fput(yb+1, x, "─", lerp(BG, GREY, .6))
+        for x in range(HOFF+1 + (dx % 8), HOFF+vw-1, 8): fput(yb+2, x, "o", lerp(BG, GREY, .45))
+        def piece_for(hh): return SUSHI[hh % len(SUSHI)]
+        for k in range(1, 5):                         # earlier blocks ride off to the right
+            hh = a["h"] - k
+            p = piece_for(hh); px = drop_x + k*19 + dx
+            if px > HOFF + vw: continue
+            _draw_piece(ch, col, px, yb - len(p[2]) + 1, p, tint=tint)
+            fput(yb+3, px+1, f"#{hh:,}", GREY)
+        p0 = piece_for(a["h"]); land = yb - len(p0[2]) + 1
+        if a["y"] is None: a["y"] = float(VOFF + 3)   # enters from just below the header
+        if not a["settled"]:                          # gravity + ONE small bounce
+            a["vy"] += 0.5; a["y"] += a["vy"]
+            if a["y"] >= land:
+                a["y"] = land
+                if not a["bounced"]: a["vy"] = -abs(a["vy"]) * 0.45; a["bounced"] = True
+                elif a["vy"] >= 0: a["settled"] = True; a["vy"] = 0.0
+        px0 = drop_x + dx
+        _draw_piece(ch, col, px0, int(a["y"]), p0, tint=tint)
+        fput(yb+3, px0+1, f"#{a['h']:,}", GREEN)
+        fput(yb - 6, px0, f"◆ new block #{a['h']:,}", clamp8(lerp(GREEN, WHITE, .3)))
+
     def pick_saver():                                 # a coinjoin running -> the galaxy spins
-        return (random.choice(("galaxy", "galaxy2")) if S.get("cj_on")
+        return (random.choice(("galaxy", "galaxy2", "galaxy3")) if S.get("cj_on")
                 else random.choice(("belt", "beltv", "beltr", "platter", "wasabi", "logo", "bounce")))
     def saver_on():                                   # amounts auto-hide while away ('.' mode)
         nonlocal saver, saver_prev_priv
@@ -3344,6 +3410,8 @@ def tui(rpc, args, frames=0):
                 nt = S["notice"]; draw_overlay(ch, col, nt["title"], nt["lines"], tcol=GREEN)
             elif S.get("pager"): draw_pager(ch, col)
             elif modal: draw_modal(ch, col)
+            if S.get("blockanim") and not saver:
+                draw_block_anim(ch, col)
             if saver:                                 # translucent screensaver: UI stays faintly visible
                 for r in range(H):
                     rg, rc = ch[r], col[r]
@@ -3353,7 +3421,8 @@ def tui(rpc, args, frames=0):
                  "platter": draw_saver_platter, "wasabi": draw_saver_wasabi,
                  "logo": draw_saver_logo, "bounce": draw_saver_bounce,
                  "galaxy": draw_saver_galaxy,
-                 "galaxy2": lambda c1, c2, f_: draw_saver_galaxy(c1, c2, f_, rainbow=True)}[saver](ch, col, f)
+                 "galaxy2": lambda c1, c2, f_: draw_saver_galaxy(c1, c2, f_, rainbow=True),
+                 "galaxy3": draw_saver_galaxy_sushi}[saver](ch, col, f)
             emit(o, ch, col); time.sleep(FRAME); f += 1
     except KeyboardInterrupt:
         raise
