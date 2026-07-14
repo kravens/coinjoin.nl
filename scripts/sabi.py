@@ -1121,12 +1121,13 @@ def wasabi_release_info(timeout=15):                  # -> dict(version=str, ass
         return dict(version=ver, assets=assets, relay=relay, content=ev.get("content", ""))
     raise RpcError(f"no verified release event from any relay ({err})")
 
-def pick_release_asset(version):                      # portable archive with wassabeed for this OS
+def pick_release_asset(version):                      # portable archive with wassabeed, or None
     import platform
-    arm = platform.machine().lower() in ("arm64", "aarch64")
+    arm = platform.machine().lower() in ("arm64", "aarch64", "armv7l", "armv6l")
     if os.name == "nt": return f"Wasabi-{version}-win-x64.zip"
     if sys.platform == "darwin": return f"Wasabi-{version}-macOS-{'arm64' if arm else 'x64'}.zip"
-    return f"Wasabi-{version}-linux-{'arm64' if arm else 'x64'}.tar.gz"   # tar keeps +x bits
+    if arm: return None                               # wasabi ships NO arm linux binary (build from source)
+    return f"Wasabi-{version}-linux-x64.tar.gz"       # tar keeps +x bits
 
 def _download(url, path, progress=None, timeout=60):
     if not str(url).startswith("https://"): raise RpcError("refusing non-https download")
@@ -1145,6 +1146,7 @@ def wasabi_install(info, progress=lambda s: None):    # -> (wassabeed path, arch
     import hashlib, base64, tempfile, zipfile, tarfile
     ver = info["version"]; assets = info["assets"]
     asset = pick_release_asset(ver)
+    if asset is None: raise RpcError("UNSUPPORTED_ARCH")
     for need in (asset, "SHA256SUMS.asc", "SHA256SUMS.wasabisig"):
         if need not in assets: raise RpcError(f"release event lacks asset '{need}'")
     tmp = tempfile.mkdtemp(prefix=f"sabi-wasabi-{ver}-")
@@ -2097,12 +2099,32 @@ def tui(rpc, args, frames=0):
                            "sabi remembered this path (~/.sabi-daemon) for future starts."])
         def stage2(info):
             ver = info["version"]; asset = pick_release_asset(ver)
+            if asset is None:                         # ARM Linux (Raspberry Pi): no official binary
+                import platform
+                S["notice"] = dict(title="NO OFFICIAL WASABI BUILD FOR THIS CPU", lines=[
+                    "", f"  release found   Wasabi {ver}  (nostr signature valid)",
+                    f"  this machine    {platform.machine()} / linux", "",
+                    "  wasabi ships x64 linux only - there is no ARM/Pi binary to",
+                    "  download, so it has to be BUILT FROM SOURCE.", "",
+                    "  on RaspiBlitz:  the bonus.wasabid.sh service builds + runs it",
+                    "  otherwise:      dotnet publish WalletWasabi.Daemon (see the repo)", "",
+                    "  once wassabeed exists, start sabi with  --daemon /path/to/wassabeed",
+                    "  and press i again to launch it.", "", "  press any key"])
+                return
             from urllib.parse import urlparse
             host = urlparse(str(info["assets"].get(asset, ""))).netloc or "?"
             def cb(v):
                 if v.get("ok", "").strip().lower() != "y": flash("cancelled - nothing downloaded"); return
                 def fn():
-                    exe, sha = wasabi_install(info, progress=lambda s: S.update(busy=str(s)))
+                    try:
+                        exe, sha = wasabi_install(info, progress=lambda s: S.update(busy=str(s)))
+                    except Exception as e:            # full reason in a card, not the clipped flash
+                        S["notice"] = dict(title="WASABI INSTALL FAILED", lines=[
+                            "", "  " + str(e), "",
+                            "  nothing was installed. common causes: no disk space in",
+                            "  the temp dir, a broken download (retry), or no route to",
+                            "  the release host over Tor.", "", "  press any key"])
+                        return "install failed"
                     stage3(exe, sha, ver)
                     return "verified ✓"
                 act("installing wasabi", fn)
