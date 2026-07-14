@@ -1616,14 +1616,36 @@ SCHEME_SNIPPETS = [
   "      (list \"headersLeft\" (headers-left)))"),
 ]
 
+def _write_config_atomic(path, text):
+    # Never truncate the live Config.json in place: a crash mid-write loses the user's RPC
+    # password + all settings. Back it up once, write a temp file, then atomically replace.
+    bak = path + ".sabi.bak"
+    if not os.path.exists(bak) and os.path.exists(path):
+        try: shutil.copy2(path, bak)                  # one-time safety copy of the original
+        except Exception: pass
+    tmp = path + ".sabi.tmp"
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(text); f.flush(); os.fsync(f.fileno())
+        os.replace(tmp, path)                         # atomic on the same filesystem
+    except Exception:
+        try: os.remove(tmp)                           # leave no half-written temp behind
+        except OSError: pass
+        raise
+
+def _edit_config(path, mutate):                       # load -> mutate dict -> atomic write; preserves
+    cfg = json.load(open(path, encoding="utf-8-sig")) # every other key, value and order
+    mutate(cfg)
+    _write_config_atomic(path, json.dumps(cfg, indent=2))
+
 def enable_scripting_in_config(path):                 # add "scripting" to ExperimentalFeatures
     try:
-        cfg = json.load(open(path, encoding="utf-8-sig"))
-        ef = cfg.get("ExperimentalFeatures")
-        if not isinstance(ef, list): ef = []
-        if not any(str(x).lower() == "scripting" for x in ef): ef.append("scripting")
-        cfg["ExperimentalFeatures"] = ef
-        json.dump(cfg, open(path, "w", encoding="utf-8"), indent=2)
+        def m(cfg):
+            ef = cfg.get("ExperimentalFeatures")
+            if not isinstance(ef, list): ef = []
+            if not any(str(x).lower() == "scripting" for x in ef): ef.append("scripting")
+            cfg["ExperimentalFeatures"] = ef
+        _edit_config(path, m)
         return True
     except Exception as e:
         print(f"could not edit {path}: {e}", file=sys.stderr)
@@ -1684,9 +1706,7 @@ def set_coordinator_in_config(path, uri):
     # edit ONLY the CoordinatorUri value: v2.8.0's strict loader deletes and re-defaults a
     # Config.json it cannot fully decode, so never write a fresh/partial file here.
     try:
-        cfg = json.load(open(path, encoding="utf-8-sig"))
-        cfg["CoordinatorUri"] = uri
-        json.dump(cfg, open(path, "w", encoding="utf-8"), indent=2)
+        _edit_config(path, lambda cfg: cfg.__setitem__("CoordinatorUri", uri))
         return True
     except Exception as e:
         print(f"could not edit {path}: {e}", file=sys.stderr)
@@ -3676,12 +3696,12 @@ def launch_daemon(exe, rpc_user=None, rpc_pass=None):  # start it detached; logs
         return False
 
 def apply_rpc_config(path, user=None, password=None):  # persist enabled + credentials, minimal edit
-    try:
-        cfg = json.load(open(path, encoding="utf-8-sig"))
-        cfg["JsonRpcServerEnabled"] = True
-        if user is not None: cfg["JsonRpcUser"] = user
-        if password is not None: cfg["JsonRpcPassword"] = password
-        json.dump(cfg, open(path, "w", encoding="utf-8"), indent=2)
+    try:                                              # user/password only touched when non-None,
+        def m(cfg):                                   # so an existing RPC password is never clobbered
+            cfg["JsonRpcServerEnabled"] = True
+            if user is not None: cfg["JsonRpcUser"] = user
+            if password is not None: cfg["JsonRpcPassword"] = password
+        _edit_config(path, m)
         return True
     except Exception as e:
         print(f"could not edit {path}: {e}", file=sys.stderr)
@@ -3695,7 +3715,7 @@ def enable_rpc_in_config(path):                       # flip JsonRpcServerEnable
             cfg = json.load(open(path, encoding="utf-8-sig"))
             cfg["JsonRpcServerEnabled"] = True
             new = json.dumps(cfg, indent=2)
-        open(path, "w", encoding="utf-8").write(new)
+        _write_config_atomic(path, new)
         return True
     except Exception as e:
         print(f"could not edit {path}: {e}", file=sys.stderr)
