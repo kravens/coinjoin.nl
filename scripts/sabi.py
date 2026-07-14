@@ -23,6 +23,7 @@ BG=(10,12,16); BRAND=(176,186,236); GREEN=(46,214,122); GLOW=(120,255,170)
 ORANGE=(247,147,26); WHITE=(236,239,246); GREY=(110,120,134); DIM=(44,40,36)
 BLUE=(96,156,236); RED=(232,92,104); AMBER=(255,176,32); WARN=(255,92,92)
 NORI=(70,118,70); RICE=(240,242,248)                 # sushi nori wrap + rice (visible on dark bg)
+TAKO=(190,120,190)                                    # octopus purple
 def qpulse(f, w, step=6):                             # breathing, quantized to STEP frames:
     return 0.5 + 0.5*M.sin((f - f % step) * w)        # rows stay identical between steps, so
                                                       # the frame diff sends nothing (remote!)
@@ -363,7 +364,9 @@ def draw_overlay(ch, col, title, lines, tcol=WHITE):  # lines: str or (str, colo
 AFK_SECS = 600                                        # 10 min without input
 # ASCII sushi by Daniel Au (alt.ascii-art / rec.arts.ascii, 3 Mar 1995)
 SUSHI = [
- ("maguro", RED,    ["   ,;'''''''';,  ", " ,'  ________  ',", " ;,;'        ';,'", "   '.________.'  "]),
+ ("maguro", RED,    [                                 # ______ is the rice line under the topping
+   [("   ,;'''''''';,  ", RED)], [(" ,'  ", RED), ("________", RICE), ("  ',", RED)],
+   [(" ;,;'        ';,'", RICE)], [("   '.________.'  ", RICE)]]),
  ("toro",   RED,    [                                 # marbling drapes down; only the base is rice
    [("   ,;;;;;;;;;;,  ", RED)], [(" ,;;;;;;;;;;;;;;,", RED)],
    [(" ;;;'        ';;'", RED)], [("   '.________.'  ", RICE)]]),
@@ -374,15 +377,27 @@ SUSHI = [
  ("sake",   ORANGE, [                                 # salmon texture drapes down; base is rice
    [("   ,iiiiiiiiii,  ", ORANGE)], [(" ,iiiiiiiiiiiiii,", ORANGE)],
    [(" iii'        'ii'", ORANGE)], [("   '.________.'  ", RICE)]]),
- ("hamachi",AMBER,  ["   ,;'''''''';,  ", " ,'  ________  ',", " ;,;'        ';,'", "   '.________.'  "]),
+ ("hamachi",AMBER,  [                                 # ______ rice line, rice ball below
+   [("   ,;'''''''';,  ", AMBER)], [(" ,'  ", AMBER), ("________", RICE), ("  ',", AMBER)],
+   [(" ;,;'        ';,'", RICE)], [("   '.________.'  ", RICE)]]),
  ("tamago", AMBER,  [                                 # egg amber, nori strap |;;| green, rice base
    [("  ------", AMBER), (";;;;", NORI), ("------ ", AMBER)],
    [(" |______", AMBER), ("|;;|", NORI), ("______|", AMBER)],
    [("   |    ", AMBER), ("|;;|", NORI), ("    |  ", AMBER)],
    [("    '.__", RICE), ("|;;|", NORI), ("__.'   ", RICE)]]),
- ("tako",   BRAND,  ["    ,;'''''''';, ", "  ,'  _o_o_o_o  ',", " ,,,;'        ';,'", "    '.________.' "]),
- ("uni",    AMBER,  ["    _ ___  _  ", "  ,@@@@@@@@@@, ", " |'@@@@@@@@@@'|", " |            |", "  '.________.' "]),
- ("ikura",  ORANGE, ["    _ ___  _   ", "  .oooooooooo. ", " |'oooooooooo'|", " |            |", "  '.________.' "]),
+ ("tako",   TAKO,   [                                 # octopus purple flesh, rice ball below
+   [("    ,;'''''''';, ", TAKO)], [("  ,'  _o_o_o_o  ',", TAKO)],
+   [(" ,,,;'        ';,'", RICE)], [("    '.________.' ", RICE)]]),
+ ("uni",    AMBER,  [                                 # gunkan: nori | walls, uni on top, rice base
+   [("    _ ___  _  ", AMBER)], [("  ,@@@@@@@@@@, ", AMBER)],
+   [(" |", NORI), ("'@@@@@@@@@@'", AMBER), ("|", NORI)],
+   [(" |", NORI), ("            ", RICE), ("|", NORI)],
+   [("  '.________.' ", RICE)]]),
+ ("ikura",  ORANGE, [                                 # gunkan: nori | walls, roe on top, rice base
+   [("    _ ___  _   ", ORANGE)], [("  .oooooooooo. ", ORANGE)],
+   [(" |", NORI), ("'oooooooooo'", ORANGE), ("|", NORI)],
+   [(" |", NORI), ("            ", RICE), ("|", NORI)],
+   [("  '.________.' ", RICE)]]),
 ]
 
 # maki rolls: outer nori wrap (green), rice ring (white), 2-char filling (accent)
