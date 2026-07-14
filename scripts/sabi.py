@@ -507,6 +507,8 @@ def draw_saver_bounce(ch, col, f):
                     a["vy"], b["vy"] = b["vy"]*0.9, a["vy"]*0.9
     for b in balls:
         _draw_piece(ch, col, int(b["x"]), int(b["y"]), b["p"])
+        if b.get("tag"):                              # blocks that fell in carry their height
+            put(ch, col, int(b["y"]) + b["h"], int(b["x"]) + 1, b["tag"], lerp(GREEN, GREY, .35))
 
 def draw_saver_wasabi(ch, col, f):                    # grating fresh wasabi, the sabi way
     _saver_chrome(ch, col, "f r e s h   w a s a b i")
@@ -561,6 +563,26 @@ def _galaxy_particles():                              # two-arm spiral, determin
         _GALAXY_CACHE["p"] = pts
     return _GALAXY_CACHE["p"]
 
+_INFALL = {}                                          # a freshly mined block, captured by gravity
+def draw_galaxy_infall(ch, col, f, angf):
+    if not _INFALL: return
+    a = _INFALL
+    cx, cy = W/2, H/2 - 1
+    a["t"] -= 0.008                                   # inward along the arm, ~7 s to the core
+    if a["t"] <= 0.05:
+        if a["t"] > -0.3:                             # absorbed: a brief glint at the core
+            put(ch, col, int(cy), int(cx) - 1, "✦", clamp8(lerp(GREEN, WHITE, .5)))
+        else:
+            _INFALL.clear()
+        return
+    sy = min((H-8)/40.0, 1.0); sx = sy * 2.1
+    t = a["t"]; r = 1.5 + t*16.0; th = a["arm"] + t*3.4 + f*angf
+    p = SUSHI[a["h"] % len(SUSHI)]
+    w, h = _piece_width(p[2]), len(p[2])
+    px, py = int(cx + r*M.cos(th)*sx - w/2), int(cy + r*M.sin(th)*sy - h/2)
+    _draw_piece(ch, col, px, py, p)
+    put(ch, col, py + h, px + 1, f"#{a['h']:,}", clamp8(lerp(GREEN, WHITE, .2)))
+
 def draw_saver_galaxy(ch, col, f, rainbow=False):     # while a coinjoin runs, the mix spins
     import colorsys
     cx, cy = W/2, H/2 - 1
@@ -577,6 +599,7 @@ def draw_saver_galaxy(ch, col, f, rainbow=False):     # while a coinjoin runs, t
             c_ = clamp8(lerp((168, 214, 255), (66, 112, 190), t))
         put(ch, col, y, x, g, c_)
     put(ch, col, int(cy), int(cx), "0", WHITE)
+    draw_galaxy_infall(ch, col, f, 0.03)
     pulse = 0.5 + 0.5*M.sin(f*0.09)
     put(ch, col, 2, max(0, (W-24)//2), "◆ coinjoin in progress", clamp8(lerp(GREEN, WHITE, .35*pulse)))
     put(ch, col, H-2, max(0, (W-46)//2), "amounts hidden while away  ·  any key returns", lerp(BRAND, GREY, .35))
@@ -599,6 +622,7 @@ def draw_saver_galaxy_sushi(ch, col, f):              # spiral of rice grains, s
         w, h = _piece_width(p[2]), len(p[2])
         _draw_piece(ch, col, int(cx + r*M.cos(th)*sx - w/2), int(cy + r*M.sin(th)*sy - h/2), p)
     _draw_piece(ch, col, int(cx)-2, int(cy)-1, _WASABI)          # a wasabi core holds it together
+    draw_galaxy_infall(ch, col, f, 0.02)
     pulse = 0.5 + 0.5*M.sin(f*0.09)
     put(ch, col, 2, max(0, (W-24)//2), "◆ coinjoin in progress", clamp8(lerp(GREEN, WHITE, .35*pulse)))
     put(ch, col, H-2, max(0, (W-46)//2), "amounts hidden while away  ·  any key returns", lerp(BRAND, GREY, .35))
@@ -3158,13 +3182,14 @@ def tui(rpc, args, frames=0):
              "n add · i import · +/- no-change round · e edit · x remove · enter send · r raw hex · ? help",
              "n new rule · e edit · space on/off · x delete · a arm/disarm · ? help",
              "w/s pick · enter run · e edit/paste · x enable scripting · l load all wallets · ? help"]
-    def draw_block_anim(ch, col):                     # block found: numbered sushi drops on a belt
+    def draw_block_anim(ch, col, over=False):         # block found: numbered sushi drops on a belt
         a = S.get("blockanim")
         el = time.monotonic() - a["t0"]
         if el > 3.0:
             S["blockanim"] = None; return
         vw = min(W, TW)
-        yb = VOFF + min(H, TH)//2 + 3                 # belt surface
+        yb = VOFF + (max(9, min(H, TH)//3) if over    # above a running screensaver: higher band
+              else min(H, TH)//2 + 3)                 # belt surface
         fade = 1.0 if el < 2.2 else max(0.05, 1.0 - (el - 2.2) / 0.8)
         tint = (lambda c: clamp8(lerp(BG, c, fade)))
         def fput(y, x, s, c): put(ch, col, y, x, s, clamp8(lerp(BG, c, fade)))
@@ -3198,6 +3223,7 @@ def tui(rpc, args, frames=0):
     def saver_on():                                   # amounts auto-hide while away ('.' mode)
         nonlocal saver, saver_prev_priv
         saver = pick_saver(); saver_prev_priv = DISCREET["on"]; DISCREET["on"] = True; o("\x1b[2J")
+        _INFALL.clear()
     try:
         f = 0; last_act = time.monotonic(); saver = None; saver_prev_priv = False
         while frames == 0 or f < frames:
@@ -3410,8 +3436,17 @@ def tui(rpc, args, frames=0):
                 nt = S["notice"]; draw_overlay(ch, col, nt["title"], nt["lines"], tcol=GREEN)
             elif S.get("pager"): draw_pager(ch, col)
             elif modal: draw_modal(ch, col)
-            if S.get("blockanim") and not saver:
-                draw_block_anim(ch, col)
+            if S.get("blockanim") and saver in ("galaxy", "galaxy2", "galaxy3"):
+                a = S.pop("blockanim")                # immersive: gravity takes the new block
+                _INFALL.clear()
+                _INFALL.update(h=a["h"], t=1.2, arm=0.0 if random.random() < 0.5 else M.pi)
+            elif S.get("blockanim") and saver == "bounce" and _BOUNCE.get("balls"):
+                a = S.pop("blockanim")                # immersive: the block joins the physics pit
+                p = SUSHI[a["h"] % len(SUSHI)]
+                _BOUNCE["balls"].append(dict(p=p, w=_piece_width(p[2]), h=len(p[2]),
+                    x=float(max(2, min(W, TW)//2)), y=float(VOFF + 3),
+                    vx=random.uniform(-1.0, 1.0), vy=0.3, tag=f"#{a['h']:,}"))
+                if len(_BOUNCE["balls"]) > 10: _BOUNCE["balls"].pop(0)
             if saver:                                 # translucent screensaver: UI stays faintly visible
                 for r in range(H):
                     rg, rc = ch[r], col[r]
@@ -3423,6 +3458,8 @@ def tui(rpc, args, frames=0):
                  "galaxy": draw_saver_galaxy,
                  "galaxy2": lambda c1, c2, f_: draw_saver_galaxy(c1, c2, f_, rainbow=True),
                  "galaxy3": draw_saver_galaxy_sushi}[saver](ch, col, f)
+            if S.get("blockanim"):
+                draw_block_anim(ch, col, over=bool(saver))
             emit(o, ch, col); time.sleep(FRAME); f += 1
     except KeyboardInterrupt:
         raise
