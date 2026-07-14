@@ -22,6 +22,7 @@ except Exception: pass
 BG=(10,12,16); BRAND=(176,186,236); GREEN=(46,214,122); GLOW=(120,255,170)
 ORANGE=(247,147,26); WHITE=(236,239,246); GREY=(110,120,134); DIM=(44,40,36)
 BLUE=(96,156,236); RED=(232,92,104); AMBER=(255,176,32); WARN=(255,92,92)
+NORI=(70,118,70); RICE=(240,242,248)                 # sushi nori wrap + rice (visible on dark bg)
 def qpulse(f, w, step=6):                             # breathing, quantized to STEP frames:
     return 0.5 + 0.5*M.sin((f - f % step) * w)        # rows stay identical between steps, so
                                                       # the frame diff sends nothing (remote!)
@@ -369,16 +370,32 @@ SUSHI = [
  ("sake",   ORANGE, ["   ,iiiiiiiiii,  ", " ,iiiiiiiiiiiiii,", " iii'        'ii'", "   '.________.'  "]),
  ("hamachi",AMBER,  ["   ,;'''''''';,  ", " ,'  ________  ',", " ;,;'        ';,'", "   '.________.'  "]),
  ("tamago", AMBER,  [                                 # nori strap (;;) drawn green, egg amber
-   [("  ------", AMBER), (";;;;", (70, 118, 70)), ("------ ", AMBER)],
-   [(" |______|", AMBER), (";;", (70, 118, 70)), ("|______|", AMBER)],
-   [("   |    |", AMBER), (";;", (70, 118, 70)), ("|    |  ", AMBER)],
-   [("    '.__|", AMBER), (";;", (70, 118, 70)), ("|__.'   ", AMBER)]]),
+   [("  ------", AMBER), (";;;;", NORI), ("------ ", AMBER)],
+   [(" |______|", AMBER), (";;", NORI), ("|______|", AMBER)],
+   [("   |    |", AMBER), (";;", NORI), ("|    |  ", AMBER)],
+   [("    '.__|", AMBER), (";;", NORI), ("|__.'   ", AMBER)]]),
  ("tako",   BRAND,  ["    ,;'''''''';, ", "  ,'  _o_o_o_o  ',", " ,,,;'        ';,'", "    '.________.' "]),
  ("uni",    AMBER,  ["    _ ___  _  ", "  ,@@@@@@@@@@, ", " |'@@@@@@@@@@'|", " |            |", "  '.________.' "]),
  ("ikura",  ORANGE, ["    _ ___  _   ", "  .oooooooooo. ", " |'oooooooooo'|", " |            |", "  '.________.' "]),
- ("tekka maki", RED,   ["  ,;'@@';, ", " |',_@@_,'|", " |        |", "  '.____.' "]),
- ("kappa maki", GREEN, ["  ,;'OO';, ", " |',_OO_,'|", " |        |", "  '.____.' "]),
- ("california", ORANGE,["  ,;'O@';, ", " |',_@H_,'|", " |        |", "  '.____.' "]),
+]
+
+# maki rolls: outer nori wrap (green), rice ring (white), 2-char filling (accent)
+SUSHI += [
+ ("tekka maki", RED, [
+   [("  ,;'", NORI), ("@@", RED), ("';, ", NORI)],
+   [(" |", NORI), ("',_", RICE), ("@@", RED), ("_,'", RICE), ("|", NORI)],
+   [(" |", NORI), ("        ", RICE), ("|", NORI)],
+   [("  '.____.' ", NORI)]]),
+ ("kappa maki", GREEN, [
+   [("  ,;'", NORI), ("OO", GREEN), ("';, ", NORI)],
+   [(" |", NORI), ("',_", RICE), ("OO", GREEN), ("_,'", RICE), ("|", NORI)],
+   [(" |", NORI), ("        ", RICE), ("|", NORI)],
+   [("  '.____.' ", NORI)]]),
+ ("california", ORANGE, [
+   [("  ,;'", NORI), ("O@", ORANGE), ("';, ", NORI)],
+   [(" |", NORI), ("',_", RICE), ("@H", ORANGE), ("_,'", RICE), ("|", NORI)],
+   [(" |", NORI), ("        ", RICE), ("|", NORI)],
+   [("  '.____.' ", NORI)]]),
 ]
 
 # pixel-art pieces (block chars; rows given as [(text, color), ...] segments)
