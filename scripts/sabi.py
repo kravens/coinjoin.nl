@@ -2070,8 +2070,12 @@ def tui(rpc, args, frames=0):
                        "these credentials and stores them in wasabi's Config.json."])
 
     def _start_daemon(exe, u, p):                     # launch + wait for RPC + adopt config
-        if not launch_daemon(exe, u, p):
-            flash("✗ could not start it - run it yourself: " + exe, 110); return
+        proc = launch_daemon(exe, u, p)
+        if not proc:
+            S["notice"] = dict(title="COULD NOT START WASSABEED", lines=[
+                "", "  " + exe, ""] + ["  " + l for l in daemon_log_tail(6)] + [
+                "", "  press any key"])
+            return
         if u:
             rpc.user, rpc.password = u, p             # sabi authenticates the same way
         flash("◆ wassabeed starting - waiting for its RPC (tor bootstrap takes a bit) ...", 120)
@@ -2081,10 +2085,18 @@ def tui(rpc, args, frames=0):
                 try:
                     rpc.call("getstatus", timeout=3); break
                 except Exception:
-                    time.sleep(2)
+                    pass
+                if proc.poll() is not None:           # process died - show WHY (captured output)
+                    tail = daemon_log_tail(12) or ["(the daemon produced no output)"]
+                    S["notice"] = dict(title=f"WASSABEED EXITED (code {proc.returncode})", lines=[
+                        "", "  it started but stopped right away. last output:", ""]
+                        + ["  " + l[:72] for l in tail] + [
+                        "", "  full log:  " + DAEMON_LOG, "", "  press any key"])
+                    return
+                time.sleep(2)
             else:
-                S["flash"], S["flasht"] = (f"✗ no RPC answer after {RPC_WAIT_SECS}s - is it already "
-                                           "running with RPC off? see Logs.txt in the wasabi data dir", 160)
+                S["flash"], S["flasht"] = (f"✗ no RPC answer after {RPC_WAIT_SECS}s - still bootstrapping? "
+                                           "sabi keeps retrying. tail: " + DAEMON_LOG, 200)
                 return
             S["err"] = None; S["kick"] = True
             cfg = wasabi_config()                     # a first run just created its Config.json
@@ -3723,7 +3735,9 @@ def find_daemon(extra=None):                          # locate the Wasabi daemon
 
 RPC_WAIT_SECS = 90                                    # post-start grace for the daemon's RPC
 
-def launch_daemon(exe, rpc_user=None, rpc_pass=None):  # start it detached; logs to its own Logs.txt
+DAEMON_LOG = os.path.join(os.path.expanduser("~"), ".sabi-daemon.log")
+
+def launch_daemon(exe, rpc_user=None, rpc_pass=None):  # start it; captures output so failures aren't silent
     import subprocess
     try:
         # a FRESH wasabi writes JsonRpcServerEnabled:false - the env var overrides it. RPC
@@ -3731,17 +3745,26 @@ def launch_daemon(exe, rpc_user=None, rpc_pass=None):  # start it detached; logs
         env = {**os.environ, "WASABI_JSONRPCSERVERENABLED": "true"}
         if rpc_user and rpc_pass:
             env["WASABI_JSONRPCUSER"] = rpc_user; env["WASABI_JSONRPCPASSWORD"] = rpc_pass
-        kw = dict(stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                  env=env)
+        logf = open(DAEMON_LOG, "wb")                 # capture stdout+stderr: the WHY when it dies
+        kw = dict(stdin=subprocess.DEVNULL, stdout=logf, stderr=subprocess.STDOUT, env=env,
+                  cwd=os.path.dirname(exe) or None)
         if os.name == "nt":
             kw["creationflags"] = 0x00000008 | 0x00000200   # DETACHED | NEW_PROCESS_GROUP
         else:
             kw["start_new_session"] = True
-        subprocess.Popen([exe], **kw)
-        return True
+        return subprocess.Popen([exe], **kw)          # the handle: caller watches for early exit
     except Exception as e:
+        try: open(DAEMON_LOG, "w", encoding="utf-8").write(f"could not exec {exe}: {e}\n")
+        except Exception: pass
         print(f"could not start the daemon: {e}", file=sys.stderr)
-        return False
+        return None
+
+def daemon_log_tail(n=12):
+    try:
+        lines = open(DAEMON_LOG, encoding="utf-8", errors="replace").read().splitlines()
+        return [l for l in lines if l.strip()][-n:]
+    except Exception:
+        return []
 
 def apply_rpc_config(path, user=None, password=None):  # persist enabled + credentials, minimal edit
     try:                                              # user/password only touched when non-None,
@@ -3830,6 +3853,8 @@ def main():
                         else:
                             print("\nstill warming up (Tor bootstrap takes a bit) - "
                                   "sabi will keep retrying inside.", file=sys.stderr)
+                            for l in daemon_log_tail(6):   # surface an early crash, if any
+                                print("   | " + l, file=sys.stderr)
                 else:
                     print("wasabi daemon executable not found - press i on the dashboard and sabi "
                           "downloads + verifies it for you (or pass --daemon PATH).", file=sys.stderr)
