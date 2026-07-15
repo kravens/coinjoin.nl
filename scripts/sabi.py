@@ -594,41 +594,45 @@ def draw_saver_bounce(ch, col, f):
 def draw_saver_wasabi(ch, col, f):                    # grating fresh wasabi, the sabi way
     _saver_chrome(ch, col, "f r e s h   w a s a b i")
     vw = min(W, TW); cx, cy = vw//2, H//2 - 1
-    STEEL, STEEL_D, HOLE = (172, 178, 188), (128, 134, 144), (104, 110, 120)
-    gw, gh = 48, 14
+    STEEL, STEEL_D, TOOTH = (176, 182, 192), (134, 140, 150), (118, 124, 134)
+    gw, gh = 42, 12
     for r in range(gh):                               # rounded steel plate, soft row gradient
         for c in range(gw):
             nx = (c - gw/2) / (gw/2); ny = (r - gh/2) / (gh/2)
-            if nx*nx + ny*ny*0.75 <= 1.0:
+            if nx*nx + ny*ny*0.85 <= 1.0:
                 put(ch, col, cy - gh//2 + r, cx - gw//2 + c, "█",
                     clamp8(lerp(STEEL_D, STEEL, r/gh)))
-    for r in range(cy - gh//2 + 2, cy + gh//2 - 1, 2):    # the grating teeth
-        for c in range(cx - gw//2 + 5, cx + 2, 4):
-            put(ch, col, r, c + (r % 4)//2, ":", HOLE)
+    for r in range(cy - gh//2 + 2, cy + gh//2 - 1, 2):    # grating teeth: darker dimples, no holes
+        for c in range(cx - gw//2 + 5, cx + 2, 3):
+            put(ch, col, r, c + (r % 2), "█", TOOTH)
     cyc = f % 2100                                    # paste grows, then the plate is cleared
     amount = min(1.0, cyc / 1500.0)
     if cyc > 1800:
         amount = 0.0
         tag = "◆ itadakimasu"
         put(ch, col, cy - gh//2 - 2, max(0, (vw-len(tag))//2), tag, clamp8(lerp(GREEN, WHITE, .3)))
-    rnd = random.Random(3)
-    pts = [(int(rnd.gauss(0, 4.5)), int(rnd.gauss(0, 1.8)), rnd.random()) for _ in range(90)]
-    px0, py0 = cx - 8, cy - 2                         # the pile sits on the grating zone
-    for dx, dy, s in pts[:int(90 * amount)]:
-        put(ch, col, py0 + dy, px0 + dx, "█" if s > .3 else "▓",
-            clamp8(lerp((104, 156, 52), (196, 232, 104), s)))
+    if amount > 0.05:                                 # one cohesive pile, not scattered flecks
+        pw = max(2, int(9 * amount)); ph = max(1, int(3.4 * amount))
+        px0, py0 = cx - 9, cy - 2
+        W1, W2, W3 = (150, 202, 62), (126, 174, 52), (100, 146, 46)
+        for dy in range(-ph, ph + 1):
+            for dx in range(-pw, pw + 1):
+                if (dx/pw)**2 + (dy/ph)**2 <= 1.0:
+                    h = (dx*7 + dy*13) % 5            # deterministic texture, no sparkle churn
+                    put(ch, col, py0 + dy, px0 + dx, "█", W1 if h == 0 else (W3 if h == 3 else W2))
     def tri(t, m): p = t % (2*m); return p if p < m else 2*m - p
     sh = tri(int(f*0.7), 5)                           # the rubbing stroke
-    rx, ry = cx + 2 - sh//2, cy + 1 - (sh+1)//2
-    ROOT, SKIN, TIP = (128, 158, 84), (100, 84, 56), (86, 72, 50)
-    for i in range(11):                               # the root, held at a diagonal
+    rx, ry = cx + 3 - sh//2, cy + 2 - (sh+1)//2
+    ROOT, ROOT_D, TIP = (128, 158, 84), (104, 132, 66), (96, 78, 52)
+    for i in range(9):                                # the root: a thick clean diagonal, brown tip
         x, y = rx + i, ry + (i+1)//2
-        c_ = ROOT if i < 7 else (SKIN if i < 9 else TIP)
+        c_ = ROOT if i < 6 else TIP
         put(ch, col, y, x, "██", c_)
-        if 2 <= i <= 8: put(ch, col, y+1, x, "▀▀", clamp8(lerp(c_, (60, 52, 40), .35)))
+        put(ch, col, y + 1, x + 1, "██", ROOT_D if i < 6 else clamp8(lerp(TIP, BG, .25)))
     for k in range(3):                                # fresh flecks at the contact point
         if (f//2 + k*5) % 4 == 0:
-            put(ch, col, ry + (k % 2), rx - 2 - k, "·", (160, 210, 80))
+            put(ch, col, ry + (k % 2), rx - 2 - k, "█", (150, 202, 62))
+
 
 _GALAXY_CACHE = {}
 def _galaxy_particles():                              # two-arm spiral, deterministic jitter
