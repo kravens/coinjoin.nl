@@ -1,112 +1,109 @@
-# Passport Prime coinjoin — testing & hardware bring-up
+# Passport Prime coinjoin — status & plan
 
-State of the implementation and the procedure for the mainnet test once a physical
-Passport Prime arrives. Two components, mirroring the Coldcard work:
+Making Foundation Passport Prime work as an **unattended coinjoin signer** for
+Wasabi Wallet (WabiSabi), alongside the Trezor and Coldcard work. This is now a
+collaboration with Foundation via their official KeyOS developer program.
 
-1. **KeyOS firmware** — a new `wallet-rpc` service exposing a USB HID coinjoin
-   remote-signing protocol:
-   https://github.com/kravens/KeyOS/tree/feature/passport-coinjoin
-2. **Wasabi** — `feature/passport-coinjoin` branch (off `feature/coldcard-coinjoin`): a `Hwi/Passport`
-   USB transport + `PassportKeyChain` implementing `IKeyChain`:
-   https://github.com/kravens/WalletWasabi/tree/feature/passport-coinjoin
+- KeyOS firmware branch: https://github.com/kravens/KeyOS/tree/feature/passport-coinjoin
+- Wasabi branch: https://github.com/kravens/WalletWasabi/tree/feature/passport-coinjoin
+- Protocol proposal (for Foundation): `os/wallet-rpc/COINJOIN_PROPOSAL.md` in the KeyOS branch
 
-## What is verified in software (no device)
+## Where this stands (2026-07-15)
+
+The device arrived, and reading Foundation's now-public **KeyOS SDK** docs
+reshaped the approach. The good news: Foundation **explicitly lists coinjoins**
+as a supported use case, and there's a real developer program (SDK, simulator,
+CLI, dev units). The catch: the way we first built it (a custom USB-HID signing
+service) isn't the platform's sanctioned path. So the plan pivoted — and the
+hard cryptographic work carries straight over.
+
+### What the SDK docs changed
+
+- **USB HID for third-party apps is "🚧 Coming"** — an app can't open its own USB
+  data channel yet. Our USB-HID transport only works as a system service baked
+  into Foundation-signed firmware.
+- **QuantumLink (Bluetooth) is the blessed interactive transport** — Foundation
+  names coinjoins alongside Lightning, Nostr, Ark and swaps as its use cases. But
+  its message set is a fixed enum owned by Foundation; there is no generic app
+  channel, so a custom protocol needs two new message types added upstream.
+- **Retail devices enforce cosign2 signing** (two Foundation keys) on every app
+  and image, so nothing custom runs on a stock retail unit. **Dev units** run in
+  Developer Mode with your own signing certificate, and sideloading is a
+  first-class flow there (`foundation cert gen` + `foundation sideload`).
+- **Seed access prompts the user on the trusted display per operation** — handled
+  by retrieving the seed once per session (see below).
+
+### The plan now
+
+1. **Protocol proposal to Foundation.** Coinjoin needs two QuantumLink messages
+   that don't exist yet — `AuthorizeCoinjoin` (one-time session policy) and
+   `GetOwnershipProof` (SLIP-0019). PSBT signing reuses their existing
+   `PublishPsbt` / `SignPsbt`. The proposal (in the branch) specifies both,
+   ready to become a KeyOS PR.
+2. **Dev unit** from Foundation's developer program to prototype the on-device
+   app in the simulator and on real hardware.
+3. **Rebuild as a KeyOS SDK app** over QuantumLink. The transport-agnostic core
+   (all the crypto and policy logic, below) drops in unchanged.
+4. **Wasabi side** becomes a desktop QuantumLink client (open question: does a
+   desktop QuantumLink library exist, or is it Envoy/mobile-only?).
+
+## What is built and verified in software (no device)
+
+The signing logic is complete and transport-independent — it survives the
+pivot. It lives in `os/wallet-rpc-core` (pure Rust, no KeyOS/USB/GUI deps).
 
 | Layer | Test | Result |
 |---|---|---|
-| Firmware protocol/coinjoin/SLIP-19/framing | `cargo test -p wallet-rpc-core` | 29/29 |
-| Firmware ↔ security-server seed path, full flow | `just one-int-test --ci security-server settings-server wallet-rpc-test` | exit 0 |
-| Wasabi transport/framing/policy/encoding | `dotnet test --filter PassportProtocolTests` | 10/10 |
-| Wasabi library | `dotnet build WalletWasabi.csproj -c Release` | 0 errors |
-| Firmware device build (armv7) | `just build` | see repo (task in progress at time of writing) |
+| Protocol, coinjoin policy + signing, SLIP-0019 proofs, framing | `cargo test -p wallet-rpc-core` | 29/29 |
+| Real security-server seed path, full flow | `just one-int-test --ci security-server settings-server wallet-rpc-test` | exit 0 |
+| Wasabi transport / framing / policy / encoding | `dotnet test --filter PassportProtocolTests` | 10/10 |
+| Wasabi library | `dotnet build -c Release` | 0 errors |
+| Device target compiles (armv7) | `cargo build -p wallet-rpc --target armv7a-unknown-xous-elf` | clean |
 
-The firmware integration test drives the exact desktop-wallet sequence — `AuthorizeCoinjoin`
-→ `GetXpub` → `GetOwnershipProof` (checked byte-for-byte against the SLIP-0019 spec vector)
-→ `SignCoinjoin` (our P2WPKH input signed, foreign input untouched) → foreign-coordinator proof
-rejected — against the real `security-server` seed source.
+The integration test drives the full desktop-wallet sequence against the real
+`security-server`: authorize a session → fetch xpub → SLIP-0019 ownership proof
+(checked byte-for-byte against the spec vector) → sign a coinjoin round (our
+P2WPKH input signed, foreign input untouched) → foreign-coordinator proof
+rejected.
 
-## Wire protocol (v1), shared contract
+## The on-device policy (what the device guarantees)
 
-Firmware `os/wallet-rpc-core/src/protocol.rs` and Wasabi `Hwi/Passport/PassportTransport.cs` must agree:
+One human approval per session, then conforming rounds sign unattended. Per
+round the device enforces (`wallet_rpc_core::coinjoin::check_and_sign`):
 
-- Request `[ver=1][cmd][len u16 LE][payload]`, response adds `status` after the cmd echo.
-- Commands: `0x01 GetInfo`, `0x02 GetXpub`, `0x03 GetOwnershipProof`, `0x04 AuthorizeCoinjoin`,
-  `0x05 SignCoinjoin`, `0x06 RevokeSession`.
-- Reports are 64 bytes; frames larger than one report use init `[0x00][len u16][data]` + continuation
-  `[seq][data]` (firmware `frames.rs` ↔ C# `PassportFraming`).
-- Session policy bytes: `[network][account u32][coord_len u8][coord][max_fee u64][max_rounds u16][valid_secs u32]`.
-- SLIP-0019 proof: `534c0019 || flags || varint(n) || id*n || bip322-sig`; the device rejects any
-  commitment that does not open with the authorized coordinator id.
+- **Self-spend only** — every input/output claimed as ours must re-derive from
+  the seed to exactly its scriptPubKey; a lying host gains nothing.
+- **Account scope** — our keys must sit under the one authorized account.
+- **Bounded loss** — `sum(our inputs) − sum(our outputs) ≤ max_fee_contribution`;
+  only outputs paying back into the account count as credit.
+- **Session limits** — stops after the round budget or expiry; RAM-only, cleared
+  on reboot.
+- **Coordinator binding** — ownership proofs only sign a commitment opening with
+  the authorized coordinator id.
 
-## Hardware bring-up checklist (when the device arrives)
+**Seed handling:** the seed is retrieved once, at the session approval, and
+cached for the session (zeroized on drop/reboot). Proofs and signatures serve
+from the cache, so the trusted-display prompt happens once per session, not per
+round — required for unattended signing.
 
-### 0. Confirm the USB identity (blocking — placeholders in code)
+## SLIP-0019 ownership proof format
 
-`Hwi/Passport/PassportHid.cs` has **placeholder** `VendorId`/`ProductId`. With the wallet-rpc firmware
-flashed and the interface enabled, read the real values:
+`proof = proofBody || bip322Sig`, where
+`proofBody = 0x534c0019 || flags || varint(n) || ownership_id*n`, the ownership
+id is `HMAC-SHA256(SLIP-21_node(seed, "SLIP-0019"/"Ownership identification
+key"), scriptPubKey)`, and the signed digest is
+`SHA256(proofBody || varint(len(spk))||spk || varint(len(cd))||cd)`. Trezor-
+compatible; verified byte-for-byte against the SLIP-0019 P2WPKH test vector.
+Segwit v0 in this version; taproot is a follow-up.
 
-- Windows: Device Manager → the Passport HID interface → Details → Hardware Ids, **or** enumerate with
-  `HidD_GetAttributes`.
-- Update `PassportUsb.VendorId`/`ProductId` to match. Until then enumeration finds nothing.
+## Open items
 
-### 0.5. Register wallet-rpc in the boot image (blocking)
+- **Desktop QuantumLink client** for Wasabi — exists, or build it? *(biggest unknown)*
+- Foundation's decision on adding the two coinjoin QuantumLink messages.
+- Security-review checklist from Foundation (requested for key-touching apps).
+- Taproot ownership proofs + signing (follow-up after segwit v0 works).
 
-`wallet-rpc` compiles for the device target (`cargo build -p wallet-rpc --target
-armv7a-unknown-xous-elf --release` — clean, `--cfg keyos` active, the USB path included), but
-`just build` does **not** yet bundle it: the service is a workspace member, not in the boot image's
-service list. Before flashing, add `wallet-rpc` to the image service set (the xtask/release-manifest
-service list alongside the other `os/*` servers) and grant it auto-start, so KeyOS launches it. Until
-then the crate builds but no service runs on the device.
+## Warning
 
-### 1. Flash the wallet-rpc firmware
-
-Open question from the feasibility study: **does retail Prime boot non-Foundation-signed KeyOS builds?**
-KeyOS releases are cosign2-signed. If retail units accept dev/self-signed images (dev-mode / blue PCB),
-build and flash per `DEVELOPMENT.md`:
-
-- `just build-all` then `just flash` (SAM-BA), **or** copy `app.bin` to the mounted `PRIME` volume and
-  reboot (system-services path). The new `wallet-rpc` service is part of the image.
-- If retail units only run Foundation-signed firmware: this needs Foundation to merge/sign, exactly like
-  the Coldcard `feature/slip19-coinjoin` situation. Coordinate via the Foundation community/GitHub first
-  (they have an internal Spark remote-signer design — align the message set before upstreaming).
-
-### 2. Import the wallet into Wasabi (watch-only, hardware)
-
-- Build the branch with `Contrib/release.sh` (self-contained Release build, as for the Trezor and
-  Coldcard coinjoin test builds).
-- With the device unlocked, import the account. Enumeration must report the model as
-  **Foundation Passport**; set `IsPassportCoinjoin = true` on the key manager (same mechanism as
-  `IsColdcardCoinjoin`).
-
-### 3. Authorize a coinjoin session
-
-- Start coinjoin; Wasabi calls `AuthorizeHardwareCoinJoinAsync` → `AuthorizePassportCoinJoinAsync`,
-  which opens the device and sends the policy.
-- **On the device**, review and approve the session policy alert: coordinator, account, per-round fee
-  cap, round budget, 12-hour expiry. This is the single human approval; afterwards rounds sign
-  unattended.
-- The device must stay **unlocked** for the session — `GetSeed` fails when locked (confirmed by the
-  hosted test's `not logged in ... GetSeed` warning). If the screen locks mid-session, unlock and the
-  session resumes (or re-authorize).
-
-### 4. Mainnet test (small amount)
-
-- Fund the segwit account with a small amount you can afford to lose.
-- Run one coinjoin round end to end. Watch for:
-  - ownership proofs accepted by the coordinator (input registration succeeds),
-  - the signed round broadcasts,
-  - the fee contribution stays within the policy cap (round is rejected on-device if it wouldn't).
-- Segwit v0 only for this build (taproot is a follow-up, matching the Coldcard branch scope).
-
-### 5. Failure modes to check
-
-- Wrong coordinator: point Wasabi at a different coordinator id than authorized → device rejects the
-  ownership proof (`STATUS_ERR_POLICY`), no signature.
-- Over-cap fee: a round whose fee contribution exceeds the cap → device rejects `SignCoinjoin`.
-- Locked device: signing requests during a lock → `STATUS_ERR_DENIED`; unlock and retry.
-
-## Warnings
-
-- Placeholder VID/PID — enumeration is inert until step 0 is done.
-- Unsigned, unmerged, testing-only. Don't use with funds you can't lose.
-- Firmware flashing to retail Prime is gated on the signed-firmware question (step 1).
+Unmerged, testing-only, developer work. Not for use with funds you can't lose
+until it ships through Foundation's review.
