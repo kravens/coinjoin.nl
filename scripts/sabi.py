@@ -408,16 +408,22 @@ SUSHI = [
  ("maguro", RED,    [                                 # ______ is the rice line under the topping
    [("   ,;'''''''';,  ", RED)], [(" ,'  ", RED), ("________", RICE), ("  ',", RED)],
    [(" ;,;'        ';,'", RICE)], [("   '.________.'  ", RICE)]]),
- ("toro",   RED,    [                                 # marbling drapes down; only the base is rice
+ ("toro",   RED,    [                                 # marbling red, rice-ball edges white
    [("   ,;;;;;;;;;;,  ", RED)], [(" ,;;;;;;;;;;;;;;,", RED)],
-   [(" ;;;'        ';;'", RED)], [("   '.________.'  ", RICE)]]),
- ("saba",   BLUE,   [                                 # skin stripes drape down; base is rice
+   [(" ", None), (";;;", RED), ("'        '", RICE), (";;", RED), ("'", RICE)],
+   [("   '.________.'  ", RICE)]]),
+ ("saba",   BLUE,   [                                 # skin stripes blue, rice edges white
    [("   ,;'''''''';,  ", BLUE)], [(" ,'  ||||||||  ',", BLUE)],
-   [(" |||'        '|||", BLUE)], [("   '.________.'  ", RICE)]]),
- ("ika",    WHITE,  ["    ==========   ", " ///==========\\\\\\", "///='        '=\\\\\\", "   '.________.'  "]),
- ("sake",   ORANGE, [                                 # salmon texture drapes down; base is rice
+   [(" ", None), ("|||", BLUE), ("'        '", RICE), ("|||", BLUE)],
+   [("   '.________.'  ", RICE)]]),
+ ("ika",    WHITE,  [                                 # pearly squid, rice edges + base
+   [("    ==========   ", WHITE)], [(" ///==========\\\\\\", WHITE)],
+   [("///=", WHITE), ("'        '", RICE), ("=\\\\\\", WHITE)],
+   [("   '.________.'  ", RICE)]]),
+ ("sake",   ORANGE, [                                 # salmon orange, rice edges white
    [("   ,iiiiiiiiii,  ", ORANGE)], [(" ,iiiiiiiiiiiiii,", ORANGE)],
-   [(" iii'        'ii'", ORANGE)], [("   '.________.'  ", RICE)]]),
+   [(" ", None), ("iii", ORANGE), ("'        '", RICE), ("ii", ORANGE), ("'", RICE)],
+   [("   '.________.'  ", RICE)]]),
  ("hamachi",AMBER,  [                                 # ______ rice line, rice ball below
    [("   ,;'''''''';,  ", AMBER)], [(" ,'  ", AMBER), ("________", RICE), ("  ',", AMBER)],
    [(" ;,;'        ';,'", RICE)], [("   '.________.'  ", RICE)]]),
@@ -426,17 +432,20 @@ SUSHI = [
    [(" |______", AMBER), ("|;;|", NORI), ("______|", AMBER)],
    [("   |    ", AMBER), ("|;;|", NORI), ("    |  ", AMBER)],
    [("    '.__", RICE), ("|;;|", NORI), ("__.'   ", RICE)]]),
- ("tako",   TAKO,   [                                 # octopus purple flesh, rice ball below
+ ("tako",   TAKO,   [                                 # octopus purple, tentacle drape, rice ball
    [("    ,;'''''''';, ", TAKO)], [("  ,'  _o_o_o_o  ',", TAKO)],
-   [(" ,,,;'        ';,'", RICE)], [("    '.________.' ", RICE)]]),
- ("uni",    AMBER,  [                                 # gunkan: nori | walls, uni on top, rice base
-   [("    _ ___  _  ", AMBER)], [("  ,@@@@@@@@@@, ", AMBER)],
-   [(" |", NORI), ("'@@@@@@@@@@'", AMBER), ("|", NORI)],
+   [(" ", None), (",,,", TAKO), (";'        ';,'", RICE)],
+   [("    '.________.' ", RICE)]]),
+ ("uni",    AMBER,  [                                 # gunkan: nori rim + walls, uni mound, rice
+   [("    _ ___  _  ", NORI)],
+   [("  ", None), (",", NORI), ("@@@@@@@@@@", AMBER), (",", NORI), (" ", None)],
+   [(" ", None), ("|'", NORI), ("@@@@@@@@@@", AMBER), ("'|", NORI)],
    [(" |", NORI), ("            ", RICE), ("|", NORI)],
    [("  '.________.' ", RICE)]]),
- ("ikura",  ORANGE, [                                 # gunkan: nori | walls, roe on top, rice base
-   [("    _ ___  _   ", ORANGE)], [("  .oooooooooo. ", ORANGE)],
-   [(" |", NORI), ("'oooooooooo'", ORANGE), ("|", NORI)],
+ ("ikura",  ORANGE, [                                 # gunkan: nori rim + walls, roe, rice
+   [("    _ ___  _   ", NORI)],
+   [("  ", None), (".", NORI), ("oooooooooo", ORANGE), (".", NORI), (" ", None)],
+   [(" ", None), ("|'", NORI), ("oooooooooo", ORANGE), ("'|", NORI)],
    [(" |", NORI), ("            ", RICE), ("|", NORI)],
    [("  '.________.' ", RICE)]]),
 ]
