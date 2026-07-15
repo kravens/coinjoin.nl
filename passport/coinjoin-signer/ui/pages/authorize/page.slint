@@ -1,0 +1,49 @@
+import { Theme, UISize, ButtonSize, ButtonVariant } from "@ui/theme.slint";
+import { Button } from "@ui/button.slint";
+import { Card } from "@ui/card.slint";
+import { SlideToConfirm } from "@ui/slide_to_confirm.slint";
+import { Navigate } from "../../gen/navigate.slint";
+
+export component AuthorizePage inherits Rectangle {
+    background: Theme.palette-background;
+    VerticalLayout {
+        width: parent.width;
+        height: parent.height;
+        padding-left: 24px;
+        padding-right: 24px;
+        padding-top: 24px + UISize.control-center-status-bar-height;
+        padding-bottom: 24px;
+        spacing: 12px;
+        Text {
+            text: "Authorize coinjoin?";
+            color: Theme.palette-foreground;
+            font-family: "Montserrat";
+            font-size: 22px;
+            font-weight: 700;
+            horizontal-alignment: center;
+        }
+        Card {
+            width: 100%;
+            size: lg;
+            eyebrow: "Coordinator";
+            title: "coinjoin.nl";
+            body: "Account #0 (mainnet)\nMax fee: 1000 sat / round\nRounds: up to 10\nValid for: 12 hours\nOutputs: your wallet only";
+            footer: "After you approve, rounds sign automatically within these limits.";
+        }
+        Rectangle { vertical-stretch: 1; }
+        Button {
+            width: 100%;
+            size: ButtonSize.md;
+            variant: ButtonVariant.secondary;
+            text: "Deny";
+            clicked => { Navigate.backward(); }
+        }
+        SlideToConfirm {
+            width: 100%;
+            label: "Slide to authorize";
+            hint: "Slide to authorize";
+            confirmed-label: "Authorized";
+            activated => { Navigate.session({ }); }
+        }
+    }
+}

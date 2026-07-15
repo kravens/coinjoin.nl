@@ -1,0 +1,84 @@
+import { Theme, UISize, ButtonSize, ButtonVariant } from "@ui/theme.slint";
+import { Button } from "@ui/button.slint";
+import { Card } from "@ui/card.slint";
+import { Chip, ChipColor } from "@ui/chip.slint";
+import { Navigate } from "../../gen/navigate.slint";
+
+export component SessionPage inherits Rectangle {
+    background: Theme.palette-background;
+    property <int> rounds: 0;
+    property <int> max-rounds: 10;
+
+    VerticalLayout {
+        width: parent.width;
+        height: parent.height;
+        padding-left: 24px;
+        padding-right: 24px;
+        padding-top: 24px + UISize.control-center-status-bar-height;
+        padding-bottom: 24px;
+        spacing: 14px;
+        Text {
+            text: "Session active";
+            color: Theme.palette-foreground;
+            font-family: "Montserrat";
+            font-size: 22px;
+            font-weight: 700;
+            horizontal-alignment: center;
+        }
+        HorizontalLayout {
+            alignment: center;
+            Chip { text: "Signing for coinjoin.nl"; color: ChipColor.success; }
+        }
+        Text {
+            text: "Rounds signed: " + root.rounds + " / " + root.max-rounds;
+            color: Theme.palette-foreground;
+            font-family: "Montserrat";
+            font-size: 15px;
+            font-weight: 600;
+            horizontal-alignment: center;
+        }
+        Rectangle {
+            width: 100%;
+            height: 10px;
+            border-radius: 5px;
+            background: #2a3b52;
+            Rectangle {
+                x: 0;
+                y: 0;
+                height: parent.height;
+                width: parent.width * (root.rounds / root.max-rounds);
+                border-radius: 5px;
+                background: #1dbc93;
+            }
+        }
+        Card {
+            width: 100%;
+            size: md;
+            eyebrow: "Last round";
+            title: root.rounds == 0 ? "Awaiting first round" : "Round " + root.rounds + " signed";
+            body: root.rounds == 0
+                ? "Ownership proofs and signatures are produced automatically as rounds arrive."
+                : "Ownership proof sent, own inputs signed, fee within cap.";
+        }
+        Rectangle { vertical-stretch: 1; }
+        Button {
+            width: 100%;
+            size: ButtonSize.md;
+            text: root.rounds >= root.max-rounds ? "View summary" : "Simulate round";
+            clicked => {
+                if (root.rounds >= root.max-rounds) {
+                    Navigate.complete({ });
+                } else {
+                    root.rounds += 1;
+                }
+            }
+        }
+        Button {
+            width: 100%;
+            size: ButtonSize.md;
+            variant: ButtonVariant.secondary;
+            text: "Revoke session";
+            clicked => { Navigate.backward(); }
+        }
+    }
+}

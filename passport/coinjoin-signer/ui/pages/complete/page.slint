@@ -1,0 +1,45 @@
+import { Theme, UISize, ButtonSize } from "@ui/theme.slint";
+import { Button } from "@ui/button.slint";
+import { Card } from "@ui/card.slint";
+import { Chip, ChipColor } from "@ui/chip.slint";
+import { Navigate } from "../../gen/navigate.slint";
+
+export component CompletePage inherits Rectangle {
+    background: Theme.palette-background;
+    VerticalLayout {
+        width: parent.width;
+        height: parent.height;
+        padding-left: 24px;
+        padding-right: 24px;
+        padding-top: 24px + UISize.control-center-status-bar-height;
+        padding-bottom: 24px;
+        spacing: 16px;
+        Text {
+            text: "Session complete";
+            color: Theme.palette-foreground;
+            font-family: "Montserrat";
+            font-size: 24px;
+            font-weight: 700;
+            horizontal-alignment: center;
+        }
+        HorizontalLayout {
+            alignment: center;
+            Chip { text: "10 rounds signed"; color: ChipColor.success; }
+        }
+        Card {
+            width: 100%;
+            size: lg;
+            eyebrow: "coinjoin.nl";
+            title: "Coinjoin finished";
+            body: "10 rounds signed for this session. Every output returned to your own wallet, and total fees stayed within your authorized cap.";
+            footer: "The session key has been cleared from memory.";
+        }
+        Rectangle { vertical-stretch: 1; }
+        Button {
+            width: 100%;
+            size: ButtonSize.md;
+            text: "Done";
+            clicked => { Navigate.main-page({ }); }
+        }
+    }
+}

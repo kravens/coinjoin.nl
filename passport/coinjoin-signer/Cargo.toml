@@ -1,0 +1,18 @@
+[package]
+name = "coinjoin-signer"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+
+[dependencies]
+log = "0.4"
+log-server = { package = "xous-api-log", path = "__SDK_KEYOS_ROOT__/xous/api/log" }
+serde = { version = "1.0", features = ["derive"] }
+server = { path = "__SDK_KEYOS_ROOT__/server" }
+slint-keyos-platform = { path = "__SDK_KEYOS_ROOT__/slint-keyos-platform/runtime" }
+foundation-themes = { path = "__SDK_KEYOS_ROOT__/sdk/crates/foundation-themes" }
+
+[build-dependencies]
+foundation-themes = { path = "__SDK_KEYOS_ROOT__/sdk/crates/foundation-themes" }
+slint-keyos-platform-build = { path = "__SDK_KEYOS_ROOT__/slint-keyos-platform/build" }

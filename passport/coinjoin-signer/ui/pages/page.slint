@@ -1,0 +1,45 @@
+import { Theme, UISize, ButtonSize } from "@ui/theme.slint";
+import { Button } from "@ui/button.slint";
+import { Card } from "@ui/card.slint";
+import { Chip, ChipColor } from "@ui/chip.slint";
+import { Navigate } from "../gen/navigate.slint";
+
+export component MainPagePage inherits Rectangle {
+    background: Theme.palette-background;
+    VerticalLayout {
+        width: parent.width;
+        height: parent.height;
+        padding-left: 24px;
+        padding-right: 24px;
+        padding-top: 24px + UISize.control-center-status-bar-height;
+        padding-bottom: 24px;
+        spacing: 16px;
+        Text {
+            text: "Coinjoin Signer";
+            color: Theme.palette-foreground;
+            font-family: "Montserrat";
+            font-size: 24px;
+            font-weight: 700;
+            horizontal-alignment: center;
+        }
+        HorizontalLayout {
+            alignment: center;
+            Chip { text: "Waiting for Wasabi"; color: ChipColor.secondary; }
+        }
+        Card {
+            width: 100%;
+            size: lg;
+            eyebrow: "coinjoin.nl coordinator";
+            title: "No active session";
+            body: "Connect this Passport from Wasabi Wallet and start a coinjoin. You approve one policy here; rounds are then signed without further taps.";
+            footer: "Your keys never leave the device.";
+        }
+        Rectangle { vertical-stretch: 1; }
+        Button {
+            width: 100%;
+            size: ButtonSize.md;
+            text: "Simulate incoming request";
+            clicked => { Navigate.authorize({ }); }
+        }
+    }
+}

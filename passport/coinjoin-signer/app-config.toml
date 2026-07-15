@@ -1,0 +1,18 @@
+# Foundation application configuration
+app-name = "coinjoin-signer"
+friendly-app-name = "Coinjoin Signer"
+launcher-app-name = "Coinjoin"
+description = "Unattended WabiSabi coinjoin signer for Wasabi Wallet"
+icon = "resources/icon.svg"
+app-id = "0xab896a3044253d9da49f1bcc6499aaf9"
+version = "0.1.0"
+min-keyos-version = "1.2.1"
+
+[publisher]
+name = "coinjoin.nl"
+contact-email = "hello@coinjoin.nl"
+support-url = "https://coinjoin.nl/"
+
+[permissions]
+template = ["gui-app"]
+"os/settings" = ["GetDeviceName", "GetLocale", "GetPrimeColor"]
