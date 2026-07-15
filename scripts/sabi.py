@@ -846,15 +846,38 @@ def draw_saver_belt_r(ch, col, f):                    # round kaiten belt, slowl
         tag = "now serving  ·  " + front[0]
         put(ch, col, H-4, max(0, (W-len(tag))//2), tag, lerp(GREEN, GREY, .35))
 
-def draw_saver_logo(ch, col, f):                      # the wasabi logo, bouncing (DVD style)
-    def tri(t, m): p = t % max(2*m, 1); return p if p < m else 2*m - p
-    rows = max(6, min(12, H//3))
+_LOGOSV = {}
+def draw_saver_logo(ch, col, f):                      # the wasabi logo, bouncing (DVD style):
+    rows = max(6, min(12, H//3))                      # each wall hit imparts rotational momentum
     _cells, cols = logo_cells(rows)
-    fq = f - f % 3                                    # 7fps motion: 1/3 the remote traffic
-    x = tri(int(fq*0.55), max(1, W - cols - 2)) + 1
-    y = tri(int(fq*0.3), max(1, H - rows - 6)) + 1
+    vw = min(W, TW)
+    L = _LOGOSV
+    if L.get("box") != (vw, H, rows) or f - L.get("lf", f) > 30:
+        rnd = random.Random()
+        L.update(box=(vw, H, rows),
+                 x=rnd.uniform(4, max(5, vw - cols - 8)), y=rnd.uniform(3, max(4, H - rows - 8)),
+                 vx=rnd.choice((-1, 1)) * rnd.uniform(0.45, 0.65),
+                 vy=rnd.choice((-1, 1)) * rnd.uniform(0.22, 0.34),
+                 ph=0.0, spin=0.03, pp=0.0, pspin=0.0)
+    L["lf"] = f
+    L["x"] += L["vx"]; L["y"] += L["vy"]
+    if L["x"] < 1:                                    # side walls kick the yaw spin
+        L["x"] = 1; L["vx"] = abs(L["vx"]); L["spin"] += 0.06
+    if L["x"] + cols + 4 > vw - 1:
+        L["x"] = vw - 1 - cols - 4; L["vx"] = -abs(L["vx"]); L["spin"] -= 0.06
+    if L["y"] < 2:                                    # floor/ceiling kick the forward tip
+        L["y"] = 2; L["vy"] = abs(L["vy"]); L["pspin"] += 0.05
+    if L["y"] + rows + 3 > H - 3:
+        L["y"] = H - 3 - rows - 3; L["vy"] = -abs(L["vy"]); L["pspin"] += 0.05
+    L["spin"] = max(-0.22, min(0.22, L["spin"])) * 0.996   # momentum carries, decays slowly
+    L["pspin"] = max(-0.18, min(0.18, L["pspin"])) * 0.99
+    L["ph"] += L["spin"]; L["pp"] += L["pspin"]
+    turn = round(M.sin(L["ph"]) * 4) / 4.0            # quantized: remote-stream friendly
+    pitch = round(min(0.6, abs(L["pspin"]) * 8) * abs(M.sin(L["pp"])) * 5) / 5.0
+    x, y = int(L["x"]), int(L["y"])
     pulse = qpulse(f, 0.05)
-    draw_logo(ch, col, y, x, rows, clamp8(lerp(GREEN, BRAND, pulse)), dimf=0.4)
+    draw_logo(ch, col, y, x, rows, clamp8(lerp(GREEN, BRAND, pulse)), dimf=0.4,
+              turn=turn, pitch=pitch, depth=1)
     put(ch, col, y+rows+1, x + max(0, cols//2 - 2), "sabi", lerp(BRAND, GREY, .4))
     put(ch, col, H-2, max(0, (W-46)//2),
         "amounts hidden while away  ·  any key returns", lerp(BRAND, GREY, .35))
