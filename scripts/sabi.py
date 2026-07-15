@@ -721,19 +721,26 @@ def draw_saver_galaxy_sushi(ch, col, f):              # spiral of rice grains, s
     put(ch, col, H-2, max(0, (W-46)//2), "amounts hidden while away  ·  any key returns", lerp(BRAND, GREY, .35))
     rput(ch, col, 2, W-3, time.strftime("%H:%M"), lerp(BRAND, GREY, .5))
 
-def _draw_piece(ch, col, px, py, piece, tint=None):   # one sushi at top-left (px, py)
+def _draw_piece(ch, col, px, py, piece, tint=None, depth=1):   # one sushi at top-left (px, py)
     name, accent, rows = piece
     h = len(rows)
-    for i, row in enumerate(rows):
-        y = py + i
-        if isinstance(row, str):                      # classic ascii: topping tinted, rice bright
-            c_ = accent if i < h-2 else (238, 240, 246)
-            put(ch, col, y, px, row, tint(c_) if tint else c_)
-        else:                                         # pixel piece: explicit per-segment colors
-            x = px
-            for txt, c_ in row:
-                if c_ is not None: put(ch, col, y, x, txt, tint(c_) if tint else c_)
+    def segs(row, i):
+        if isinstance(row, str):
+            return [(row, accent if i < h-2 else (238, 240, 246))]
+        return row
+    if depth:                                         # the logo's 3D trick: a darkened extruded
+        for i, row in enumerate(rows):                # edge one step down-right, per segment
+            x = px + depth
+            for txt, c_ in segs(row, i):
+                if c_ is not None:
+                    wall = clamp8(lerp(BG, c_, 0.30))
+                    put(ch, col, py + i + depth, x, txt, tint(wall) if tint else wall)
                 x += len(txt)
+    for i, row in enumerate(rows):                    # lit face on top
+        x = px
+        for txt, c_ in segs(row, i):
+            if c_ is not None: put(ch, col, py + i, x, txt, tint(c_) if tint else c_)
+            x += len(txt)
 
 def _saver_chrome(ch, col, title):
     vw, vb = min(W, TW), min(H, VOFF + TH)            # pin to the VISIBLE window
