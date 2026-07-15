@@ -403,83 +403,46 @@ def draw_overlay(ch, col, title, lines, tcol=WHITE):  # lines: str or (str, colo
 
 # ---- AFK screensaver: the sushi belt (also a privacy screen - balances hidden) -----
 AFK_SECS = 600                                        # 10 min without input
-# ASCII sushi by Daniel Au (alt.ascii-art / rec.arts.ascii, 3 Mar 1995)
-SUSHI = [
- ("maguro", RED,    [                                 # ______ is the rice line under the topping
-   [("   ,;'''''''';,  ", RED)], [(" ,'  ", RED), ("________", RICE), ("  ',", RED)],
-   [(" ;,;'        ';,'", RICE)], [("   '.________.'  ", RICE)]]),
- ("toro",   RED,    [                                 # marbling red, rice-ball edges white
-   [("   ,;;;;;;;;;;,  ", RED)], [(" ,;;;;;;;;;;;;;;,", RED)],
-   [(" ", None), (";;;", RED), ("'        '", RICE), (";;", RED), ("'", RICE)],
-   [("   '.________.'  ", RICE)]]),
- ("saba",   BLUE,   [                                 # skin stripes blue, rice edges white
-   [("   ,;'''''''';,  ", BLUE)], [(" ,'  ||||||||  ',", BLUE)],
-   [(" ", None), ("|||", BLUE), ("'        '", RICE), ("|||", BLUE)],
-   [("   '.________.'  ", RICE)]]),
- ("ika",    WHITE,  [                                 # pearly squid, rice edges + base
-   [("    ==========   ", WHITE)], [(" ///==========\\\\\\", WHITE)],
-   [("///=", WHITE), ("'        '", RICE), ("=\\\\\\", WHITE)],
-   [("   '.________.'  ", RICE)]]),
- ("sake",   ORANGE, [                                 # salmon orange, rice edges white
-   [("   ,iiiiiiiiii,  ", ORANGE)], [(" ,iiiiiiiiiiiiii,", ORANGE)],
-   [(" ", None), ("iii", ORANGE), ("'        '", RICE), ("ii", ORANGE), ("'", RICE)],
-   [("   '.________.'  ", RICE)]]),
- ("hamachi",AMBER,  [                                 # ______ rice line, rice ball below
-   [("   ,;'''''''';,  ", AMBER)], [(" ,'  ", AMBER), ("________", RICE), ("  ',", AMBER)],
-   [(" ;,;'        ';,'", RICE)], [("   '.________.'  ", RICE)]]),
- ("tamago", AMBER,  [                                 # egg amber, nori strap |;;| green, rice base
-   [("  ------", AMBER), (";;;;", NORI), ("------ ", AMBER)],
-   [(" |______", AMBER), ("|;;|", NORI), ("______|", AMBER)],
-   [("   |    ", AMBER), ("|;;|", NORI), ("    |  ", AMBER)],
-   [("    '.__", RICE), ("|;;|", NORI), ("__.'   ", RICE)]]),
- ("tako",   TAKO,   [                                 # octopus purple, tentacle drape, rice ball
-   [("    ,;'''''''';, ", TAKO)], [("  ,'  _o_o_o_o  ',", TAKO)],
-   [(" ", None), (",,,", TAKO), (";'        ';,'", RICE)],
-   [("    '.________.' ", RICE)]]),
- ("uni",    AMBER,  [                                 # gunkan: nori rim + walls, uni mound, rice
-   [("    _ ___  _  ", NORI)],
-   [("  ", None), (",", NORI), ("@@@@@@@@@@", AMBER), (",", NORI), (" ", None)],
-   [(" ", None), ("|'", NORI), ("@@@@@@@@@@", AMBER), ("'|", NORI)],
-   [(" |", NORI), ("            ", RICE), ("|", NORI)],
-   [("  '.________.' ", RICE)]]),
- ("ikura",  ORANGE, [                                 # gunkan: nori rim + walls, roe, rice
-   [("    _ ___  _   ", NORI)],
-   [("  ", None), (".", NORI), ("oooooooooo", ORANGE), (".", NORI), (" ", None)],
-   [(" ", None), ("|'", NORI), ("oooooooooo", ORANGE), ("'|", NORI)],
-   [(" |", NORI), ("            ", RICE), ("|", NORI)],
-   [("  '.________.' ", RICE)]]),
-]
-
-# maki rolls: outer nori wrap (green), rice ring (white), 2-char filling (accent)
-SUSHI += [
- ("tekka maki", RED, [                                # top: rice grains; sides+base: nori wrap
-   [("  ,;'", RICE), ("@@", RED), ("';, ", RICE)],
-   [(" |", NORI), ("',_", RICE), ("@@", RED), ("_,'", RICE), ("|", NORI)],
-   [(" |", NORI), ("        ", RICE), ("|", NORI)],
-   [("  '.____.' ", NORI)]]),
- ("kappa maki", GREEN, [
-   [("  ,;'", RICE), ("OO", GREEN), ("';, ", RICE)],
-   [(" |", NORI), ("',_", RICE), ("OO", GREEN), ("_,'", RICE), ("|", NORI)],
-   [(" |", NORI), ("        ", RICE), ("|", NORI)],
-   [("  '.____.' ", NORI)]]),
- ("california", ORANGE, [
-   [("  ,;'", RICE), ("O@", ORANGE), ("';, ", RICE)],
-   [(" |", NORI), ("',_", RICE), ("@H", ORANGE), ("_,'", RICE), ("|", NORI)],
-   [(" |", NORI), ("        ", RICE), ("|", NORI)],
-   [("  '.____.' ", NORI)]]),
-]
-
-# pixel-art pieces (block chars; rows given as [(text, color), ...] segments)
+# full block pixel-art sushi (letter-art originals by Daniel Au, 1995, retired for blocks)
 _NORI = (46, 68, 44); _RICE = (240, 242, 248); _ROE = (255, 118, 56); _TAMA = (255, 204, 64)
-SUSHI += [
- ("salmon", ORANGE, [
-   [("  ", None), ("▄▄▄▄▄▄▄▄▄▄", ORANGE)],
-   [(" ", None), ("██░░██░░████", ORANGE)],
-   [(" ", None), ("████████████", _RICE)],
-   [("  ", None), ("▀▀▀▀▀▀▀▀▀▀", _RICE)]]),
- ("maguro", RED, [
-   [("  ", None), ("▄▄▄▄▄▄▄▄▄▄", RED)],
-   [(" ", None), ("████████████", RED)],
+
+def _nigiri(name, top, stripe, pattern=(2, 2, 3, 2, 3)):   # striped topping over a rice ball
+    segs = []
+    for i, n in enumerate(pattern):
+        segs.append(("█" * n, top if i % 2 == 0 else stripe))
+    return (name, top, [
+        [("  ", None), ("▄▄▄▄▄▄▄▄▄▄", top)],
+        [(" ", None)] + segs,
+        [(" ", None), ("████████████", _RICE)],
+        [("  ", None), ("▀▀▀▀▀▀▀▀▀▀", _RICE)]])
+
+def _gunkan(name, top, toprow):                       # nori boat, topping mound, rice inside
+    return (name, top, [
+        [("  ", None), (toprow, top)],
+        [(" ", None), ("▐████████▌", _NORI)],
+        [(" ", None), ("▐████████▌", _NORI)],
+        [("  ", None), ("▀▀▀▀▀▀▀▀", _NORI)]])
+
+def _maki(name, fill):                                # roll cross-section: nori ring, rice, core
+    return (name, fill, [
+        [("  ", None), ("▄████████▄", _NORI)],
+        [(" ", None), ("██", _NORI), ("██", _RICE), ("████", fill), ("██", _RICE), ("██", _NORI)],
+        [(" ", None), ("██", _NORI), ("██", _RICE), ("████", fill), ("██", _RICE), ("██", _NORI)],
+        [("  ", None), ("▀████████▀", _NORI)]])
+
+SUSHI = [
+ _nigiri("maguro",  (210, 58, 68),  (210, 58, 68)),         # akami: solid deep red
+ _nigiri("toro",    (240, 120, 128), (255, 236, 232),       # fatty tuna, heavy marbling
+         pattern=(1, 2, 2, 2, 1, 2, 2)),
+ _nigiri("sake",    (250, 120, 80), (255, 214, 192)),       # salmon + fat lines
+ _nigiri("hamachi", (255, 176, 32), (255, 228, 150)),       # yellowtail
+ _nigiri("saba",    (126, 156, 204), (224, 232, 244)),      # mackerel, silver skin stripes
+ _nigiri("ika",     (232, 238, 248), (204, 214, 232)),      # pearly squid
+ _nigiri("tako",    (190, 120, 190), (238, 206, 238),       # octopus, sucker dots
+         pattern=(2, 1, 3, 1, 5)),
+ ("ebi", ORANGE, [
+   [("  ", None), ("▄▄▚▚▄▄▚▚▄▄", ORANGE)],
+   [(" ", None), ("██▚▚██▚▚████", ORANGE)],
    [(" ", None), ("████████████", _RICE)],
    [("  ", None), ("▀▀▀▀▀▀▀▀▀▀", _RICE)]]),
  ("tamago", _TAMA, [
@@ -487,16 +450,11 @@ SUSHI += [
    [(" ", None), ("████", _TAMA), ("███", _NORI), ("█████", _TAMA)],
    [(" ", None), ("████", _RICE), ("███", _NORI), ("█████", _RICE)],
    [("  ", None), ("▀▀▀▀▀▀▀▀▀▀", _RICE)]]),
- ("ebi", ORANGE, [
-   [("  ", None), ("▄▄▚▚▄▄▚▚▄▄", ORANGE)],
-   [(" ", None), ("██▚▚██▚▚████", ORANGE)],
-   [(" ", None), ("████████████", _RICE)],
-   [("  ", None), ("▀▀▀▀▀▀▀▀▀▀", _RICE)]]),
- ("ikura", _ROE, [
-   [("  ", None), ("●●●●●●●●", _ROE)],
-   [(" ", None), ("▐████████▌", _NORI)],
-   [(" ", None), ("▐████████▌", _NORI)],
-   [("  ", None), ("▀▀▀▀▀▀▀▀", _NORI)]]),
+ _gunkan("uni",   (255, 176, 32), "▄▄▄▄▄▄▄▄"),              # uni mound
+ _gunkan("ikura", _ROE,           "●●●●●●●●"),              # roe pearls
+ _maki("tekka maki", (210, 58, 68)),
+ _maki("kappa maki", GREEN),
+ _maki("california", ORANGE),
  ("uramaki", _RICE, [
    [("  ", None), ("▄████████▄", _RICE)],
    [(" ", None), ("███", _RICE), ("██████", ORANGE), ("███", _RICE)],
@@ -575,7 +533,7 @@ def draw_saver_platter(ch, col, f):                   # omakase still life
         put(ch, col, cy+9, x, "▂", lerp(BG, GREY, .5))
     layout = [(-40, 1, g("ikura")), (-26, 0, _ONIGIRI), (-13, 0, _ONIGIRI),
               (0, 1, g("dumpling")), (14, 1, g("uramaki")), (28, 1, g("ikura")),
-              (-36, 5, g("salmon")), (-22, 5, g("ebi")), (-8, 5, g("tamago")),
+              (-36, 5, g("sake")), (-22, 5, g("ebi")), (-8, 5, g("tamago")),
               (6, 5, g("tekka maki")), (17, 5, g("kappa maki")),
               (28, 4, _SOY), (29, 7, _WASABI)]
     for dx, dy, p in layout:                          # back row first, front overlaps
