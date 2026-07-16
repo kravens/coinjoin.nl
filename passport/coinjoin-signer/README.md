@@ -27,12 +27,17 @@ comes once Foundation adds the two coinjoin messages
    shows the result; revoke closes the session.
 4. **Complete** — session summary.
 
-Screenshots rendered from the real Slint UI (Foundation SDK `foundation preview`,
-480×800). The buttons use a small local `ui/cjbutton.slint` instead of the SDK
-`Button`: the lightweight preview viewer doesn't populate the theme's button
-style/size structs, so the stock `Button` renders invisible there — the local
-one paints in the viewer and on-device alike (it uses `palette-*`, which have
-literal defaults).
+Screenshots captured with the KeyOS simulator's own screenshot button while the
+signed app runs on it — official Prime bezel, KeyOS status bar, live engine
+output (the Session screen shows a real SLIP-19 proof result). A short demo
+recording from the simulator's record button:
+[`screenshots/demo.mp4`](screenshots/demo.mp4).
+
+The buttons use a small local `ui/cjbutton.slint` instead of the SDK `Button`:
+the lightweight preview viewer doesn't populate the theme's button style/size
+structs, so the stock `Button` renders invisible there — the local one paints
+in the viewer and on-device alike (it uses `palette-*`, which have literal
+defaults).
 
 ## Build & run (Foundation SDK)
 
