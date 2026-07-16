@@ -8,6 +8,37 @@ collaboration with Foundation via their official KeyOS developer program.
 - Wasabi branch: https://github.com/kravens/WalletWasabi/tree/feature/passport-coinjoin
 - Protocol proposal (for Foundation): `os/wallet-rpc/COINJOIN_PROPOSAL.md` in the KeyOS branch
 
+## Real-device sideload test (2026-07-16, retail KeyOS 1.2.1)
+
+Tried the full sideload on the physical retail Prime. Result: **the bundle
+reaches the device but retail firmware has no path to install it** — blocked
+one layer *before* signature verification would even run.
+
+What worked:
+- `foundation build` produced the signed bundle (`app.elf` + `manifest.json`,
+  dev cert via `foundation cert gen` — non-interactive, no TTY needed).
+- `foundation sideload --no-run --mount-path …` copied it onto the Airlock
+  volume at `keyos/apps/coinjoin-signer/`; the files are visible and intact in
+  the device's own Files app (photo-verified on-device).
+
+Where retail stops (all source-verified on the KeyOS tree):
+- The app scanner reads `/keyos/apps` at **`Location::System`** — once, at
+  app-manager boot (`os/app-manager/src/lib.rs:47`, `registry.rs:34`,
+  `launch.rs:108`).
+- The on-device Files app can only write **`Location::User`** ("Internal") or
+  Airlock (`apps/gui-app-file-browser/src/location.rs:55`) — it has no System
+  access, so moving the folder anywhere it offers cannot land in the scan path.
+- The app-manager API exposes **no install or rescan message** (only
+  `LaunchApp`/`GetAppName`).
+- The only bridge into System storage is the **USB debug channel** that
+  `foundation sideload` uses to launch — and the retail unit does not expose it
+  (verified from the host: HID interfaces only, no serial/debug device).
+
+Conclusion: sideloading onto retail 1.2.1 requires the Developer Mode / dev
+unit debug channel, exactly as Foundation's docs imply. This is the concrete
+data point for the dev-unit request — the signed bundle, the transfer and the
+on-device presence all work; only the retail install gate stands.
+
 ## Where this stands (2026-07-15)
 
 The device arrived, and reading Foundation's now-public **KeyOS SDK** docs
