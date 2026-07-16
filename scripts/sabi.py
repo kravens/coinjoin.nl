@@ -1520,9 +1520,47 @@ def _tail_log(S):                                     # local daemon Logs.txt ->
     except Exception:
         pass
 
+def trezor_present(S):
+    """Is the Trezor still physically on a bridge? True = a device is enumerated,
+    False = a bridge answered but lists no device (unplugged), None = no bridge
+    reachable / origin rejected (UNKNOWN - caller must NOT act on this).
+    /enumerate only lists devices; it never acquires the session the daemon holds,
+    so this is safe to poll during an active coinjoin.
+    ponytail: probes trezord directly (2.8.0 RPC exposes no device-presence signal)."""
+    combos = [(p, o) for p in (21325, 21328)                 # 21325 own/standalone, 21328 Suite
+                     for o in ("https://wallet.trezor.io", None)]   # standalone 403s w/o whitelisted Origin
+    lg = S.get("_bridge_ok")
+    if lg in combos: combos = [lg] + [c for c in combos if c != lg]   # last-good first: usually 1 hit
+    for port, origin in combos:
+        hdr = {"Content-Type": "application/json"}
+        if origin: hdr["Origin"] = origin
+        req = urllib.request.Request(f"http://127.0.0.1:{port}/enumerate",
+                                     data=b"", headers=hdr, method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=0.8) as r:
+                devs = json.loads(r.read().decode() or "[]")
+            S["_bridge_ok"] = (port, origin)
+            return bool(devs)
+        except Exception:
+            continue                                         # 403 / refused / timeout -> try next combo
+    return None
+
+def hw_watchdog(S, pres):
+    """Decide what to do about the hardware signer from a presence probe (see trezor_present).
+    'stop' = unplugged for 2 straight probes, stop the round; 'back' = device returned; None = wait.
+    Debounce lives here so one transient miss never kills a live coinjoin."""
+    if pres is False:
+        S["hw_miss"] = S.get("hw_miss", 0) + 1
+        return "stop" if S["hw_miss"] >= 2 else None
+    if pres is True:
+        back = bool(S.get("hw_gone"))
+        S["hw_miss"] = 0; S["hw_gone"] = False
+        return "back" if back else None
+    return None                                          # unknown bridge state -> never auto-act
+
 def poller(rpc, S, stop):
     import threading
-    last_w = last_b = 0.0
+    last_w = last_b = last_hw = 0.0
     while not stop.is_set():
         try:
             S["status"] = rpc.call("getstatus"); S["err"] = None
@@ -1575,6 +1613,24 @@ def poller(rpc, S, stop):
             if S.get("_rules_w") != wname:            # wallet changed -> load its saved rules
                 S["rules"] = load_rules(wname); S["_rules_w"] = wname
             eval_rules(rpc, S, wname)                 # armed automation rules (thresholds/triggers)
+            # ---- hardware-signer watchdog: if the Trezor is unplugged mid-coinjoin the daemon
+            # can't sign, the round fails and the coordinator temporarily bans those inputs. Stop
+            # cleanly instead. Only DEFINITE gone (a bridge answered with zero devices) counts, and
+            # only after 2 consecutive misses, so a transient probe hiccup never nukes a good round.
+            hw_wallet = bool((S.get("winfo") or {}).get("isHardwareWallet"))
+            if not hw_wallet: S["hw_gone"] = False
+            if hw_wallet and S.get("cj_on") and time.monotonic() - last_hw >= 8:
+                last_hw = time.monotonic()
+                act = hw_watchdog(S, trezor_present(S))
+                if act == "stop" and S.get("cj_on"):
+                    try: rpc.call("stopcoinjoin", [], wallet=wname)
+                    except Exception: pass           # critical phase refuses stop - round already lost
+                    S["cj_on"] = False; S["single"] = False; S["hw_auth"] = None
+                    S["hw_gone"] = True; ding()
+                    S["flash"], S["flasht"] = ("⚠ TREZOR DISCONNECTED - coinjoin stopped to avoid a "
+                                               "failed round + coordinator ban; reconnect, then start again", 220)
+                elif act == "back":
+                    ding(); S["flash"], S["flasht"] = "✓ trezor reconnected - start coinjoin again", 100
         if time.monotonic() - last_b >= 15:           # coinjoin.nl coordinator banner (best effort)
             try:
                 req = urllib.request.Request("https://coinjoin.nl/wabisabi/human-monitor",
@@ -1988,6 +2044,7 @@ def tui(rpc, args, frames=0):
         return pr > 0 and se + np_ == 0
 
     def hw_auth_watch():                              # the device wants a hold-to-confirm NOW
+        S["hw_gone"] = False; S["hw_miss"] = 0        # (re)starting: clear any stale disconnect banner
         S["hw_auth"] = time.monotonic()
         flash("◆ CONFIRM ON YOUR TREZOR - hold to approve the coinjoin batch", 170)
         ding()
@@ -2986,6 +3043,8 @@ def tui(rpc, args, frames=0):
                 rput(ch, col, 1, min(W, TW)-2, sp + " " + str(S["busy"])[:24], AMBER)
             elif S.get("hw_auth"):
                 rput(ch, col, 1, min(W, TW)-2, "◆ CONFIRM ON TREZOR", clamp8(lerp(AMBER, WHITE, .5*pulse)))
+            elif S.get("hw_gone"):
+                rput(ch, col, 1, min(W, TW)-2, "⚠ TREZOR UNPLUGGED", clamp8(lerp(ORANGE, WHITE, .5*pulse)))
             return 3
         lcol = lerp(GREEN, GLOW, pulse) if on else lerp(BRAND, GREY, .45)
         rows = 7 if H >= 34 else 5
@@ -3082,6 +3141,9 @@ def tui(rpc, args, frames=0):
         elif S.get("hw_auth"):
             put(ch, col, 2, x0, "◆ CONFIRM COINJOIN ON YOUR TREZOR - it is waiting for you",
                 clamp8(lerp(AMBER, WHITE, .5*pulse)))
+        elif S.get("hw_gone"):
+            put(ch, col, 2, x0, "⚠ TREZOR DISCONNECTED - coinjoin stopped · reconnect, then start again",
+                clamp8(lerp(ORANGE, WHITE, .5*pulse)))
         nload = len(S.get("loaded") or ())
         if nload > 1: put(ch, col, 1, x0+34, f"· {nload} wallets loaded", lerp(GREEN, GREY, .3))
         if DISCREET["on"]:
@@ -3320,6 +3382,9 @@ def tui(rpc, args, frames=0):
             left = max(0, 200 - int(time.monotonic() - S["hw_auth"]))
             put(ch, col, y0+2, x0, f"▸▸ CONFIRM ON YOUR TREZOR NOW ◂◂   hold to approve · {left}s left",
                 clamp8(lerp(AMBER, WHITE, .5*p2)))
+        elif S.get("hw_gone"):                        # signer walked away mid-mix - we stopped
+            put(ch, col, y0+2, x0, "⚠ TREZOR DISCONNECTED - coinjoin stopped · reconnect, then start again",
+                clamp8(lerp(ORANGE, WHITE, .5*qpulse(f, 0.3, step=3))))
         elif fully_private():                         # every coin at target: say so, loudly and calmly
             put(ch, col, y0+2, x0, "◆ FULLY PRIVATE - every coin at its anon target · nothing to mix",
                 clamp8(lerp(GREEN, WHITE, .2)))
