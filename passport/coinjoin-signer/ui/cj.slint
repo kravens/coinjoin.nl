@@ -1,0 +1,15 @@
+// Coinjoin session state, bridged to the real wallet-rpc-core engine in Rust.
+// The preview viewer doesn't run Rust: callbacks are no-ops there and the
+// preview harness seeds these properties directly.
+export global Cj {
+    in-out property <bool> session-active: false;
+    in-out property <int> rounds: 0;
+    in-out property <int> max-rounds: 10;
+    // Result line for the last simulated round, e.g. "SLIP-19 proof · 106 bytes".
+    in-out property <string> last-result: "";
+
+    // Implemented in src/coinjoin.rs against wallet_rpc_core::protocol::Engine.
+    callback authorize();
+    callback simulate-round();
+    callback revoke();
+}

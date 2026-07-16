@@ -1,3 +1,4 @@
+mod coinjoin;
 mod theme;
 
 use slint_keyos_platform::app_ui;
@@ -9,6 +10,7 @@ fn app_main(_cx: AppContext, ui: AppWindow) {
     log::set_max_level(log::LevelFilter::Info);
 
     theme::init(&ui);
+    coinjoin::init(&ui);
 
     ui.run().expect("UI running");
 }

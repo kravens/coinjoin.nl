@@ -1,0 +1,4 @@
+# C cross-compiler for -sys crates (secp256k1-sys) on the device target —
+# same setting the KeyOS workspace uses.
+[env]
+CC_armv7a_unknown_xous_elf = "arm-none-eabi-gcc"

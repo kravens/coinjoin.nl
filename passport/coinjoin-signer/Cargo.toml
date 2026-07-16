@@ -7,12 +7,22 @@ edition = "2021"
 
 [dependencies]
 log = "0.4"
-log-server = { package = "xous-api-log", path = "__SDK_KEYOS_ROOT__/xous/api/log" }
+# Real coinjoin remote-signing logic (policy, SLIP-19 proofs, sessions) from the
+# KeyOS feature branch — the mockup drives it with a test seed + mock backend.
+wallet-rpc-core = { path = "/home/Kevin/KeyOS/os/wallet-rpc-core" }
+log-server = { package = "xous-api-log", path = "/home/Kevin/.foundation/sdk/current/lib/keyos/xous/api/log" }
 serde = { version = "1.0", features = ["derive"] }
-server = { path = "__SDK_KEYOS_ROOT__/server" }
-slint-keyos-platform = { path = "__SDK_KEYOS_ROOT__/slint-keyos-platform/runtime" }
-foundation-themes = { path = "__SDK_KEYOS_ROOT__/sdk/crates/foundation-themes" }
+server = { path = "/home/Kevin/.foundation/sdk/current/lib/keyos/server" }
+slint-keyos-platform = { path = "/home/Kevin/.foundation/sdk/current/lib/keyos/slint-keyos-platform/runtime" }
+foundation-themes = { path = "/home/Kevin/.foundation/sdk/current/lib/keyos/sdk/crates/foundation-themes" }
 
 [build-dependencies]
-foundation-themes = { path = "__SDK_KEYOS_ROOT__/sdk/crates/foundation-themes" }
-slint-keyos-platform-build = { path = "__SDK_KEYOS_ROOT__/slint-keyos-platform/build" }
+foundation-themes = { path = "/home/Kevin/.foundation/sdk/current/lib/keyos/sdk/crates/foundation-themes" }
+slint-keyos-platform-build = { path = "/home/Kevin/.foundation/sdk/current/lib/keyos/slint-keyos-platform/build" }
+
+# Same patch the KeyOS workspace applies: getrandom with a Xous backend, needed
+# by ngwallet's dependency tree on armv7a-unknown-xous-elf. Vendored copy with
+# its xous dep re-pointed at the SDK's xous-rs — the KeyOS repo's copy would
+# drag in a second `keyos` package and collide with the SDK's.
+[patch.crates-io]
+getrandom = { path = "vendor/getrandom" }

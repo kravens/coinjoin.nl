@@ -1,0 +1,47 @@
+import { Theme } from "@ui/theme.slint";
+import { Cj } from "cj.slint";
+import { MainPagePage } from "pages/page.slint";
+import { AuthorizePage } from "pages/authorize/page.slint";
+import { SessionPage } from "pages/session/page.slint";
+import { CompletePage } from "pages/complete/page.slint";
+
+// The lightweight preview viewer doesn't run src/theme.rs, so the theme globals
+// keep their light Slint defaults. Set the dark (sabi.py) palette here so the
+// screenshots reflect the dark-first design. On-device, theme.rs does this.
+component ForceDark {
+    init => {
+        Theme.is-dark = true;
+        Theme.palette-background = #0a0c10;
+        Theme.palette-surface = #151922;
+        Theme.palette-foreground = #eceff6;
+        Theme.palette-muted = #6e7886;
+        Theme.palette-border = #2a2f3a;
+        Theme.palette-primary = #2ed67a;
+        Theme.palette-primary-pressed = #23a85f;
+        Theme.palette-secondary = #b0baec;
+        Theme.palette-secondary-pressed = #c7cef2;
+    }
+}
+
+export component PreviewHome inherits Window {
+    width: 480px; height: 800px; background: Theme.palette-background;
+    ForceDark { }
+    MainPagePage { width: 100%; height: 100%; }
+}
+export component PreviewAuthorize inherits Window {
+    width: 480px; height: 800px; background: Theme.palette-background;
+    ForceDark { }
+    AuthorizePage { width: 100%; height: 100%; }
+}
+export component PreviewSession inherits Window {
+    width: 480px; height: 800px; background: Theme.palette-background;
+    ForceDark { }
+    init => { Cj.rounds = 4; }
+    SessionPage { width: 100%; height: 100%; }
+}
+export component PreviewComplete inherits Window {
+    width: 480px; height: 800px; background: Theme.palette-background;
+    ForceDark { }
+    init => { Cj.rounds = 10; }
+    CompletePage { width: 100%; height: 100%; }
+}

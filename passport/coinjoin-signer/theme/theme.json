@@ -4,8 +4,17 @@
   "parent": "verdant_theme",
   "tokens": {
     "colors": {
-      "light": {
-        "surface": "#f7f5f5"
+      "dark": {
+        "background": "#0a0c10",
+        "surface": "#151922",
+        "foreground": "#eceff6",
+        "muted": "#6e7886",
+        "border": "#2a2f3a",
+        "primary": "#2ed67a",
+        "primary.dark": "#23a85f",
+        "secondary": "#b0baec",
+        "secondary.dark": "#c7cef2",
+        "danger": "#ff5c5c"
       }
     }
   }

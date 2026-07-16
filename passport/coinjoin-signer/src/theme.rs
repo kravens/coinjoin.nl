@@ -31,8 +31,10 @@ fn apply_with_system_theme(
     ui: &crate::AppWindow,
     _system_theme: settings_permissions::settings::global::SystemTheme,
 ) {
+    // Dark-first, to match Wasabi Wallet. Colors come from the `dark` tokens in
+    // theme/theme.json (the sabi.py palette).
     let theme = app_theme();
-    apply_theme(ui, &theme, ColorScheme::Light);
+    apply_theme(ui, &theme, ColorScheme::Dark);
 }
 
 fn apply_theme(ui: &crate::AppWindow, theme: &ExportTheme, scheme: ColorScheme) {

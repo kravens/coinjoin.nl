@@ -1,0 +1,31 @@
+import { Theme } from "@ui/theme.slint";
+
+// Plain button for the mockup. The SDK Button pulls its colors/sizes from
+// theme structs the lightweight `foundation preview` viewer doesn't populate,
+// so it renders invisible there; this one uses palette-* (which have literal
+// defaults) and fixed sizes, so it paints in the viewer and on-device alike.
+export component CjButton inherits Rectangle {
+    in property <string> text;
+    in property <bool> secondary: false;
+    callback clicked();
+
+    height: 48px;
+    border-radius: 10px;
+    background: root.secondary ? Theme.palette-background : Theme.palette-primary;
+    border-width: root.secondary ? 1px : 0px;
+    border-color: Theme.palette-border;
+
+    Text {
+        text: root.text;
+        color: root.secondary ? Theme.palette-foreground : #05140c;
+        font-family: "Montserrat";
+        font-size: 16px;
+        font-weight: 600;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+
+    TouchArea {
+        clicked => { root.clicked(); }
+    }
+}

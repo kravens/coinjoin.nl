@@ -1,8 +1,9 @@
-import { Theme, UISize, ButtonSize } from "@ui/theme.slint";
-import { Button } from "@ui/button.slint";
+import { Theme, UISize } from "@ui/theme.slint";
+import { CjButton } from "../../cjbutton.slint";
 import { Card } from "@ui/card.slint";
 import { Chip, ChipColor } from "@ui/chip.slint";
 import { Navigate } from "../../gen/navigate.slint";
+import { Cj } from "../../cj.slint";
 
 export component CompletePage inherits Rectangle {
     background: Theme.palette-background;
@@ -24,20 +25,20 @@ export component CompletePage inherits Rectangle {
         }
         HorizontalLayout {
             alignment: center;
-            Chip { text: "10 rounds signed"; color: ChipColor.success; }
+            Chip { text: Cj.rounds + " rounds signed"; color: ChipColor.success; }
         }
         Card {
             width: 100%;
+            vertical-stretch: 0;
             size: lg;
             eyebrow: "coinjoin.nl";
             title: "Coinjoin finished";
-            body: "10 rounds signed for this session. Every output returned to your own wallet, and total fees stayed within your authorized cap.";
-            footer: "The session key has been cleared from memory.";
+            body: Cj.rounds + " rounds signed for this session. Every output returned to your own wallet, and total fees stayed within your authorized cap.";
+            footer: "Session key cleared from memory.";
         }
         Rectangle { vertical-stretch: 1; }
-        Button {
+        CjButton {
             width: 100%;
-            size: ButtonSize.md;
             text: "Done";
             clicked => { Navigate.main-page({ }); }
         }

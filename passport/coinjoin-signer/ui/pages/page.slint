@@ -1,5 +1,5 @@
-import { Theme, UISize, ButtonSize } from "@ui/theme.slint";
-import { Button } from "@ui/button.slint";
+import { Theme, UISize } from "@ui/theme.slint";
+import { CjButton } from "../cjbutton.slint";
 import { Card } from "@ui/card.slint";
 import { Chip, ChipColor } from "@ui/chip.slint";
 import { Navigate } from "../gen/navigate.slint";
@@ -28,6 +28,7 @@ export component MainPagePage inherits Rectangle {
         }
         Card {
             width: 100%;
+            vertical-stretch: 0;
             size: lg;
             eyebrow: "coinjoin.nl coordinator";
             title: "No active session";
@@ -35,9 +36,8 @@ export component MainPagePage inherits Rectangle {
             footer: "Your keys never leave the device.";
         }
         Rectangle { vertical-stretch: 1; }
-        Button {
+        CjButton {
             width: 100%;
-            size: ButtonSize.md;
             text: "Simulate incoming request";
             clicked => { Navigate.authorize({ }); }
         }

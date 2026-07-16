@@ -1,8 +1,9 @@
-import { Theme, UISize, ButtonSize, ButtonVariant } from "@ui/theme.slint";
-import { Button } from "@ui/button.slint";
+import { Theme, UISize } from "@ui/theme.slint";
+import { CjButton } from "../../cjbutton.slint";
 import { Card } from "@ui/card.slint";
 import { SlideToConfirm } from "@ui/slide_to_confirm.slint";
 import { Navigate } from "../../gen/navigate.slint";
+import { Cj } from "../../cj.slint";
 
 export component AuthorizePage inherits Rectangle {
     background: Theme.palette-background;
@@ -24,26 +25,31 @@ export component AuthorizePage inherits Rectangle {
         }
         Card {
             width: 100%;
+            vertical-stretch: 0;
             size: lg;
             eyebrow: "Coordinator";
             title: "coinjoin.nl";
             body: "Account #0 (mainnet)\nMax fee: 1000 sat / round\nRounds: up to 10\nValid for: 12 hours\nOutputs: your wallet only";
-            footer: "After you approve, rounds sign automatically within these limits.";
+            footer: "Then rounds sign automatically.";
         }
         Rectangle { vertical-stretch: 1; }
-        Button {
+        CjButton {
             width: 100%;
-            size: ButtonSize.md;
-            variant: ButtonVariant.secondary;
+            secondary: true;
             text: "Deny";
             clicked => { Navigate.backward(); }
         }
         SlideToConfirm {
             width: 100%;
-            label: "Slide to authorize";
+            vertical-stretch: 0;
+            control-height: 64px;
+            label: "Slide";
             hint: "Slide to authorize";
             confirmed-label: "Authorized";
-            activated => { Navigate.session({ }); }
+            thumb-color: Theme.palette-primary;
+            track-color: Theme.palette-surface;
+            track-border-color: Theme.palette-border;
+            activated => { Cj.authorize(); Navigate.session({ }); }
         }
     }
 }
