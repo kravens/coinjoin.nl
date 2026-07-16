@@ -1,5 +1,6 @@
 import { Theme, UISize } from "@ui/theme.slint";
 import { CjButton } from "../cjbutton.slint";
+import { CjStepper } from "../cjstepper.slint";
 import { Card } from "@ui/card.slint";
 import { Chip, ChipColor } from "@ui/chip.slint";
 import { Navigate } from "../gen/navigate.slint";
@@ -26,6 +27,7 @@ export component MainPagePage inherits Rectangle {
             alignment: center;
             Chip { text: "Waiting for Wasabi"; color: ChipColor.secondary; }
         }
+        CjStepper { current: 0; }
         Card {
             width: 100%;
             vertical-stretch: 0;

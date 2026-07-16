@@ -1,5 +1,6 @@
 import { Theme, UISize } from "@ui/theme.slint";
 import { CjButton } from "../../cjbutton.slint";
+import { CjStepper } from "../../cjstepper.slint";
 import { Card } from "@ui/card.slint";
 import { Chip, ChipColor } from "@ui/chip.slint";
 import { Navigate } from "../../gen/navigate.slint";
@@ -27,6 +28,15 @@ export component SessionPage inherits Rectangle {
         HorizontalLayout {
             alignment: center;
             Chip { text: "Signing for coinjoin.nl"; color: ChipColor.success; }
+        }
+        CjStepper { current: 2; }
+        Text {
+            text: "Unattended — no action needed, leave the device connected.";
+            color: Theme.palette-muted;
+            font-family: "Montserrat";
+            font-size: 12px;
+            horizontal-alignment: center;
+            wrap: word-wrap;
         }
         Text {
             text: "Rounds signed: " + Cj.rounds + " / " + Cj.max-rounds;

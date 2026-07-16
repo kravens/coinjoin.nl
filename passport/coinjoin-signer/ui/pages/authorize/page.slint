@@ -1,5 +1,6 @@
 import { Theme, UISize } from "@ui/theme.slint";
 import { CjButton } from "../../cjbutton.slint";
+import { CjStepper } from "../../cjstepper.slint";
 import { Card } from "@ui/card.slint";
 import { SlideToConfirm } from "@ui/slide_to_confirm.slint";
 import { Navigate } from "../../gen/navigate.slint";
@@ -23,6 +24,7 @@ export component AuthorizePage inherits Rectangle {
             font-weight: 700;
             horizontal-alignment: center;
         }
+        CjStepper { current: 1; }
         Card {
             width: 100%;
             vertical-stretch: 0;
