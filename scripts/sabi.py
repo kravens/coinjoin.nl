@@ -1983,6 +1983,10 @@ def tui(rpc, args, frames=0):
     def hw():
         return bool((S.get("winfo") or {}).get("isHardwareWallet"))
 
+    def fully_private():                              # every coin at/above its anon target
+        pr, se, np_ = balances(S)
+        return pr > 0 and se + np_ == 0
+
     def hw_auth_watch():                              # the device wants a hold-to-confirm NOW
         S["hw_auth"] = time.monotonic()
         flash("◆ CONFIRM ON YOUR TREZOR - hold to approve the coinjoin batch", 170)
@@ -1996,10 +2000,17 @@ def tui(rpc, args, frames=0):
                     ding()
                     S["flash"], S["flasht"] = "✓ trezor authorized - mixing unattended from here on", 150
                     return
-                time.sleep(1.5)
+                if fully_private():                   # authorized, but there is nothing to mix:
+                    S["hw_auth"] = None               # the daemon goes straight back to idle
+                    ding()
+                    S["flash"], S["flasht"] = ("◆ wallet is FULLY PRIVATE - nothing to mix, "
+                                               "the daemon stays idle", 180)
+                    return
+                time.sleep(1.2)
             if S.get("hw_auth"):
                 S["hw_auth"] = None
-                S["flash"], S["flasht"] = "✗ no authorization seen - device prompt timed out? start coinjoin again", 160
+                S["flash"], S["flasht"] = ("✗ no round started - device prompt timed out, or the "
+                                           "wallet has nothing left to mix", 170)
         threading.Thread(target=w, daemon=True).start()
 
     def parse_batch(txt):                             # "addr amount [label]" per line/; -> payments
@@ -2091,6 +2102,9 @@ def tui(rpc, args, frames=0):
     def do_cj_toggle():
         if wo(): return
         if not S.get("wallet"): flash("load a wallet first (tab 1, enter)"); return
+        if not S.get("cj_on") and fully_private():
+            flash("◆ already FULLY PRIVATE - nothing to mix (b sweep to another wallet still works)", 150)
+            return
         if S.get("cj_on"):
             def fn():
                 rpc.call("stopcoinjoin", [], wallet=S["wallet"])
@@ -2109,6 +2123,9 @@ def tui(rpc, args, frames=0):
     def do_cj_single():
         if wo(): return
         if not S.get("wallet"): flash("load a wallet first (tab 1, enter)"); return
+        if fully_private():
+            flash("◆ already FULLY PRIVATE - nothing to mix (b sweep to another wallet still works)", 150)
+            return
         def cb(v):
             def fn():
                 base = sum(1 for h_ in S.get("history") or [] if is_cj_row(h_))
@@ -3303,6 +3320,9 @@ def tui(rpc, args, frames=0):
             left = max(0, 200 - int(time.monotonic() - S["hw_auth"]))
             put(ch, col, y0+2, x0, f"▸▸ CONFIRM ON YOUR TREZOR NOW ◂◂   hold to approve · {left}s left",
                 clamp8(lerp(AMBER, WHITE, .5*p2)))
+        elif fully_private():                         # every coin at target: say so, loudly and calmly
+            put(ch, col, y0+2, x0, "◆ FULLY PRIVATE - every coin at its anon target · nothing to mix",
+                clamp8(lerp(GREEN, WHITE, .2)))
         regions.append((y0+1, x0, x0+13+len(stat)-1, ("ACT", do_cj_toggle)))   # click = start/stop
         pr, se, np_ = balances(S)
         put(ch, col, y0+3, x0, f"daemon says  {S.get('cj_status') or '?'}",
