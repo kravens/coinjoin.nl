@@ -94,12 +94,8 @@ Foundation dev unit.
 This app is [MIT](LICENSE.md), matching Wasabi Wallet — so the Wasabi-facing
 integration and this app share one permissive license.
 
-Caveat on the built binary: this app links
+The signing engine it links,
 [`wallet-rpc-core`](https://github.com/kravens/KeyOS/tree/feature/passport-coinjoin),
-the signing engine, which is **GPL-3.0-or-later** (it lives in the GPLv3 KeyOS
-tree). Because GPL is copyleft on linking, a *distributed binary* combining this
-MIT app with that GPLv3 crate is covered by GPL-3.0-or-later; the MIT grant
-still applies to this app's own source. For a fully-MIT example (e.g. for
-Foundation's `prime-examples`), `wallet-rpc-core` would need to be dual-licensed
-`MIT OR GPL-3.0-or-later` — it is authored by the same author, so that is an
-option to discuss with Foundation.
+is dual-licensed **`MIT OR GPL-3.0-or-later`** — so the whole app is usable under
+MIT, while the engine still merges cleanly into the GPLv3 KeyOS tree when
+contributed upstream.
