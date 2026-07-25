@@ -1,0 +1,193 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 980" width="1280" height="980" font-family="ui-sans-serif,-apple-system,Segoe UI,Helvetica,Arial,sans-serif">
+  <defs>
+    <marker id="arw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#8b949e"/>
+    </marker>
+    <marker id="arwG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#3fb950"/>
+    </marker>
+  </defs>
+
+  <rect width="1280" height="980" rx="10" fill="#0d1117"/>
+  <rect x="0.5" y="0.5" width="1279" height="979" rx="10" fill="none" stroke="#30363d"/>
+
+  <text x="36" y="46" fill="#e6edf3" font-size="23" font-weight="600">Hardware-agnostic remote coinjoin signing</text>
+  <text x="36" y="70" fill="#8b949e" font-size="13.5">One vendor-neutral core drives every device. A vendor supplies a transport and an on-device policy — nothing else in the coinjoin flow changes.</text>
+
+  <!-- ================= ROUND LIFECYCLE ================= -->
+  <rect x="28" y="96" width="330" height="560" rx="9" fill="#11161d" stroke="#30363d"/>
+  <text x="48" y="124" fill="#e6edf3" font-size="14.5" font-weight="600">WabiSabi round lifecycle</text>
+  <text x="48" y="143" fill="#8b949e" font-size="11.5">green = the device is involved</text>
+
+  <rect x="48" y="160" width="290" height="52" rx="7" fill="#161b22" stroke="#30363d"/>
+  <text x="64" y="181" fill="#e6edf3" font-size="12.5" font-weight="600">1 · Round selection</text>
+  <text x="64" y="199" fill="#8b949e" font-size="11">client-side: fee-rate cap, min input count</text>
+
+  <rect x="48" y="222" width="290" height="66" rx="7" fill="#132218" stroke="#3fb950"/>
+  <text x="64" y="243" fill="#3fb950" font-size="12.5" font-weight="600">2 · Input registration</text>
+  <text x="64" y="261" fill="#e6edf3" font-size="11">device signs a SLIP-19 ownership proof</text>
+  <text x="64" y="277" fill="#8b949e" font-size="10.5">IKeyChain.GetOwnershipProof(dest, commitment)</text>
+
+  <rect x="48" y="298" width="290" height="46" rx="7" fill="#161b22" stroke="#30363d"/>
+  <text x="64" y="319" fill="#e6edf3" font-size="12.5" font-weight="600">3 · Connection confirmation</text>
+  <text x="64" y="336" fill="#8b949e" font-size="11">credentials reissued — no device contact</text>
+
+  <rect x="48" y="354" width="290" height="46" rx="7" fill="#161b22" stroke="#30363d"/>
+  <text x="64" y="375" fill="#e6edf3" font-size="12.5" font-weight="600">4 · Output registration</text>
+  <text x="64" y="392" fill="#8b949e" font-size="11">fresh outputs — no device contact</text>
+
+  <rect x="48" y="410" width="290" height="80" rx="7" fill="#132218" stroke="#3fb950"/>
+  <text x="64" y="431" fill="#3fb950" font-size="12.5" font-weight="600">5 · Transaction signing</text>
+  <text x="64" y="449" fill="#e6edf3" font-size="11">device signs only its own inputs,</text>
+  <text x="64" y="465" fill="#e6edf3" font-size="11">unattended, gated by its policy</text>
+  <text x="64" y="481" fill="#8b949e" font-size="10.5">IKeyChain.Sign(coinjoin, coin) → witness</text>
+
+  <rect x="48" y="500" width="290" height="46" rx="7" fill="#161b22" stroke="#30363d"/>
+  <text x="64" y="521" fill="#e6edf3" font-size="12.5" font-weight="600">6 · Broadcast</text>
+  <text x="64" y="538" fill="#8b949e" font-size="11">coordinator assembles + publishes</text>
+
+  <rect x="48" y="562" width="290" height="76" rx="7" fill="#161b22" stroke="#484f58" stroke-dasharray="4 3"/>
+  <text x="64" y="583" fill="#8b949e" font-size="11.5" font-weight="600">Foreign inputs stay unsigned</text>
+  <text x="64" y="601" fill="#8b949e" font-size="10.5">Only our inputs can finalize, so the client uses</text>
+  <text x="64" y="616" fill="#8b949e" font-size="10.5">TryFinalize — a full Finalize() throws on every</text>
+  <text x="64" y="631" fill="#8b949e" font-size="10.5">real multi-party round.</text>
+
+  <line x1="193" y1="212" x2="193" y2="222" stroke="#8b949e" marker-end="url(#arw)"/>
+  <line x1="193" y1="288" x2="193" y2="298" stroke="#8b949e" marker-end="url(#arw)"/>
+  <line x1="193" y1="344" x2="193" y2="354" stroke="#8b949e" marker-end="url(#arw)"/>
+  <line x1="193" y1="400" x2="193" y2="410" stroke="#8b949e" marker-end="url(#arw)"/>
+  <line x1="193" y1="490" x2="193" y2="500" stroke="#8b949e" marker-end="url(#arw)"/>
+
+  <!-- ================= VENDOR-NEUTRAL CORE ================= -->
+  <rect x="382" y="96" width="870" height="196" rx="9" fill="#11161d" stroke="#58a6ff"/>
+  <text x="402" y="124" fill="#58a6ff" font-size="14.5" font-weight="600">Wasabi client — vendor-neutral core</text>
+  <text x="402" y="143" fill="#8b949e" font-size="11.5">knows only "which vendor", never how a device talks</text>
+
+  <rect x="402" y="158" width="266" height="56" rx="7" fill="#161b22" stroke="#30363d"/>
+  <text x="416" y="178" fill="#e6edf3" font-size="12" font-weight="600">KeyManager.CoinJoinVendor</text>
+  <text x="416" y="196" fill="#8b949e" font-size="10.5">persisted enum; Trezor inferred from</text>
+  <text x="416" y="209" fill="#8b949e" font-size="10.5">its SLIP-25 account shape</text>
+
+  <rect x="684" y="158" width="266" height="56" rx="7" fill="#161b22" stroke="#30363d"/>
+  <text x="698" y="178" fill="#e6edf3" font-size="12" font-weight="600">HardwareCoinJoin.VendorOf()</text>
+  <text x="698" y="196" fill="#8b949e" font-size="10.5">single model → vendor map; the only</text>
+  <text x="698" y="209" fill="#8b949e" font-size="10.5">place a device model is recognised</text>
+
+  <rect x="966" y="158" width="266" height="56" rx="7" fill="#161b22" stroke="#30363d"/>
+  <text x="980" y="178" fill="#e6edf3" font-size="12" font-weight="600">Round + policy gates</text>
+  <text x="980" y="196" fill="#8b949e" font-size="10.5">fee-rate cap, round budget, UI gates,</text>
+  <text x="980" y="209" fill="#8b949e" font-size="10.5">headless importhardwarewallet RPC</text>
+
+  <rect x="402" y="224" width="830" height="56" rx="7" fill="#0f1b2a" stroke="#58a6ff"/>
+  <text x="416" y="243" fill="#58a6ff" font-size="12.5" font-weight="600">IKeyChain</text>
+  <text x="510" y="243" fill="#8b949e" font-size="10.5">— the entire contract a vendor must satisfy</text>
+  <text x="416" y="263" fill="#e6edf3" font-size="11">OwnershipProof GetOwnershipProof(IDestination, CoinJoinInputCommitmentData)</text>
+  <text x="416" y="277" fill="#e6edf3" font-size="11">Transaction Sign(TransactionWithPrecomputedData, Coin)</text>
+
+  <line x1="817" y1="292" x2="817" y2="316" stroke="#58a6ff" marker-end="url(#arw)"/>
+  <text x="828" y="309" fill="#8b949e" font-size="10.5">one implementation per vendor</text>
+
+  <!-- ================= VENDOR COLUMNS ================= -->
+  <!-- Trezor -->
+  <rect x="382" y="320" width="205" height="150" rx="8" fill="#11161d" stroke="#3fb950"/>
+  <text x="398" y="344" fill="#e6edf3" font-size="13.5" font-weight="600">Trezor</text>
+  <text x="398" y="364" fill="#3fb950" font-size="10.5">shipping</text>
+  <text x="398" y="386" fill="#e6edf3" font-size="11.5" font-weight="600">TrezorKeyChain</text>
+  <text x="398" y="404" fill="#8b949e" font-size="10.5">transport: Trezor Bridge</text>
+  <text x="398" y="418" fill="#8b949e" font-size="10.5">(trezord, :21325)</text>
+  <text x="398" y="440" fill="#8b949e" font-size="10.5">accounts: SLIP-25, taproot</text>
+  <text x="398" y="456" fill="#8b949e" font-size="10.5">stock firmware</text>
+
+  <!-- Coldcard -->
+  <rect x="603" y="320" width="205" height="150" rx="8" fill="#11161d" stroke="#3fb950"/>
+  <text x="619" y="344" fill="#e6edf3" font-size="13.5" font-weight="600">Coldcard Mk4</text>
+  <text x="619" y="364" fill="#3fb950" font-size="10.5">hardware-verified</text>
+  <text x="619" y="386" fill="#e6edf3" font-size="11.5" font-weight="600">ColdcardKeyChain</text>
+  <text x="619" y="404" fill="#8b949e" font-size="10.5">transport: raw USB HID</text>
+  <text x="619" y="418" fill="#8b949e" font-size="10.5">(ckcc — no daemon)</text>
+  <text x="619" y="440" fill="#8b949e" font-size="10.5">accounts: default segwit</text>
+  <text x="619" y="456" fill="#8b949e" font-size="10.5">custom slp9 firmware</text>
+
+  <!-- Krux -->
+  <rect x="824" y="320" width="205" height="150" rx="8" fill="#11161d" stroke="#3fb950"/>
+  <text x="840" y="344" fill="#e6edf3" font-size="13.5" font-weight="600">Krux</text>
+  <text x="840" y="364" fill="#3fb950" font-size="10.5">hardware-verified</text>
+  <text x="840" y="386" fill="#e6edf3" font-size="11.5" font-weight="600">KruxKeyChain</text>
+  <text x="840" y="404" fill="#8b949e" font-size="10.5">transport: kruxd bridge</text>
+  <text x="840" y="418" fill="#8b949e" font-size="10.5">(UART, :21326)</text>
+  <text x="840" y="440" fill="#8b949e" font-size="10.5">accounts: segwit + taproot</text>
+  <text x="840" y="456" fill="#8b949e" font-size="10.5">custom firmware branch</text>
+
+  <!-- Passport -->
+  <rect x="1045" y="320" width="205" height="150" rx="8" fill="#11161d" stroke="#d29922"/>
+  <text x="1061" y="344" fill="#e6edf3" font-size="13.5" font-weight="600">Passport Prime</text>
+  <text x="1061" y="364" fill="#d29922" font-size="10.5">in progress</text>
+  <text x="1061" y="386" fill="#e6edf3" font-size="11.5" font-weight="600">PassportKeyChain</text>
+  <text x="1061" y="404" fill="#8b949e" font-size="10.5">transport: USB HID →</text>
+  <text x="1061" y="418" fill="#8b949e" font-size="10.5">QuantumLink (planned)</text>
+  <text x="1061" y="440" fill="#8b949e" font-size="10.5">accounts: segwit v0</text>
+  <text x="1061" y="456" fill="#8b949e" font-size="10.5">KeyOS SDK app</text>
+
+  <line x1="484" y1="470" x2="484" y2="500" stroke="#3fb950" marker-end="url(#arwG)"/>
+  <line x1="705" y1="470" x2="705" y2="500" stroke="#3fb950" marker-end="url(#arwG)"/>
+  <line x1="926" y1="470" x2="926" y2="500" stroke="#3fb950" marker-end="url(#arwG)"/>
+  <line x1="1147" y1="470" x2="1147" y2="500" stroke="#8b949e" stroke-dasharray="4 3" marker-end="url(#arw)"/>
+
+  <!-- ================= ON-DEVICE POLICY ================= -->
+  <rect x="382" y="504" width="870" height="152" rx="9" fill="#11161d" stroke="#bc8cff"/>
+  <text x="402" y="530" fill="#bc8cff" font-size="14.5" font-weight="600">On-device policy — the user's consent, held by the device</text>
+  <text x="402" y="549" fill="#8b949e" font-size="11.5">approved once, then rounds sign unattended. The host cannot widen it.</text>
+
+  <rect x="402" y="562" width="205" height="80" rx="7" fill="#161b22" stroke="#30363d"/>
+  <text x="416" y="583" fill="#e6edf3" font-size="11.5" font-weight="600">Preauthorized rounds</text>
+  <text x="416" y="601" fill="#8b949e" font-size="10.5">round count + max fee rate,</text>
+  <text x="416" y="616" fill="#8b949e" font-size="10.5">hold-to-confirm on screen,</text>
+  <text x="416" y="631" fill="#8b949e" font-size="10.5">bound to the SLIP-25 account</text>
+
+  <rect x="623" y="562" width="205" height="80" rx="7" fill="#161b22" stroke="#30363d"/>
+  <text x="637" y="583" fill="#e6edf3" font-size="11.5" font-weight="600">HSM policy</text>
+  <text x="637" y="601" fill="#8b949e" font-size="10.5">min_pct_self_transfer ≥ 99%</text>
+  <text x="637" y="616" fill="#8b949e" font-size="10.5">caps value leaving the wallet;</text>
+  <text x="637" y="631" fill="#8b949e" font-size="10.5">slip19_paths whitelist</text>
+
+  <rect x="844" y="562" width="205" height="80" rx="7" fill="#161b22" stroke="#30363d"/>
+  <text x="858" y="583" fill="#e6edf3" font-size="11.5" font-weight="600">CoinJoin USB session</text>
+  <text x="858" y="601" fill="#8b949e" font-size="10.5">self-spend floor, fee cap,</text>
+  <text x="858" y="616" fill="#8b949e" font-size="10.5">SIGHASH rules, max_rounds,</text>
+  <text x="858" y="631" fill="#8b949e" font-size="10.5">one approval per session</text>
+
+  <rect x="1065" y="562" width="167" height="80" rx="7" fill="#161b22" stroke="#30363d"/>
+  <text x="1079" y="583" fill="#e6edf3" font-size="11.5" font-weight="600">Session policy</text>
+  <text x="1079" y="601" fill="#8b949e" font-size="10.5">fee cap, self-spend only,</text>
+  <text x="1079" y="616" fill="#8b949e" font-size="10.5">round budget, expiry</text>
+  <text x="1079" y="631" fill="#8b949e" font-size="10.5">(planned)</text>
+
+  <!-- ================= ADDING A VENDOR ================= -->
+  <rect x="28" y="676" width="1224" height="140" rx="9" fill="#11161d" stroke="#30363d"/>
+  <text x="48" y="704" fill="#e6edf3" font-size="14.5" font-weight="600">Adding a vendor</text>
+  <text x="48" y="723" fill="#8b949e" font-size="11.5">four small edits — nothing in the round flow, the UI or the coordinator protocol moves</text>
+
+  <rect x="48" y="738" width="284" height="58" rx="7" fill="#161b22" stroke="#30363d"/>
+  <text x="62" y="759" fill="#58a6ff" font-size="11.5" font-weight="600">1 · enum value</text>
+  <text x="62" y="778" fill="#8b949e" font-size="10.5">HardwareCoinJoinVendor.Xyz</text>
+
+  <rect x="346" y="738" width="284" height="58" rx="7" fill="#161b22" stroke="#30363d"/>
+  <text x="360" y="759" fill="#58a6ff" font-size="11.5" font-weight="600">2 · model mapping</text>
+  <text x="360" y="778" fill="#8b949e" font-size="10.5">one entry in VendorOf(model)</text>
+
+  <rect x="644" y="738" width="284" height="58" rx="7" fill="#161b22" stroke="#30363d"/>
+  <text x="658" y="759" fill="#58a6ff" font-size="11.5" font-weight="600">3 · authorize case</text>
+  <text x="658" y="778" fill="#8b949e" font-size="10.5">AuthorizeHardwareCoinJoinAsync</text>
+
+  <rect x="942" y="738" width="290" height="58" rx="7" fill="#161b22" stroke="#30363d"/>
+  <text x="956" y="759" fill="#58a6ff" font-size="11.5" font-weight="600">4 · IKeyChain</text>
+  <text x="956" y="778" fill="#8b949e" font-size="10.5">proof + sign over your transport</text>
+
+  <!-- ================= WHAT STAYS VENDOR-SPECIFIC ================= -->
+  <rect x="28" y="832" width="1224" height="116" rx="9" fill="#11161d" stroke="#484f58" stroke-dasharray="4 3"/>
+  <text x="48" y="858" fill="#e6edf3" font-size="13.5" font-weight="600">Deliberately not abstracted</text>
+  <text x="48" y="880" fill="#8b949e" font-size="11">SLIP-25 account rules — destination selection, account splitting and taproot-only coin choice key off the <tspan fill="#e6edf3">account shape</tspan>, not the brand,</text>
+  <text x="48" y="897" fill="#8b949e" font-size="11">because that is what they actually depend on. A future vendor using SLIP-25 inherits them for free; one signing from default accounts does not.</text>
+  <text x="48" y="922" fill="#8b949e" font-size="11">Policy semantics stay per-device too: a round budget means something different to a preauthorization counter than to a self-transfer floor, so each</text>
+  <text x="48" y="939" fill="#8b949e" font-size="11">vendor expresses the user's limits in its own terms and the client enforces what the device cannot.</text>
+</svg>

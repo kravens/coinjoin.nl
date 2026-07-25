@@ -97,3 +97,28 @@ Wasabi Wallet (ownership proofs + round signing under an on-device policy):
 | **Real device tested** | ✅ | ⚠️ partial (Mk4, 2026-07-18) — on **stock** firmware: USB HID transport, HSM policy install + on-device approval, and unattended policy-gated PSBT signing all verified. `slp9` proofs remain simulator-only. Retail units *do* run self-built key-0 firmware (boot shows a permanent "Custom" warning), but they are RDP2-locked so the bootloader refuses ROM DFU — a broken custom build cannot be recovered by any means, which stranded one unit here. Mk4 is the only viable model (Q disables HSM, Mk3 too old) | ❌ retail locked to vendor-signed firmware; building as official KeyOS SDK app — awaiting Foundation dev unit | ✅ WonderMV signed live WabiSabi coinjoin rounds on regtest (2026-07-13) — device validated PSBTs against on-device policy, signed own inputs over USB, txns broadcast + confirmed; 1134 unit tests pass | ❌ — Nano S Plus only sideloadable target (Nano X blocks sideloading, Nano S EOL/unsupported); Speculos emulator for dev | ❌ |
 | **Script types** | taproot (SLIP-25) | segwit (taproot proofs verified, signing follow-up) | segwit v0 signing; proofs segwit + taproot | segwit + taproot (P2WPKH/P2TR only, enforced in psbt validation) | n/a | n/a |
 | **Readiness** | **closest to production** | **client side proven on hardware; firmware iteration needs a non-RDP2 dev unit** — retail Mk4 runs custom firmware but blocks ROM DFU, making every flash a one-way trip | **collaborating with Foundation** — logic done + tested; SDK app over QuantumLink pending dev unit + [protocol proposal](https://github.com/kravens/KeyOS/blob/feature/passport-coinjoin/os/wallet-rpc/COINJOIN_PROPOSAL.md) ([status](passport/PASSPORT_TESTING.md)) | **working end-to-end on hardware** ([bring-up guide](kruxd/README.md)) | **feasibility researched — upstream unlikely (silent signing gated to Ledger swap partners), sideload-only fork** | **concept stage — conflicts with stock security model** |
+
+### How the vendor-agnostic signer works
+
+![Hardware-agnostic remote coinjoin signing](hardware-coinjoin-signing.svg)
+
+Every device above plugs into the same core. Wasabi's coinjoin flow never learns how a
+particular device talks — it only records *which vendor* signs a wallet
+(`KeyManager.CoinJoinVendor`), maps a connected model to that vendor in one place
+(`HardwareCoinJoin.VendorOf`), and dispatches once when authorizing a batch of rounds. Signing
+itself goes through `IKeyChain`, whose entire contract is two calls: produce a SLIP-19 ownership
+proof for an input, and sign our own inputs of a coinjoin. A device is touched at exactly two
+points in a round — input registration and transaction signing — and not at all in between.
+
+The consent model is deliberately left to each device rather than flattened into a common
+abstraction, because the guarantees genuinely differ: a Trezor counts down preauthorized rounds
+bound to its SLIP-25 account, a Coldcard enforces a `min_pct_self_transfer` floor in its HSM
+policy, Krux holds a CoinJoin USB session with its own fee cap and round budget. Each expresses
+the user's limits in its own terms; the client enforces whatever the device cannot (round budget,
+fee-rate cap on round selection) and refuses to widen anything the device already decided.
+
+SLIP-25 account behaviour — destination selection, account splitting, taproot-only coin choice —
+keys off the *account shape* rather than the brand, so a future vendor that adopts SLIP-25
+inherits it and one signing from the default accounts does not. Adding a vendor is four small
+edits: an enum value, a model-to-vendor entry, a case in `AuthorizeHardwareCoinJoinAsync`, and an
+`IKeyChain` implementation over whatever transport the device speaks.
