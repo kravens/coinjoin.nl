@@ -1651,14 +1651,20 @@ def export_svg(meta, viz, source, out, frame=36):
     open(out, "w", encoding="utf-8").write("\n".join(svg))
     print(f"wrote {out}  ({W*cw}x{H*chh} svg, 1 frame)", file=sys.stderr)
 
-def _frame_html(ch, col):                            # one frame -> RLE-coloured HTML (spans)
+def _frame_html(ch, col, pal):                       # one frame -> RLE-coloured HTML (spans)
+    # pal: color tuple -> class index, shared across frames so every colour is
+    # one short CSS class instead of a repeated inline style (5-8x smaller files)
     rows = []
     for r in range(H):
         line = []; last = False; buf = []
         def flush():
             if not buf: return
             txt = _xescape("".join(buf))
-            line.append(txt if last is None else f'<span style="color:rgb{last}">{txt}</span>')
+            if last is None:
+                line.append(txt)
+            else:
+                k = pal.setdefault(last, len(pal))
+                line.append(f'<span class="c{k}">{txt}</span>')
         for c in range(W):
             g = ch[r][c]; cc = clamp8(col[r][c]) if g != " " else None
             if cc != last:
@@ -1668,11 +1674,13 @@ def _frame_html(ch, col):                            # one frame -> RLE-coloured
     return "\n".join(rows)
 
 def export_html(meta, viz, source, out, nframes):    # self-contained animated HTML (no deps, shareable)
-    nframes = max(1, min(nframes, 120)); parts = []; frames = []
+    nframes = max(1, min(nframes, 120)); parts = []; frames = []; pal = {}
     for f in range(nframes):
         ch, col = blank(); render_tx(ch, col, meta, viz, source, f, parts)
-        frames.append(_frame_html(ch, col))
+        frames.append(_frame_html(ch, col, pal))
     br, bg, bb = BG; data = json.dumps(frames, separators=(",", ":"))
+    palcss = "".join(f".c{k}{{color:rgb({r},{g},{b})}}" for (r, g, b), k in
+                     sorted(pal.items(), key=lambda kv: kv[1]))
     title = f"tx flow · {(meta['txid'] or 'local')[:12]} · coinjoin.nl"
     html = ("<!doctype html><html><head><meta charset=\"utf-8\">\n"
         f"<title>{_xescape(title)}</title><style>\n"
@@ -1681,6 +1689,7 @@ def export_html(meta, viz, source, out, nframes):    # self-contained animated H
         "#screen{font:14px/1.0 Consolas,Menlo,monospace;white-space:pre;"
         f"color:#ecedf6;background:rgb({br},{bg},{bb});padding:10px;}}\n"
         "a{color:#9aa6ec;text-decoration:none;}\n"
+        f"{palcss}\n"
         "</style></head><body><div id=\"wrap\"><div>\n"
         "<pre id=\"screen\"></pre>\n"
         "<div style=\"text-align:center;font:12px monospace;color:#6e7886;margin-top:6px\">"
