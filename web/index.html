@@ -320,91 +320,90 @@
 <meta name="msapplication-TileImage" content="/images/icon-green.png">
 <meta name="theme-color" content="#000000">
 <script>
-// Animated favicon: the Wasabi W tilting left/right, ported from sabi.py's
-// logo_anim (yaw about the vertical centre, foreshorten 1-0.34|turn|, darker
-// side wall on the turned side, sin easing, long rest between wiggles).
-// Frames are pre-rendered to data URIs; Safari ignores dynamic favicons and
-// keeps the static PNGs above; reduced-motion users get the resting frame.
+// Animated favicon: the coinjoin.nl shield tilting and stack-pulsing, timing
+// ported from sabi.py logo_anim (foreshorten 1-0.34|turn|, extruded depth
+// walls, brief action / long rest, alternating). The shield PNG is tinted on
+// canvas for the wall layers. Safari ignores dynamic favicons and keeps the
+// static icon-green.png; reduced-motion users get the resting frame.
 (function () {
-    var W_PATHS = [
-        "M53.4227 26.9681C46.331 16.2741 43.7272 5.86066 42.672 0C38.4243 2.58412 34.172 5.16824 " +
-        "29.9198 7.75689C31.1379 12.8527 33.4384 20.4286 37.9352 28.7059H24.6984C24.2954 28.1402 " +
-        "23.8969 27.5655 23.5029 26.9681C16.4113 16.2741 13.8074 5.86066 12.7522 0C8.49999 2.58412 " +
-        "4.25226 5.16824 0 7.75689C1.56686 14.3281 4.93153 25.0221 12.4941 36.0329C19.9843 46.9351 " +
-        "28.3801 53.47 33.7192 57C37.2242 53.6556 40.7248 50.3112 44.2298 46.9622C41.7935 45.4959 " +
-        "38.4243 43.2331 34.7472 39.9566H45.294C51.9826 48.5371 58.9791 53.9135 63.639 56.9955C67.144 " +
-        "53.6511 70.6445 50.3066 74.1496 46.9577C71.7133 45.4914 68.3441 43.2286 64.6669 39.952H74.1496" +
-        "V28.6969H54.6182C54.2152 28.1312 53.8167 27.5564 53.4227 26.959V26.9681Z",
-        "M74.3622 0.0454102H59.957V14.4414H74.3622V0.0454102Z"];
-    if (typeof Path2D === 'undefined') return;
-    var paths = W_PATHS.map(function (d) { return new Path2D(d); });
-    var c = document.createElement('canvas');
-    c.width = c.height = 64;
-    var x = c.getContext('2d');
-    function drawW(color, turn, ox, oy, alpha) {
-        x.save();
-        x.globalAlpha = alpha == null ? 1 : alpha;
-        x.translate(32 + turn * 2 + ox, 32 + oy);
-        x.scale(0.72 * (1 - 0.34 * Math.abs(turn)), 0.72);
-        x.translate(-37.5, -28.5);
-        x.fillStyle = color;
-        paths.forEach(function (p) { x.fill(p, 'evenodd'); });
-        x.restore();
-    }
-    // sabi.py draw_logo colors: side = lerp(BG, accent, 0.16), edge = lerp(BG, accent, 0.30)
-    var SIDE = '#0d2825', EDGE = '#104137', DEPTH = 6;
-    function wallAlpha(step, n) {                      // fade with depth: 0.95 front, 0.01 last
-        return n < 2 ? 0.95 : 0.95 + (0.01 - 0.95) * (step - 1) / (n - 1);
-    }
-    function frame(turn, depth) {
-        depth = depth || DEPTH;
-        x.clearRect(0, 0, 64, 64);
-        x.fillStyle = '#0a0c10';
-        x.beginPath();
-        x.roundRect ? x.roundRect(0, 0, 64, 64, 14) : x.rect(0, 0, 64, 64);
-        x.fill();
-        var step;
-        for (step = depth; step > 0; step--)           // block thickness, extruded down-right
-            drawW(step > 1 ? SIDE : EDGE, turn, step, step, wallAlpha(step, depth));
-        var exd = turn >= 0 ? -1 : 1;                  // turning reveals the far side's thickness
-        var sideSteps = Math.round(3 * Math.abs(turn));
-        for (step = sideSteps; step > 0; step--)
-            drawW(step > 1 ? SIDE : EDGE, turn, exd * step, 0, wallAlpha(step, sideSteps));
-        drawW('#1dbc93', turn, 0, 0);                  // lit face on top
-        return c.toDataURL('image/png');
-    }
-    var TURNS = [0, 0.38, 0.71, 0.92, 1];              // quantized |turn| positions
-    var uris = TURNS.map(function (t) { return frame(t); })
-        .concat(TURNS.slice(1).map(function (t) { return frame(-t); }));
-    var depthUris = [uris[0], frame(0, 7), frame(0, 8)];  // stack-pulse frames (depth 6/7/8)
-    function uriFor(turn) {                            // nearest pre-rendered frame
-        var best = 0, dist = 2;
-        TURNS.forEach(function (t, i) { var d = Math.abs(Math.abs(turn) - t); if (d < dist) { dist = d; best = i; } });
-        return best === 0 ? uris[0] : uris[turn > 0 ? best : best + 4];
-    }
-    document.querySelectorAll('link[rel="icon"]').forEach(function (l) { l.remove(); });
-    var link = document.createElement('link');
-    link.rel = 'icon';
-    link.href = uris[0];
-    document.head.appendChild(link);
-    if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-    // sabi.py logo_anim timing: act briefly, rest long, alternate the action —
-    // tilt one cycle, depth stack-pulse (a round pressed onto the pile) the next
-    var CYCLE = 100, DUR = 22, tick = 0, last = uris[0];
-    setInterval(function () {
-        if (document.hidden) return;               // browser throttles anyway; skip work entirely
-        var t = tick % CYCLE, cyc = (tick / CYCLE) | 0; tick++;
-        var next;
-        if (t >= DUR) {
-            next = uris[0];
-        } else if (cyc % 2 === 0) {                // tilt, alternating direction
-            var side = (cyc / 2) % 2 === 0 ? 1 : -1;
-            next = uriFor(side * Math.sin(t / DUR * Math.PI));
-        } else {                                   // depth pulse: 6 -> 8 -> 6 layers
-            next = depthUris[Math.round(2 * Math.sin(t / DUR * Math.PI))];
+    var img = new Image();
+    img.src = '/images/icon-green.png';
+    img.onload = function () {
+        var SIDE = '#0d2825', EDGE = '#104137', DEPTH = 6;
+        function tint(color) {
+            var t = document.createElement('canvas');
+            t.width = img.width; t.height = img.height;
+            var tx = t.getContext('2d');
+            tx.drawImage(img, 0, 0);
+            tx.globalCompositeOperation = 'source-in';
+            tx.fillStyle = color;
+            tx.fillRect(0, 0, t.width, t.height);
+            return t;
         }
-        if (next !== last) { link.href = last = next; }
-    }, 90);
+        var side = tint(SIDE), edge = tint(EDGE);
+        var c = document.createElement('canvas');
+        c.width = c.height = 64;
+        var x = c.getContext('2d');
+        var SW = 36, SH = 44;                          // shield fitted in the 64px tile
+        function draw(src, turn, ox, oy, alpha) {
+            x.save();
+            x.globalAlpha = alpha == null ? 1 : alpha;
+            x.translate(32 + turn * 2 + ox, 32 + oy);
+            x.scale(1 - 0.34 * Math.abs(turn), 1);
+            x.drawImage(src, -SW / 2, -SH / 2, SW, SH);
+            x.restore();
+        }
+        function wallAlpha(step, n) {                  // fade with depth: 0.95 front, 0.01 last
+            return n < 2 ? 0.95 : 0.95 + (0.01 - 0.95) * (step - 1) / (n - 1);
+        }
+        function frame(turn, depth) {
+            depth = depth || DEPTH;
+            x.clearRect(0, 0, 64, 64);
+            x.fillStyle = '#0a0c10';
+            x.beginPath();
+            x.roundRect ? x.roundRect(0, 0, 64, 64, 14) : x.rect(0, 0, 64, 64);
+            x.fill();
+            var step;
+            for (step = depth; step > 0; step--)       // block thickness, extruded down-right
+                draw(step > 1 ? side : edge, turn, step, step, wallAlpha(step, depth));
+            var exd = turn >= 0 ? -1 : 1;              // turning reveals the far side's thickness
+            var sideSteps = Math.round(3 * Math.abs(turn));
+            for (step = sideSteps; step > 0; step--)
+                draw(step > 1 ? side : edge, turn, exd * step, 0, wallAlpha(step, sideSteps));
+            draw(img, turn, 0, 0);                     // lit face on top
+            return c.toDataURL('image/png');
+        }
+        var TURNS = [0, 0.38, 0.71, 0.92, 1];          // quantized |turn| positions
+        var uris = TURNS.map(function (t) { return frame(t); })
+            .concat(TURNS.slice(1).map(function (t) { return frame(-t); }));
+        var depthUris = [uris[0], frame(0, 7), frame(0, 8)];
+        function uriFor(turn) {                        // nearest pre-rendered frame
+            var best = 0, dist = 2;
+            TURNS.forEach(function (t, i) { var d = Math.abs(Math.abs(turn) - t); if (d < dist) { dist = d; best = i; } });
+            return best === 0 ? uris[0] : uris[turn > 0 ? best : best + 4];
+        }
+        document.querySelectorAll('link[rel="icon"]').forEach(function (l) { l.remove(); });
+        var link = document.createElement('link');
+        link.rel = 'icon';
+        link.href = uris[0];
+        document.head.appendChild(link);
+        if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+        var CYCLE = 100, DUR = 22, tick = 0, last = uris[0];
+        setInterval(function () {
+            if (document.hidden) return;               // browser throttles anyway; skip work entirely
+            var t = tick % CYCLE, cyc = (tick / CYCLE) | 0; tick++;
+            var next;
+            if (t >= DUR) {
+                next = uris[0];
+            } else if (cyc % 2 === 0) {                // tilt, alternating direction
+                var s = (cyc / 2) % 2 === 0 ? 1 : -1;
+                next = uriFor(s * Math.sin(t / DUR * Math.PI));
+            } else {                                   // depth pulse: 6 -> 8 -> 6 layers
+                next = depthUris[Math.round(2 * Math.sin(t / DUR * Math.PI))];
+            }
+            if (next !== last) { link.href = last = next; }
+        }, 90);
+    };
 })();
 </script>
 </head>
