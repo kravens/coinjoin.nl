@@ -4,6 +4,7 @@
 <title>CoinJoin.nl</title>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
 <meta name="description" content="Not-for-profit WabiSabi coinjoin coordinator for Wasabi Wallet — 0% coordinator fee, weekly rounds. Batch your bitcoin transactions for lower fees and better privacy.">
 <meta property="og:title" content="CoinJoin.nl — WabiSabi Coordinator for Wasabi Wallet">
 <meta property="og:description" content="Not-for-profit coinjoin coordinator, 0% fee, weekly rounds. Batch your bitcoin transactions for lower fees and better privacy.">
@@ -43,7 +44,6 @@
     }
     * { box-sizing: border-box; }
     html { scroll-behavior: smooth; }
-    :root { interpolate-size: allow-keywords; }  /* enables height:auto transitions on folds */
     :focus-visible { outline: 2px solid #1dbc93; outline-offset: 2px; }
     body {
         margin: 0;
@@ -60,7 +60,7 @@
         min-height: 100vh;
     }
     @media (prefers-reduced-motion: reduce) {
-        body, .card { animation: none !important; }
+        body { animation: none !important; }
     }
     p { color: whitesmoke; }
 
@@ -75,19 +75,14 @@
         background: #26282a;
         box-shadow: 0 4px 18px rgba(0, 0, 0, 0.35);
     }
-    /* wabi-sabi accents (static, faint, no extra requests):
-       - kintsugi seam in the header: a crack repaired with gold (#e8b04b, the
-         site's amber) — broken history, mended
-       - growth rings behind the footer: imperfect, off-centre circles — rounds
-         accumulating like tree rings */
     body > .card:first-of-type {
-        /* kintsugi corner piece: the card's top-right corner broken off and
-           rejoined with a gold seam — hairline branches, isolated flakes inside
-           the fragment (inputs registered in isolation over Tor).
-           Generated (seed 17), matte pale gold. */
-        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='500' height='640' viewBox='0 0 500 640'%3E%3Cg opacity='.45'%3E%3Cg fill='%23e8b04b' stroke='%237d5a1e' stroke-width='4.4' stroke-linejoin='round'%3E%3Cpath d='M354 -17 L353 -13 L351 -6 L349 2 L346 11 L343 21 L341 31 L339 41 L337 50 L336 59 L336 71 L337 82 L338 92 L339 102 L340 111 L341 118 L358 120 L358 120 L372 112 L370 105 L368 96 L366 88 L365 78 L364 69 L363 61 L364 53 L365 45 L367 36 L368 26 L370 17 L372 8 L374 -0 L375 -7 L377 -13 Z'/%3E%3Cpath d='M348 133 L353 136 L358 141 L365 146 L372 152 L380 158 L387 164 L395 170 L403 175 L410 180 L418 185 L426 190 L433 194 L441 198 L448 202 L455 206 L463 209 L471 214 L481 217 L490 220 L498 223 L505 225 L515 215 L515 215 L514 203 L508 199 L500 195 L492 191 L484 187 L476 183 L470 179 L464 175 L457 171 L450 166 L444 162 L437 157 L429 152 L422 147 L415 142 L407 137 L399 131 L391 126 L383 120 L377 115 L371 111 L367 108 Z'/%3E%3Cpath d='M344 125 L346 129 L348 135 L350 141 L353 148 L356 156 L360 164 L363 173 L367 182 L370 191 L374 200 L377 210 L381 218 L384 227 L387 235 L389 243 L392 251 L395 260 L397 268 L400 277 L402 285 L404 293 L406 301 L409 309 L411 316 L413 323 L414 330 L416 337 L418 343 L420 355 L422 366 L423 376 L424 384 L425 391 L438 395 L438 395 L451 388 L450 381 L448 372 L446 361 L443 350 L440 337 L438 331 L436 324 L434 317 L432 310 L429 303 L426 295 L424 287 L421 279 L418 271 L415 262 L412 254 L410 246 L407 237 L404 229 L402 221 L399 212 L396 203 L393 194 L391 184 L388 175 L385 166 L382 157 L380 148 L377 140 L375 133 L373 126 L372 121 L370 116 Z'/%3E%3Cpath d='M429 389 L426 394 L423 400 L419 407 L414 415 L410 423 L405 432 L400 441 L395 450 L390 459 L386 467 L382 474 L378 483 L374 491 L371 499 L367 507 L364 515 L360 523 L357 530 L354 537 L352 543 L348 553 L344 563 L342 571 L340 579 L339 585 L338 590 L338 590 L342 586 L345 581 L348 574 L352 566 L356 557 L360 547 L363 541 L366 534 L370 527 L374 520 L378 512 L382 505 L387 497 L391 489 L395 482 L399 474 L404 466 L409 458 L414 450 L420 441 L426 433 L431 425 L437 418 L441 411 L445 406 L448 401 Z'/%3E%3Cpath d='M428 396 L429 401 L430 407 L431 414 L433 422 L435 430 L437 439 L438 448 L440 457 L442 466 L443 475 L444 483 L445 491 L446 499 L447 508 L448 516 L449 524 L450 531 L451 539 L452 547 L453 555 L453 562 L454 570 L454 579 L455 588 L455 597 L456 606 L457 615 L458 624 L458 632 L459 639 L459 645 L462 650 L462 650 L465 645 L465 639 L465 632 L465 624 L465 615 L465 606 L465 596 L464 587 L464 578 L464 570 L463 562 L463 554 L463 546 L463 538 L463 530 L463 523 L463 514 L462 506 L462 498 L461 489 L460 481 L459 473 L458 464 L457 455 L456 445 L455 436 L454 427 L453 418 L452 411 L451 404 L450 398 L450 393 Z'/%3E%3Cpath d='M430 401 L433 405 L438 411 L444 418 L450 425 L457 432 L463 440 L468 447 L473 453 L478 461 L483 469 L487 476 L491 482 L495 487 L500 490 L500 490 L499 485 L497 479 L494 472 L491 464 L487 456 L482 447 L478 441 L473 433 L468 424 L462 416 L457 408 L452 400 L448 394 L445 390 Z'/%3E%3Cellipse cx='362' cy='124' rx='19' ry='17'/%3E%3Cellipse cx='438' cy='398' rx='17' ry='15'/%3E%3C/g%3E%3Cg fill='%23e8b04b'%3E%3Cpath d='M354 -17 L353 -13 L351 -6 L349 2 L346 11 L343 21 L341 31 L339 41 L337 50 L336 59 L336 71 L337 82 L338 92 L339 102 L340 111 L341 118 L358 120 L358 120 L372 112 L370 105 L368 96 L366 88 L365 78 L364 69 L363 61 L364 53 L365 45 L367 36 L368 26 L370 17 L372 8 L374 -0 L375 -7 L377 -13 Z'/%3E%3Cpath d='M348 133 L353 136 L358 141 L365 146 L372 152 L380 158 L387 164 L395 170 L403 175 L410 180 L418 185 L426 190 L433 194 L441 198 L448 202 L455 206 L463 209 L471 214 L481 217 L490 220 L498 223 L505 225 L515 215 L515 215 L514 203 L508 199 L500 195 L492 191 L484 187 L476 183 L470 179 L464 175 L457 171 L450 166 L444 162 L437 157 L429 152 L422 147 L415 142 L407 137 L399 131 L391 126 L383 120 L377 115 L371 111 L367 108 Z'/%3E%3Cpath d='M344 125 L346 129 L348 135 L350 141 L353 148 L356 156 L360 164 L363 173 L367 182 L370 191 L374 200 L377 210 L381 218 L384 227 L387 235 L389 243 L392 251 L395 260 L397 268 L400 277 L402 285 L404 293 L406 301 L409 309 L411 316 L413 323 L414 330 L416 337 L418 343 L420 355 L422 366 L423 376 L424 384 L425 391 L438 395 L438 395 L451 388 L450 381 L448 372 L446 361 L443 350 L440 337 L438 331 L436 324 L434 317 L432 310 L429 303 L426 295 L424 287 L421 279 L418 271 L415 262 L412 254 L410 246 L407 237 L404 229 L402 221 L399 212 L396 203 L393 194 L391 184 L388 175 L385 166 L382 157 L380 148 L377 140 L375 133 L373 126 L372 121 L370 116 Z'/%3E%3Cpath d='M429 389 L426 394 L423 400 L419 407 L414 415 L410 423 L405 432 L400 441 L395 450 L390 459 L386 467 L382 474 L378 483 L374 491 L371 499 L367 507 L364 515 L360 523 L357 530 L354 537 L352 543 L348 553 L344 563 L342 571 L340 579 L339 585 L338 590 L338 590 L342 586 L345 581 L348 574 L352 566 L356 557 L360 547 L363 541 L366 534 L370 527 L374 520 L378 512 L382 505 L387 497 L391 489 L395 482 L399 474 L404 466 L409 458 L414 450 L420 441 L426 433 L431 425 L437 418 L441 411 L445 406 L448 401 Z'/%3E%3Cpath d='M428 396 L429 401 L430 407 L431 414 L433 422 L435 430 L437 439 L438 448 L440 457 L442 466 L443 475 L444 483 L445 491 L446 499 L447 508 L448 516 L449 524 L450 531 L451 539 L452 547 L453 555 L453 562 L454 570 L454 579 L455 588 L455 597 L456 606 L457 615 L458 624 L458 632 L459 639 L459 645 L462 650 L462 650 L465 645 L465 639 L465 632 L465 624 L465 615 L465 606 L465 596 L464 587 L464 578 L464 570 L463 562 L463 554 L463 546 L463 538 L463 530 L463 523 L463 514 L462 506 L462 498 L461 489 L460 481 L459 473 L458 464 L457 455 L456 445 L455 436 L454 427 L453 418 L452 411 L451 404 L450 398 L450 393 Z'/%3E%3Cpath d='M430 401 L433 405 L438 411 L444 418 L450 425 L457 432 L463 440 L468 447 L473 453 L478 461 L483 469 L487 476 L491 482 L495 487 L500 490 L500 490 L499 485 L497 479 L494 472 L491 464 L487 456 L482 447 L478 441 L473 433 L468 424 L462 416 L457 408 L452 400 L448 394 L445 390 Z'/%3E%3Cellipse cx='362' cy='124' rx='19' ry='17'/%3E%3Cellipse cx='438' cy='398' rx='17' ry='15'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+        /* coinjoin flow: many inputs converging into a tight mixed waist and
+           fanning back out, outputs shuffled (unlinkable). Faint site-palette
+           gradient behind the header content. Generated (seed 5). */
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1600 320' preserveAspectRatio='none'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='0'%3E%3Cstop offset='0' stop-color='%233c618b'/%3E%3Cstop offset='.5' stop-color='%231dbc93'/%3E%3Cstop offset='1' stop-color='%233c618b'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cg fill='none' stroke='url(%23g)' opacity='.14'%3E%3Cpath d='M-10 18 L 128 18 C 432 18 416 142 720 142 L 800 142' stroke-width='2.2'/%3E%3Cpath d='M-10 29 L 128 29 C 432 29 416 144 720 144 L 800 144' stroke-width='2.3'/%3E%3Cpath d='M-10 41 L 128 41 C 432 41 416 145 720 145 L 800 145' stroke-width='2.4'/%3E%3Cpath d='M-10 52 L 128 52 C 432 52 416 146 720 146 L 800 146' stroke-width='2.5'/%3E%3Cpath d='M-10 63 L 128 63 C 432 63 416 148 720 148 L 800 148' stroke-width='2.3'/%3E%3Cpath d='M-10 75 L 128 75 C 432 75 416 149 720 149 L 800 149' stroke-width='2.5'/%3E%3Cpath d='M-10 86 L 128 86 C 432 86 416 151 720 151 L 800 151' stroke-width='1.6'/%3E%3Cpath d='M-10 98 L 128 98 C 432 98 416 152 720 152 L 800 152' stroke-width='2.1'/%3E%3Cpath d='M-10 109 L 128 109 C 432 109 416 153 720 153 L 800 153' stroke-width='2.5'/%3E%3Cpath d='M-10 120 L 128 120 C 432 120 416 155 720 155 L 800 155' stroke-width='2.2'/%3E%3Cpath d='M-10 132 L 128 132 C 432 132 416 156 720 156 L 800 156' stroke-width='2.5'/%3E%3Cpath d='M-10 143 L 128 143 C 432 143 416 157 720 157 L 800 157' stroke-width='1.7'/%3E%3Cpath d='M-10 154 L 128 154 C 432 154 416 159 720 159 L 800 159' stroke-width='2.1'/%3E%3Cpath d='M-10 166 L 128 166 C 432 166 416 160 720 160 L 800 160' stroke-width='1.8'/%3E%3Cpath d='M-10 177 L 128 177 C 432 177 416 161 720 161 L 800 161' stroke-width='2.1'/%3E%3Cpath d='M-10 188 L 128 188 C 432 188 416 163 720 163 L 800 163' stroke-width='2.2'/%3E%3Cpath d='M-10 200 L 128 200 C 432 200 416 164 720 164 L 800 164' stroke-width='1.6'/%3E%3Cpath d='M-10 211 L 128 211 C 432 211 416 165 720 165 L 800 165' stroke-width='1.8'/%3E%3Cpath d='M-10 222 L 128 222 C 432 222 416 167 720 167 L 800 167' stroke-width='1.9'/%3E%3Cpath d='M-10 234 L 128 234 C 432 234 416 168 720 168 L 800 168' stroke-width='2.5'/%3E%3Cpath d='M-10 245 L 128 245 C 432 245 416 169 720 169 L 800 169' stroke-width='2.4'/%3E%3Cpath d='M-10 257 L 128 257 C 432 257 416 171 720 171 L 800 171' stroke-width='1.8'/%3E%3Cpath d='M-10 268 L 128 268 C 432 268 416 172 720 172 L 800 172' stroke-width='2.4'/%3E%3Cpath d='M-10 279 L 128 279 C 432 279 416 174 720 174 L 800 174' stroke-width='1.7'/%3E%3Cpath d='M-10 291 L 128 291 C 432 291 416 175 720 175 L 800 175' stroke-width='2.2'/%3E%3Cpath d='M-10 302 L 128 302 C 432 302 416 176 720 176 L 800 176' stroke-width='1.7'/%3E%3Cpath d='M 800 142 L 880 142 C 1184 142 1168 27 1472 27 L 1610 27' stroke-width='3.0'/%3E%3Cpath d='M 800 144 L 880 144 C 1184 144 1168 35 1472 35 L 1610 35' stroke-width='3.0'/%3E%3Cpath d='M 800 145 L 880 145 C 1184 145 1168 43 1472 43 L 1610 43' stroke-width='3.0'/%3E%3Cpath d='M 800 146 L 880 146 C 1184 146 1168 51 1472 51 L 1610 51' stroke-width='3.0'/%3E%3Cpath d='M 800 148 L 880 148 C 1184 148 1168 59 1472 59 L 1610 59' stroke-width='3.0'/%3E%3Cpath d='M 800 149 L 880 149 C 1184 149 1168 78 1472 78 L 1610 78' stroke-width='2.6'/%3E%3Cpath d='M 800 151 L 880 151 C 1184 151 1168 86 1472 86 L 1610 86' stroke-width='2.6'/%3E%3Cpath d='M 800 152 L 880 152 C 1184 152 1168 94 1472 94 L 1610 94' stroke-width='2.6'/%3E%3Cpath d='M 800 153 L 880 153 C 1184 153 1168 102 1472 102 L 1610 102' stroke-width='2.6'/%3E%3Cpath d='M 800 155 L 880 155 C 1184 155 1168 110 1472 110 L 1610 110' stroke-width='2.6'/%3E%3Cpath d='M 800 156 L 880 156 C 1184 156 1168 129 1472 129 L 1610 129' stroke-width='2.2'/%3E%3Cpath d='M 800 157 L 880 157 C 1184 157 1168 137 1472 137 L 1610 137' stroke-width='2.2'/%3E%3Cpath d='M 800 159 L 880 159 C 1184 159 1168 145 1472 145 L 1610 145' stroke-width='2.2'/%3E%3Cpath d='M 800 160 L 880 160 C 1184 160 1168 153 1472 153 L 1610 153' stroke-width='2.2'/%3E%3Cpath d='M 800 161 L 880 161 C 1184 161 1168 172 1472 172 L 1610 172' stroke-width='1.9'/%3E%3Cpath d='M 800 163 L 880 163 C 1184 163 1168 180 1472 180 L 1610 180' stroke-width='1.9'/%3E%3Cpath d='M 800 164 L 880 164 C 1184 164 1168 188 1472 188 L 1610 188' stroke-width='1.9'/%3E%3Cpath d='M 800 165 L 880 165 C 1184 165 1168 196 1472 196 L 1610 196' stroke-width='1.9'/%3E%3Cpath d='M 800 167 L 880 167 C 1184 167 1168 215 1472 215 L 1610 215' stroke-width='1.6'/%3E%3Cpath d='M 800 168 L 880 168 C 1184 168 1168 223 1472 223 L 1610 223' stroke-width='1.6'/%3E%3Cpath d='M 800 169 L 880 169 C 1184 169 1168 231 1472 231 L 1610 231' stroke-width='1.6'/%3E%3Cpath d='M 800 171 L 880 171 C 1184 171 1168 250 1472 250 L 1610 250' stroke-width='1.35'/%3E%3Cpath d='M 800 172 L 880 172 C 1184 172 1168 258 1472 258 L 1610 258' stroke-width='1.35'/%3E%3Cpath d='M 800 174 L 880 174 C 1184 174 1168 266 1472 266 L 1610 266' stroke-width='1.35'/%3E%3Cpath d='M 800 175 L 880 175 C 1184 175 1168 285 1472 285 L 1610 285' stroke-width='1.1'/%3E%3Cpath d='M 800 176 L 880 176 C 1184 176 1168 293 1472 293 L 1610 293' stroke-width='1.1'/%3E%3C/g%3E%3C/svg%3E");
         background-repeat: no-repeat;
-        background-position: top right;
+        background-position: center;
+        background-size: 100% 100%;  /* stretches with the viewport */
     }
     .card.footer {
         /* smooth tree rings with two void sectors (the art is what we leave away)
@@ -113,20 +108,16 @@
     }
     .sub { font-size: 0.95em; opacity: 0.8; margin: 0.2em 0 1em; }
 
-    /* collapsible sections: native <details>, header acts as toggle */
-    details.fold > summary { cursor: pointer; list-style: none; }
-    details.fold > summary::-webkit-details-marker { display: none; }
-    details.fold > summary .section::after { content: " ▸"; color: #1dbc93; }
-    details.fold[open] > summary .section::after { content: " ▾"; }
-    /* whole collapsed card is a click target (script below); show it */
-    .card:has(> details.fold:not([open])) { cursor: pointer; }
-    .card:has(> details.fold:not([open])):hover .section { color: #1dbc93; }
-    /* animate fold open/close where interpolate-size is supported */
-    details.fold::details-content {
-        block-size: 0; overflow-y: clip;
-        transition: block-size 0.35s ease, content-visibility 0.35s allow-discrete;
+    /* tab navigation: one section on screen at a time, nav shows the active view */
+    nav.sections a, nav.sections a:link, nav.sections a:visited {
+        padding: 6px 14px; border-radius: 8px;
+        background: #23252b; border: 1px solid rgba(255, 255, 255, 0.14);
+        color: orange; text-decoration: none;
     }
-    details.fold[open]::details-content { block-size: auto; }
+    nav.sections a:hover { background: #2e3138; color: darkorange; text-decoration: none; }
+    nav.sections a.navactive, nav.sections a.navactive:hover {
+        background: #1dbc93; border-color: #1dbc93; color: #0a0c10;
+    }
 
     /* ---------- header ---------- */
     /* logo PNG is pre-flattened to accent green (images/logo-green.png).
@@ -173,19 +164,45 @@
         flex-wrap: wrap;
         justify-content: center;
         align-items: center;
-        gap: 0.5em 1.3em;
-        margin: 1.1em auto 0.4em;
+        gap: 0.5em 0.7em;
         font-size: 1.05em;
+        position: sticky;
+        top: 0;
+        z-index: 100;
+        padding: 0.55em 0.8em;
+        margin: 0 0 0.618vw;
+        background: rgba(26, 28, 33, 0.92);
+        backdrop-filter: blur(6px);
+        border-radius: 15px;
     }
     nav.sections a { white-space: nowrap; }
+    @media (max-width: 600px) {
+        /* one horizontally scrollable row instead of a tall stuck grid;
+           scrollbar hidden — the faded edges hint at more tabs */
+        nav.sections {
+            flex-wrap: nowrap;
+            justify-content: flex-start;
+            overflow-x: auto;
+            font-size: 0.95em;
+            -webkit-overflow-scrolling: touch;
+            scrollbar-width: none;
+            mask-image: linear-gradient(90deg, transparent, #000 4%, #000 96%, transparent);
+            -webkit-mask-image: linear-gradient(90deg, transparent, #000 4%, #000 96%, transparent);
+        }
+        nav.sections::-webkit-scrollbar { display: none; }
+    }
 
     .callout {
         display: inline-block;
         margin: 0.9em auto 0.2em;
-        padding: 10px 22px;
+        padding: 10px 44px;
         border-radius: 12px;
         background: #0e2a23;
         border: 1px solid #1dbc93;
+        /* same edge fade as the nav bar: box dissolves softly at the sides;
+           fixed-width fade + matching padding keeps the text out of the fade */
+        mask-image: linear-gradient(90deg, transparent, #000 36px, #000 calc(100% - 36px), transparent);
+        -webkit-mask-image: linear-gradient(90deg, transparent, #000 36px, #000 calc(100% - 36px), transparent);
         font-size: 1.05em;
         line-height: 1.5;
     }
@@ -200,10 +217,6 @@
     .copybtn:active { transform: translateY(0); }
     .copybtn.copied { background: #2ed67a; color: #0a0c10; transform: scale(1.05); }
     @media (prefers-reduced-motion: reduce) { .copybtn { transition: none; } }
-    /* anchor variant must beat the global a:link/:visited rules */
-    a.copybtn { display: inline-block; text-decoration: none; }
-    a.copybtn:link, a.copybtn:visited { color: #fff; background-color: #23252b; }
-    a.copybtn:hover, a.copybtn:active { color: #fff; background-color: #2e3138; text-decoration: none; }
     /* coordinator toggle: radio-style copy buttons */
     .coordswitch { display: flex; flex-wrap: wrap; justify-content: center; gap: 0.6em; margin: 0.4em 0 1em; }
     .coordbtn.coordactive { background: #1dbc93; color: #0a0c10; }
@@ -283,6 +296,29 @@
         td.rid { max-width: 26vw; }
     }
     .error { color: #e8b04b; }
+
+    /* ---------- loading skeletons ---------- */
+    .skel { max-width: 1100px; width: 90%; margin: 10px auto; }
+    .skel div {
+        height: 16px; border-radius: 6px; margin: 10px 0;
+        background: linear-gradient(90deg, #2a2c31 25%, #34363c 50%, #2a2c31 75%);
+        background-size: 200% 100%;
+        animation: shimmer 1.4s linear infinite;
+    }
+    @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+    @media (prefers-reduced-motion: reduce) { .skel div { animation: none; } }
+
+    /* ---------- FAQ ---------- */
+    #faq { margin-top: 1.6em; }
+    #faq h3 { margin: 1.1em 0 0.2em; font-size: 1.15em; color: #1dbc93; }
+    #faq .faqlist { max-width: 56em; margin: 0 auto; text-align: left; }
+    #faq details { border-bottom: 1px solid rgba(255, 255, 255, 0.09); padding: 0.25em 0; }
+    #faq summary { cursor: pointer; padding: 0.55em 0; font-weight: 500; font-family: 'Objectivity', sans-serif; }
+    #faq summary::marker { color: #1dbc93; }
+    #faq details p { margin: 0.3em 0 0.9em; }
+
+    /* ---------- stats strip ---------- */
+    .statstrip { color: #1dbc93; font-size: 1.02em; margin: 0.4em auto 0.8em; }
     /* visually hidden, still announced by screen readers */
     .sr-only {
         position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
@@ -412,10 +448,10 @@
 <!-- ============ header ============ -->
 <div class="card">
     <span class="logowrap"><img class="logo" src="/images/logo-green.png" alt="CoinJoin.nl"><img class="logo logo-deep" src="/images/logo-green.png" alt="" aria-hidden="true"></span>
-    <h1>WabiSabi Coordinator for <a href="https://wasabiwallet.io/">Wasabi Wallet</a></h1>
+    <h1>WabiSabi Coordinator for <a href="https://wasabiwallet.io/" target="_blank" rel="noopener">Wasabi Wallet</a></h1>
     <p class="tagline">Combine your bitcoin transaction with others into one batch — lower fees,
     better privacy. Free and not-for-profit.</p>
-    <p class="sub">Privacy can be a side-effect of batching your transactions</p>
+    <p class="sub">🕶️ Privacy can be a side-effect of batching your transactions 🕶️</p>
 
     <script>
         // txflow/viewer pages ship their own near-black background (txflow.py BG);
@@ -440,49 +476,29 @@
             } catch (e) {}
         }
     </script>
-    <nav class="sections">
-        <a class="copybtn" href="#get-started">Get started</a>
-        <a href="#live">Live rounds</a>
-        <a href="#history">History</a>
-        <a href="#learn">Learn more</a>
-        <a href="#explore">Explore</a>
-        <a href="#latest">Latest round</a>
-        <a href="#hardware">Hardware wallet</a>
-    </nav>
-    <br>
-    <span class="callout">Weekly coinjoin round with <span id="minInputCount">26</span>+ inputs —
-    join us every <b>Sunday 0:00–23:59 (CET)</b>.<br>Smaller rounds can happen during the week
-    whenever enough inputs register.</span>
-    <script>
-        fetch('/wabisabi/status', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ RoundCheckpoints: [] })
-        })
-            .then(r => r.ok ? r.json() : Promise.reject())
-            .then(d => {
-                let min = null;
-                for (const rs of (d.roundStates || [])) {
-                    for (const ev of ((rs.coinjoinState || {}).Events || [])) {
-                        const m = (ev.RoundParameters || {}).MinInputCountByRound;
-                        if (m != null) { min = min == null ? m : Math.min(min, m); }
-                    }
-                }
-                if (min != null) document.getElementById('minInputCount').textContent = min;
-            })
-            .catch(() => {});
-    </script>
 </div>
+
+<!-- sticky tab bar: stays reachable however deep a section scrolls -->
+<nav class="sections" aria-label="Sections">
+    <a href="#get-started">🚀 Get started</a>
+    <a href="#live"><span id="liveDot">🟠</span> Live rounds</a>
+    <a href="#history">📜 History</a>
+    <a href="#learn">🎓 Learn more</a>
+    <a href="#explore">🔍 Explore</a>
+    <a href="#latest">🌀 Latest round</a>
+    <a href="#hardware">🔐 Hardware wallet</a>
+</nav>
 
 <!-- ============ live rounds ============ -->
 <div class="card" id="live">
     <h2 class="section">Live rounds</h2>
+    <p class="statstrip"></p>
     <p class="coordswitch">
         <button class="copybtn coordbtn coordactive" data-coord="local" onclick="switchCoord(this)">coinjoin.nl</button>
         <button class="copybtn coordbtn" data-coord="kruw" onclick="switchCoord(this)">coinjoin.kruw.io</button>
         <button class="copybtn coordbtn" data-coord="opencoord" onclick="switchCoord(this)">opencoordinator.org</button>
     </p>
-    <div id="content"><p class="sub">loading rounds…</p></div>
+    <div id="content"><div class="skel" aria-hidden="true"><div></div><div></div><div></div></div></div>
     <p id="roundsStatus" class="sr-only" aria-live="polite"></p>
     <script>
         async function fetchFeeRates() {
@@ -520,7 +536,8 @@
         function switchCoord(btn) {
             currentCoord = btn.dataset.coord;
             document.querySelectorAll('.coordbtn').forEach(b => b.classList.toggle('coordactive', b === btn));
-            document.getElementById('content').innerHTML = '<p class="sub">loading rounds…</p>';
+            document.getElementById('content').innerHTML =
+                '<div class="skel" aria-hidden="true"><div></div><div></div><div></div></div>';
             document.getElementById('roundsStatus').textContent = '';
             lastUpdated = null;
             fetchData();
@@ -544,7 +561,14 @@
                 const contentDiv = document.getElementById('content');
                 contentDiv.innerHTML = '<p class="error">Coordinator unreachable — retrying every 30 seconds.</p>';
                 document.getElementById('roundsStatus').textContent = 'coordinator unreachable';
+                setLiveDot('⚪', 'coordinator unreachable');
             }
+        }
+
+        function setLiveDot(dot, why) {
+            const el = document.getElementById('liveDot');
+            el.textContent = dot;
+            el.title = why;
         }
 
         function displayData(data, feeRates) {
@@ -593,9 +617,15 @@
                 const n = data.RoundStates.length;
                 document.getElementById('roundsStatus').textContent =
                     n + ' active round' + (n === 1 ? '' : 's');
+                // Wasabi-style indicator: green while a round is past registration
+                // (actively mixing), orange while registration is open
+                const mixing = data.RoundStates.some(s =>
+                    (s.Phase ?? s.phase ?? '') !== 'InputRegistration');
+                setLiveDot(mixing ? '🟢' : '🟠', mixing ? 'round in progress' : 'input registration open');
             } else {
                 contentDiv.innerHTML = '<p class="sub">No active rounds right now — new rounds open as inputs register.</p>';
                 document.getElementById('roundsStatus').textContent = 'no active rounds';
+                setLiveDot('⚪', 'no active rounds');
             }
         }
 
@@ -637,14 +667,13 @@
 
 <!-- ============ history ============ -->
 <div class="card" id="history">
-    <details class="fold">
-        <summary><h2 class="section">History</h2></summary>
-        <p class="sub">Last 10 rounds</p>
-        <div id="latest-stats">
-            <div id="latestStats"></div>
-        </div>
-        <p><a href="https://liquisabi.com">Full CoinJoin rounds history on LiquiSabi</a></p>
-    </details>
+    <h2 class="section">History</h2>
+    <p class="sub">Last 10 rounds</p>
+    <p class="statstrip"></p>
+    <div id="latest-stats">
+        <div id="latestStats"><div class="skel" aria-hidden="true"><div></div><div></div><div></div></div></div>
+    </div>
+    <p><a href="https://liquisabi.com" target="_blank" rel="noopener">Full CoinJoin rounds history on LiquiSabi</a></p>
     <script>
         // Parse `coinjoin-stats.py latest` text (2 lines per round) into a table that
         // reuses the round-monitor table styling.
@@ -653,10 +682,13 @@
             .then(t => {
                 const lines = t.split('\n');
                 let rows = '';
+                let nRounds = 0, totIn = 0, totOut = 0, frSum = 0, frN = 0;
                 for (let i = 0; i < lines.length; i++) {
                     const h = lines[i].match(/^\s+(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)\s+([0-9a-f]{64})/);
                     if (!h) continue;
                     const d = (lines[i + 1] || '').match(/in\/out (\d+)\/(\d+)\s+mining ([\d,]+) sat\s+coord ([\d,]+) sat\s+([\d.]+) sat\/vB/);
+                    nRounds++;
+                    if (d) { totIn += +d[1]; totOut += +d[2]; frSum += +d[5]; frN++; }
                     const txid = h[2];
                     const short = txid.slice(0, 8) + '…' + txid.slice(-8);
                     rows += `<tr>
@@ -669,6 +701,11 @@
                     </tr>`;
                 }
                 if (!rows) { document.getElementById('latest-stats').style.display = 'none'; return; }
+                if (totIn) {
+                    const strip = 'Last ' + nRounds + ' rounds: ' + totIn + ' inputs mixed into ' +
+                        totOut + ' outputs · avg ' + (frSum / frN).toFixed(1) + ' sat/vB';
+                    document.querySelectorAll('.statstrip').forEach(el => el.textContent = strip);
+                }
                 document.getElementById('latestStats').innerHTML = `
                     <table>
                         <thead><tr>
@@ -684,10 +721,9 @@
 
 <!-- ============ get started ============ -->
 <div class="card" id="get-started">
-    <details class="fold" open>
-        <summary><h2 class="section">Get started</h2></summary>
-        <div class="steps">
-        <h3><span class="n">1</span> Download &amp; install <a href="https://wasabiwallet.io/#download">Wasabi Wallet</a></h3>
+    <h2 class="section">Get started</h2>
+    <div class="steps">
+        <h3><span class="n">1</span> Download &amp; install <a href="https://wasabiwallet.io/#download" target="_blank" rel="noopener">Wasabi Wallet</a></h3>
 
         <h3><span class="n">2</span> Copy the magic connect string</h3>
         <div class="connect">
@@ -703,75 +739,133 @@
 
         <h3><span class="n">5</span> Receive bitcoin &amp; press play</h3>
         <p>Open your wallet, receive the funds you'd like to CoinJoin and press the play button to start!</p>
-        </div>
-    </details>
+    </div>
 </div>
 
 <!-- ============ learn more ============ -->
 <div class="card" id="learn">
-    <details class="fold">
-        <summary><h2 class="section">Learn more</h2></summary>
-        <p class="sub">Watch the 3-minute explainer.</p>
-        <iframe class="video" loading="lazy" src="https://www.youtube-nocookie.com/embed/dGATztn5Ql8" title="WabiSabi Coinjoin Explained in 3 Minutes" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
-        <div class="disclaimer">
+    <h2 class="section">Learn more</h2>
+    <p class="sub">Watch the 3-minute explainer.</p>
+    <iframe class="video" loading="lazy" src="https://www.youtube-nocookie.com/embed/dGATztn5Ql8" title="WabiSabi Coinjoin Explained in 3 Minutes" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+        <div id="faq">
+        <h3>FAQ</h3>
+        <p class="sub">Short answers — each links to the relevant chapter of the
+        <a href="https://docs.wasabiwallet.io/FAQ/" target="_blank" rel="noopener">Wasabi documentation</a> for depth.</p>
+        <div class="faqlist">
+
+        <details>
+            <summary>Can the coordinator steal my bitcoin?</summary>
+            <p>No. Your keys never leave your wallet — the coordinator only collects signed inputs
+            and outputs into one transaction. Wasabi refuses to sign unless your exact coins come
+            back to addresses you control, so the worst a malicious coordinator can do is fail the
+            round. <a href="https://docs.wasabiwallet.io/FAQ/FAQ-UseWasabi.html" target="_blank" rel="noopener">More: FAQ — Use Wasabi</a></p>
+        </details>
+        <details>
+            <summary>What does coinjoining here cost?</summary>
+            <p>coinjoin.nl charges a 0% coordinator fee. You pay only the bitcoin mining fee for
+            your share of the transaction — and because a coinjoin batches many payments into one
+            transaction, that share is often lower than a solo transaction.</p>
+        </details>
+        <details>
+            <summary>What does the coordinator learn about me?</summary>
+            <p>As little as the WabiSabi protocol allows: registrations arrive separately over Tor
+            and are blinded with cryptographic credentials, so the coordinator cannot link your
+            inputs to your outputs — that unlinkability is the whole design.
+            <a href="https://docs.wasabiwallet.io/FAQ/FAQ-GeneralBitcoinPrivacy.html" target="_blank" rel="noopener">More: FAQ — Bitcoin privacy</a></p>
+        </details>
+        <details>
+            <summary>Is there a minimum amount?</summary>
+            <p>Wasabi skips coins that are too small to be economical to coinjoin (dust), and our
+            weekly round starts once enough inputs register — <span id="minInputCountFaq">26</span>+
+            for the Sunday round. Practically: anything above dust size can join.
+            <a href="https://docs.wasabiwallet.io/using-wasabi/CoinJoin.html" target="_blank" rel="noopener">More: CoinJoin in depth</a></p>
+        </details>
+        <details>
+            <summary>Do I need to keep Wasabi running?</summary>
+            <p>Yes — your wallet must be online during the round to register, sign, and confirm.
+            If you disconnect, the round simply continues without you; your coins never move
+            without your wallet's signature.
+            <a href="https://docs.wasabiwallet.io/using-wasabi/CoinJoin.html" target="_blank" rel="noopener">More: CoinJoin in depth</a></p>
+        </details>
+        <details>
+            <summary>What happens if a round fails?</summary>
+            <p>Nothing is at risk: a failed round produces no transaction at all, and Wasabi
+            automatically joins the next one. Rounds fail when participants drop out — it costs
+            you nothing but time.</p>
+        </details>
+        <details>
+            <summary>Is coinjoining legal?</summary>
+            <p>A coinjoin is an ordinary bitcoin transaction that several people sign together —
+            batching payments for lower fees is its own justification, and privacy can be a
+            side-effect. Rules differ per jurisdiction and exchange; this is not legal advice.
+            <a href="https://docs.wasabiwallet.io/FAQ/FAQ-Introduction.html" target="_blank" rel="noopener">More: FAQ — Introduction</a></p>
+        </details>
+        <details>
+            <summary>Which wallets can join?</summary>
+            <p><a href="https://wasabiwallet.io/" target="_blank" rel="noopener">Wasabi Wallet</a> on desktop — see
+            <a href="#get-started">Get started</a>. Hardware wallet signing (keys never on the
+            computer) is under development — see the
+            <a href="#hardware">Hardware wallet</a> tab.
+            <a href="https://docs.wasabiwallet.io/FAQ/FAQ-Installation.html" target="_blank" rel="noopener">More: FAQ — Installation</a></p>
+        </details>
+        </div>
+    </div>
+    <div class="disclaimer">
             <h3>Disclaimer</h3>
             <p>User error (registration over clearnet without Tor) or malicious coordinators can lead to loss
             of UTXO privacy. Always update to the latest Wasabi Wallet version when possible and do your own
             research — start here:</p>
             <p>
             <b>Literature:</b>
-            <a href="https://eprint.iacr.org/2021/206.pdf">WabiSabi: centrally coordinated coinjoins with variable amounts (protocol paper)</a> ·
-            <a href="https://github.com/nopara73/ZeroLink">ZeroLink: the Bitcoin fungibility framework (Wasabi 1.0 basis)</a> ·
-            <a href="https://dl.acm.org/doi/10.1145/3528580.3528585">The unique dressing of transactions: Wasabi coinjoin detection</a> ·
-            <a href="https://arxiv.org/pdf/2109.10229">Adoption and actual privacy of decentralized coinjoin implementations</a> ·
-            <a href="https://eprint.iacr.org/2022/285.pdf">Usability of cryptocurrency wallets providing coinjoin transactions</a>
+            <a href="https://eprint.iacr.org/2021/206.pdf" target="_blank" rel="noopener">WabiSabi: centrally coordinated coinjoins with variable amounts (protocol paper)</a> ·
+            <a href="https://github.com/nopara73/ZeroLink" target="_blank" rel="noopener">ZeroLink: the Bitcoin fungibility framework (Wasabi 1.0 basis)</a> ·
+            <a href="https://dl.acm.org/doi/10.1145/3528580.3528585" target="_blank" rel="noopener">The unique dressing of transactions: Wasabi coinjoin detection</a> ·
+            <a href="https://arxiv.org/pdf/2109.10229" target="_blank" rel="noopener">Adoption and actual privacy of decentralized coinjoin implementations</a> ·
+            <a href="https://eprint.iacr.org/2022/285.pdf" target="_blank" rel="noopener">Usability of cryptocurrency wallets providing coinjoin transactions</a>
             </p>
             <p>
             <b>Critiques &amp; attacks:</b>
-            <a href="https://bitcoinmagazine.com/bigread/how-coinjoins-achieve-anonymity">Kogman: How coinjoin anonymity can be undermined using clustering</a> ·
-            <a href="https://bitcoinmagazine.com/builders/bitcoin-without-privacy-is-a-surveillance-system">Kogman: Bitcoin without privacy is a surveillance system</a> ·
-            <a href="https://groups.google.com/g/bitcoindev/c/CbfbEGozG7c/m/fKuKwo6kDAAJ">Yuval Kogman (nothingmuch) on centralized coinjoin deanonymization</a> ·
-            <a href="https://arxiv.org/pdf/2510.17284">Analysis of input–output mappings in arbitrary-value coinjoins (paper)</a>
+            <a href="https://bitcoinmagazine.com/bigread/how-coinjoins-achieve-anonymity" target="_blank" rel="noopener">Kogman: How coinjoin anonymity can be undermined using clustering</a> ·
+            <a href="https://bitcoinmagazine.com/builders/bitcoin-without-privacy-is-a-surveillance-system" target="_blank" rel="noopener">Kogman: Bitcoin without privacy is a surveillance system</a> ·
+            <a href="https://groups.google.com/g/bitcoindev/c/CbfbEGozG7c/m/fKuKwo6kDAAJ" target="_blank" rel="noopener">Yuval Kogman (nothingmuch) on centralized coinjoin deanonymization</a> ·
+            <a href="https://arxiv.org/pdf/2510.17284" target="_blank" rel="noopener">Analysis of input–output mappings in arbitrary-value coinjoins (paper)</a>
             </p>
             <p>
             <b>Sybil resistance &amp; JoinMarket research:</b>
-            <a href="https://groups.google.com/g/bitcoindev/c/xKlbd2tDfxs/m/PIvWIIu0AwAJ">Sybil resistance in different coinjoin implementations (bitcoindev, with waxwing &amp; nothingmuch)</a> ·
-            <a href="https://gist.github.com/chris-belcher/18ea0e6acdb885a2bfbdee43dcd6b5af">Fidelity bonds design (Chris Belcher)</a> ·
-            <a href="https://reyify.com/blog">waxwing's (Adam Gibson) blog</a>
+            <a href="https://groups.google.com/g/bitcoindev/c/xKlbd2tDfxs/m/PIvWIIu0AwAJ" target="_blank" rel="noopener">Sybil resistance in different coinjoin implementations (bitcoindev, with waxwing &amp; nothingmuch)</a> ·
+            <a href="https://gist.github.com/chris-belcher/18ea0e6acdb885a2bfbdee43dcd6b5af" target="_blank" rel="noopener">Fidelity bonds design (Chris Belcher)</a> ·
+            <a href="https://reyify.com/blog" target="_blank" rel="noopener">waxwing's (Adam Gibson) blog</a>
             </p>
             <p>
             <b>Comparisons &amp; counterpoints:</b>
-            <a href="https://petertodd.org/2025/coinjoin-comparison">Peter Todd's coinjoin comparison</a> ·
-            <a href="https://youtu.be/eIBTSe4OABI?t=19002">Kruw presentation BTC++ Riga 2025</a>
+            <a href="https://petertodd.org/2025/coinjoin-comparison" target="_blank" rel="noopener">Peter Todd's coinjoin comparison</a> ·
+            <a href="https://youtu.be/eIBTSe4OABI?t=19002" target="_blank" rel="noopener">Kruw presentation BTC++ Riga 2025</a>
             </p>
         </div>
-    </details>
 </div>
 
 <!-- ============ explore ============ -->
 <div class="card" id="explore">
-    <details class="fold">
-        <summary><h2 class="section">Explore</h2></summary>
-        <p class="sub">Scroll through the inputs and outputs of the latest real round — experience for
-        yourself how UTXO linking analysis works and how a coinjoin frustrates it.</p>
-        <div id="latest-round">
-            <iframe id="latestRoundFrame" class="viewerframe" title="Explore the latest CoinJoin round" loading="lazy"
-                    onload="recolorFrame(this)"></iframe>
-        </div>
-    </details>
+    <h2 class="section">Explore</h2>
+    <p class="sub">Scroll through the inputs and outputs of the latest real round — experience for
+    yourself how UTXO linking analysis works and how a coinjoin frustrates it.</p>
+    <p class="statstrip"></p>
+    <div id="latest-round">
+        <iframe id="latestRoundFrame" class="viewerframe" title="Explore the latest CoinJoin round" loading="lazy"
+                onload="recolorFrame(this)"></iframe>
+    </div>
 </div>
 
 <!-- ============ latest round ============ -->
 <div class="card" id="latest">
-    <details class="fold">
-        <summary><h2 class="section">Latest round</h2></summary>
-        <p class="sub">The most recent successful coinjoin, straight from the coordinator.</p>
-        <div id="latest-flow">
-            <iframe id="latestFlowFrame" class="viewerframe" title="Latest CoinJoin transaction flow" loading="lazy" src="/latest.html"
-                    onload="recolorFrame(this)"></iframe>
-        </div>
-        <p id="latestRoundMeta" style="overflow-wrap:anywhere;"></p>
-    </details>
+    <h2 class="section">Latest round</h2>
+    <p class="sub">The most recent successful coinjoin, straight from the coordinator.</p>
+    <p class="statstrip"></p>
+    <div id="latest-flow">
+        <iframe id="latestFlowFrame" class="viewerframe" title="Latest CoinJoin transaction flow" loading="lazy" src="/latest.html"
+                onload="recolorFrame(this)"></iframe>
+    </div>
+    <p id="latestRoundMeta" style="overflow-wrap:anywhere;"></p>
     <script>
         fetch('/latest-coinjoin.json', { cache: 'no-store' })
             .then(r => r.json())
@@ -789,14 +883,6 @@
             document.getElementById('latest-round').innerHTML =
                 '<p class="sub">No round data yet — check back after the next coinjoin.</p>';
         }
-        // nav links & deep links must still land on collapsed sections: open them
-        function openHash() {
-            const card = document.getElementById(location.hash.slice(1));
-            const fold = card && card.querySelector('details.fold');
-            if (fold) fold.open = true;
-        }
-        addEventListener('hashchange', openHash);
-        openHash();
     </script>
 </div>
 
@@ -885,13 +971,64 @@
         </g>
     </svg>
     <p>
-        <a href="https://github.com/kravens/coinjoin.nl/tree/main/pytrezord">pytrezord (lightweight Trezor bridge)</a> ·
-        <a href="https://github.com/kravens/WalletWasabi/tree/feature/trezor-coinjoin">feature/trezor-coinjoin (Wasabi branch, under development)</a>
+        <a href="https://github.com/kravens/coinjoin.nl/tree/main/pytrezord" target="_blank" rel="noopener">pytrezord (lightweight Trezor bridge)</a> ·
+        <a href="https://github.com/kravens/WalletWasabi/tree/feature/trezor-coinjoin" target="_blank" rel="noopener">feature/trezor-coinjoin (Wasabi branch, under development)</a>
     </p>
 </div>
 
 <!-- ============ footer ============ -->
 <div class="card footer">
+    <span class="callout">Weekly coinjoin round with <span id="minInputCount">26</span>+ inputs —
+    join us <b id="weeklyWhen">every Sunday 0:00–23:59 (CET)</b>.<br>Smaller rounds can happen during the week
+    whenever enough inputs register.</span>
+    <script>
+        fetch('/wabisabi/status', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ RoundCheckpoints: [] })
+        })
+            .then(r => r.ok ? r.json() : Promise.reject())
+            .then(d => {
+                let min = null;
+                for (const rs of (d.roundStates || [])) {
+                    for (const ev of ((rs.coinjoinState || {}).Events || [])) {
+                        const m = (ev.RoundParameters || {}).MinInputCountByRound;
+                        if (m != null) { min = min == null ? m : Math.min(min, m); }
+                    }
+                }
+                if (min != null) {
+                    document.getElementById('minInputCount').textContent = min;
+                    document.getElementById('minInputCountFaq').textContent = min;
+                }
+            })
+            .catch(() => {});
+
+        // live countdown to the weekly Sunday round, computed in the
+        // coordinator's timezone so no visitor has to do timezone math
+        function updateWeekly() {
+            const parts = {};
+            new Intl.DateTimeFormat('en-GB', {
+                timeZone: 'Europe/Amsterdam', weekday: 'short',
+                hour: 'numeric', minute: 'numeric', second: 'numeric', hourCycle: 'h23'
+            }).formatToParts(new Date()).forEach(p => { parts[p.type] = p.value; });
+            const el = document.getElementById('weeklyWhen');
+            const dow = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].indexOf(parts.weekday);
+            if (dow === 6) { el.textContent = 'TODAY — until 23:59 (CET)'; return; }
+            const passed = (+parts.hour) * 3600 + (+parts.minute) * 60 + (+parts.second);
+            const secs = (6 - dow) * 86400 - passed;
+            const d = Math.floor(secs / 86400), h = Math.floor(secs / 3600) % 24,
+                  m = Math.floor(secs / 60) % 60;
+            el.textContent = 'in ' + (d > 0 ? d + 'd ' : '') + h + 'h ' +
+                String(m).padStart(2, '0') + 'm (Sunday, CET)';
+        }
+        updateWeekly();
+        setInterval(updateWeekly, 30000);
+    </script>
+    <h3>Privacy of this website</h3>
+    <p>No analytics, no trackers, no cookies, no third-party CDNs. Fonts and images are
+    self-hosted, so your browser talks to coinjoin.nl and nothing else. Round data on this page
+    comes from our own coordinator; the optional other-coordinator monitors are proxied through
+    this server so your IP never reaches them.</p>
     <h3>Funding</h3>
     <p>The <a href='https://coinjoin.nl'>coinjoin.nl</a> coordinator is a not-for-profit community
     project; future fee-revenue goes directly to zapping bitcoin privacy devs on nostr and to
@@ -900,7 +1037,7 @@
     <p>Even with a 0% coordinator fee, there can be dust (pieces of bitcoin too small to economically
     spend) collection revenue for WabiSabi coordinators.</p>
     <p>
-        <a class="gh" href="https://github.com/kravens/coinjoin.nl" title="Source on GitHub">
+        <a class="gh" href="https://github.com/kravens/coinjoin.nl" title="Source on GitHub" target="_blank" rel="noopener">
             <svg viewBox="0 0 16 16" width="28" height="28" fill="currentColor" aria-hidden="true">
                 <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38
                 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01
@@ -915,13 +1052,37 @@
 </div>
 
 <script>
-    // a collapsed section's whole card opens it — bigger tap target than the title
-    document.querySelectorAll('.card').forEach(function (card) {
-        card.addEventListener('click', function (e) {
-            var d = card.querySelector(':scope > details.fold');
-            if (d && !d.open && !e.target.closest('summary, a, button, input')) d.open = true;
+    // tab navigation: only the active section is on screen; deep links and
+    // back/forward work via the hash. Default view: Get started.
+    var TABS = ['get-started', 'live', 'history', 'learn', 'explore', 'latest', 'hardware'];
+    if (location.hash === '#faq') location.hash = '#learn';  // FAQ lives in Learn more now
+    function showTab() {
+        var id = location.hash.slice(1);
+        if (TABS.indexOf(id) === -1) id = 'get-started';
+        TABS.forEach(function (t) {
+            document.getElementById(t).style.display = t === id ? '' : 'none';
+            var a = document.querySelector('nav.sections a[href="#' + t + '"]');
+            if (a) {
+                a.classList.toggle('navactive', t === id);
+                if (t === id) a.setAttribute('aria-current', 'page');
+                else a.removeAttribute('aria-current');
+                if (t === id) {
+                    // "🚀 Get started" -> "Get started · CoinJoin.nl"
+                    var label = a.textContent.replace(/^[^A-Za-z]*/, '').trim();
+                    document.title = label + ' · CoinJoin.nl';
+                    // keep the active tab in view when the bar scrolls (mobile)
+                    var nav = a.parentElement;
+                    if (nav.scrollWidth > nav.clientWidth)
+                        a.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' });
+                }
+            }
         });
-    });
+        // iframes measured while hidden fit wrong: re-fit once the tab is visible
+        if (id === 'latest') recolorFrame(document.getElementById('latestFlowFrame'));
+        if (id === 'explore') recolorFrame(document.getElementById('latestRoundFrame'));
+    }
+    addEventListener('hashchange', showTab);
+    showTab();
 </script>
 </body>
 </html>

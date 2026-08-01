@@ -1,0 +1,17 @@
+{
+    "name": "CoinJoin.nl",
+    "short_name": "CoinJoin.nl",
+    "description": "Not-for-profit WabiSabi coinjoin coordinator for Wasabi Wallet",
+    "start_url": "/",
+    "display": "browser",
+    "background_color": "#0a0c10",
+    "theme_color": "#26282a",
+    "icons": [
+        {
+            "src": "/images/icon-green.png",
+            "sizes": "208x255",
+            "type": "image/png",
+            "purpose": "any"
+        }
+    ]
+}
