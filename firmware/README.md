@@ -84,6 +84,29 @@ Verifying the hash without checking the signature only tells you the file downlo
 built it. Checking a signature against a key this page hands you tells you only that whoever wrote
 this page also made the signature — which is why the key comes from somewhere else.
 
+## Install on the Mk4
+
+Verify the file first. Then, from microSD:
+
+1. Copy `firmware-5.6.0-slip19-NODEBUG-mk4.dfu` to a FAT32 microSD card. Keep the `.dfu` extension —
+   the device only lists those.
+2. Insert the card, then `Advanced/Tools` → `Upgrade Firmware` → `From MicroSD`, and pick the file.
+3. The device checks the header, copies the image to internal flash, and reboots into its bootloader
+   to finish. This takes a few minutes. **Leave it powered** until it comes back on its own.
+4. It boots with a **"Danger: Custom Firmware"** screen. Expected — see the warnings below.
+5. Confirm with `Advanced/Tools` → `Upgrade Firmware` → `Show Version`. This image reports version
+   `5.6.0`, built `2026-08-02`.
+
+Over USB instead, if you already have USB enabled:
+
+```bash
+pip install ckcc-protocol
+ckcc upgrade firmware-5.6.0-slip19-NODEBUG-mk4.dfu
+```
+
+To go back to Coinkite's official firmware, install their `.dfu` the same way. This build does not
+raise the device's OTP downgrade floor, so it does not stand in the way of that.
+
 ## Enable USB and HSM mode
 
 Two settings on the device, once. Both need a real seed loaded.
