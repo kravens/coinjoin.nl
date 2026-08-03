@@ -1,0 +1,1 @@
+70e9226be275927fd172ede4de7284f050fd2af7895a969d915ef2cd964fc320  firmware-5.6.0-slip19-NODEBUG-mk4.dfu
