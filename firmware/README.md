@@ -54,19 +54,35 @@ Linux distributions ship it, macOS gets it from `brew install gnupg`, Windows fr
 gpg --verify SHA256SUMS.txt.sig SHA256SUMS.txt
 ```
 
-Expected signing key, fetched from a keyserver rather than from this repository:
+The signing key is not in this repository, deliberately. Get it from the primary source, the
+builder's own site:
+
+```bash
+curl -sLo signing-key.asc "https://kravens.nl/Kevin%20Ravensberg_0x01272020_public.asc"
+gpg --import signing-key.asc
+```
+
+Expected fingerprint:
+
+```
+2536 F69E 9C37 2566 2B6C  146B DCF1 7F7A 0127 2020
+```
+
+Cross-check that against an independent copy on a keyserver, which is run by neither the builder nor
+this site:
 
 ```bash
 gpg --keyserver hkps://keyserver.ubuntu.com --recv-keys 2536F69E9C3725662B6C146BDCF17F7A01272020
 ```
 
+The two copies are byte-identical today. If they ever stop being, believe neither and ask.
+
 GPG will say the key is not certified with a trusted signature. That is expected and not a failure:
-nobody has signed this key for you. The fingerprint above is the thing to check, against a source
-that is not this page.
+nobody has signed this key for you. The fingerprint is the thing to check.
 
 Verifying the hash without checking the signature only tells you the file downloaded intact, not who
-built it. Checking the signature without knowing the fingerprint from somewhere other than this page
-tells you only that whoever wrote this page also made the signature.
+built it. Checking a signature against a key this page hands you tells you only that whoever wrote
+this page also made the signature — which is why the key comes from somewhere else.
 
 ## Enable USB and HSM mode
 
