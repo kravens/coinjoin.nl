@@ -68,6 +68,30 @@ Verifying the hash without checking the signature only tells you the file downlo
 built it. Checking the signature without knowing the fingerprint from somewhere other than this page
 tells you only that whoever wrote this page also made the signature.
 
+## Enable USB and HSM mode
+
+Two settings on the device, once. Both need a real seed loaded.
+
+| | where | set it to |
+| --- | --- | --- |
+| 1 | `Settings` → `Hardware On/Off` → `USB Port` | `Default On` |
+| 2 | `Advanced/Tools` → `Spending Policy` → `HSM Mode` | `Enable` |
+
+USB is on unless somebody turned it off. **HSM Mode is off from the factory** — leave it off and the
+coinjoin USB commands are refused, which is the correct default for a device nobody is watching.
+
+Then, each time the host starts a session:
+
+3. The host uploads its policy. The device shows what that policy allows, ending in
+   **"Press OK to enable HSM mode."** — read it, then press **OK**.
+4. For a policy it has not seen before, a second screen shows the **policy hash** and asks you to
+   **press one specific digit** it names. The digit changes every time, so a host cannot script its
+   way past this screen.
+5. **Compare that hash with the one your host is showing** before you walk away. Matching hashes mean
+   the device is enforcing the policy the host sent, not one it was talked into.
+
+The device now signs within that policy without asking again. **Power-cycle it to leave HSM mode.**
+
 ## What is in it
 
 Base: Coinkite firmware `c849c4e0`, which is 5.6.0 including the July 2026 entropy hotfix.
@@ -113,8 +137,6 @@ same source produces a different hash. To rebuild the payload yourself, check ou
   confirmed on regtest and mainnet — but tested is not audited.
 - `FWHIF_HIGH_WATER` is not set in the header, so installing this does not raise the device's
   permanent OTP downgrade floor.
-- **`hsmcmd` must be enabled on the device** for any of the coinjoin functionality. A
-  factory-fresh unit ships with it off.
 - Signing speed is the practical limit today. An Mk4 needs roughly 2.7 ms per PSBT byte, so a
   ~14 KB round signs in about 40 s while a ~40 KB round takes 100 s or more and can miss a
   coordinator's signing phase. Small rounds work; large ones need a coordinator with a longer
