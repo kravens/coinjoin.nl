@@ -20,19 +20,35 @@ and the Mk3 line ended before the policy rules this depends on existed.
 
 ## Verify before you install
 
-Check the hash:
+Put all three files in the same directory and run the commands there.
+
+**Check the hash.**
+
+Linux:
 
 ```bash
 sha256sum -c SHA256SUMS.txt
 ```
 
-On Windows:
+macOS (no `sha256sum` by default; `shasum` reads the same file):
 
-```powershell
-Get-FileHash firmware-5.6.0-slip19-NODEBUG-mk4.dfu -Algorithm SHA256
+```bash
+shasum -a 256 -c SHA256SUMS.txt
 ```
 
-Check the signature over the hash file:
+Windows, in PowerShell:
+
+```powershell
+$want = (Get-Content SHA256SUMS.txt).Split(' ')[0]
+$got = (Get-FileHash firmware-5.6.0-slip19-NODEBUG-mk4.dfu -Algorithm SHA256).Hash
+if ($got -eq $want) { "OK" } else { "MISMATCH" }
+```
+
+Either way the answer is one word. Anything other than `OK` means stop.
+
+**Check the signature over the hash file.** Same command everywhere, once GPG is installed — most
+Linux distributions ship it, macOS gets it from `brew install gnupg`, Windows from
+[Gpg4win](https://gpg4win.org/):
 
 ```bash
 gpg --verify SHA256SUMS.txt.sig SHA256SUMS.txt
