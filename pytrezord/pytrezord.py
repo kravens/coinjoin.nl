@@ -29,9 +29,20 @@ LISTEN_POLL_S, LISTEN_MAX_S = 0.5, 30
 ORIGIN_RE = re.compile(r"^https://([\w-]+\.)*trezor\.io$|^https?://(localhost|127\.0\.0\.1)(:\d+)?$")
 
 
+def log(message):
+	"""Always-on diagnostics (a dropped device, and why); per-request logging needs --verbose."""
+	sys.stderr.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {message}\n")
+
+
 # ---- USB transport ----------------------------------------------------------------
 class DeviceGone(Exception):
-	pass
+	"""The device cannot be used any more: unplugged, a USB error, or a frame we cannot parse.
+	The reason is logged when the bridge drops the session, so a dead session can be explained
+	later - the HTTP client only ever sees 'device disconnected during action'."""
+
+	def __init__(self, path, reason="not connected"):
+		super().__init__(f"{path}: {reason}")
+		self.path, self.reason = path, reason
 
 
 class UsbTransport:
@@ -59,7 +70,7 @@ class UsbTransport:
 			for dev in self._usb.find(find_all=True, backend=self._backend, idVendor=vid, idProduct=pid):
 				if f"{dev.bus}:{dev.address}" == path:
 					return dev
-		raise DeviceGone(path)
+		raise DeviceGone(path, "not enumerated")
 
 	def open(self, path):
 		dev = self._find(path)
@@ -88,23 +99,25 @@ class UsbTransport:
 		"""message = type(u16 BE) + length(u32 BE) + payload, as the bridge API frames it."""
 		dev = self._open.get(path)
 		if dev is None:
-			raise DeviceGone(path)
+			raise DeviceGone(path, "not open")
 		stream = b"##" + message  # '##' magic + header+payload, then chopped into '?' reports
 		try:
 			for i in range(0, len(stream), REPORT_LEN - 1):
 				chunk = b"?" + stream[i:i + REPORT_LEN - 1]
 				dev.write(ENDPOINT_OUT, chunk.ljust(REPORT_LEN, b"\0"))
 		except self._usb.USBError as e:
-			raise DeviceGone(path) from e
+			raise DeviceGone(path, f"usb write failed: {e}") from e
 
 	def read(self, path):
 		dev = self._open.get(path)
 		if dev is None:
-			raise DeviceGone(path)
+			raise DeviceGone(path, "not open")
 		try:
 			report = bytes(dev.read(ENDPOINT_IN, REPORT_LEN, timeout=READ_TIMEOUT_MS))
 			if not report.startswith(b"?##"):
-				raise DeviceGone(path)  # protocol desync - drop the device rather than guess
+				# Protocol desync - drop the device rather than guess. Usually the reply to an earlier
+				# request that the client gave up on, arriving where a fresh message header was expected.
+				raise DeviceGone(path, f"protocol desync: report starts with {report[:9]!r}")
 			_, length = struct.unpack(">HI", report[3:9])
 			data = report[3:]
 			while len(data) < 6 + length:
@@ -112,7 +125,7 @@ class UsbTransport:
 				data += cont[1:]  # continuation reports repeat the '?' magic only
 			return data[:6 + length]
 		except self._usb.USBError as e:
-			raise DeviceGone(path) from e
+			raise DeviceGone(path, f"usb read failed: {e}") from e
 
 
 # ---- sessions ---------------------------------------------------------------------
@@ -173,11 +186,14 @@ class Bridge:
 				raise KeyError("session not found")
 			return path, self._device_locks[path]
 
-	def _drop(self, path):
+	def _drop(self, path, error):
+		"""Forget a device that failed mid-action. Its session is dead from here on and the client
+		has to acquire anew, so say why - the client only gets a generic 400 for it."""
 		with self._lock:
 			session = self._by_path.pop(path, None)
 			self._sessions.pop(session, None)
 			self.transport.close(path)
+		log(f"device {path} dropped, session {session} is gone: {error.reason}")
 
 	def call(self, session, message):
 		path, lock = self._path_for(session)
@@ -185,8 +201,8 @@ class Bridge:
 			try:
 				self.transport.write(path, message)
 				return self.transport.read(path)
-			except DeviceGone:
-				self._drop(path)
+			except DeviceGone as e:
+				self._drop(path, e)
 				raise
 
 	def post(self, session, message):
@@ -194,8 +210,8 @@ class Bridge:
 		with lock:
 			try:
 				self.transport.write(path, message)
-			except DeviceGone:
-				self._drop(path)
+			except DeviceGone as e:
+				self._drop(path, e)
 				raise
 
 	def read(self, session):
@@ -203,8 +219,8 @@ class Bridge:
 		with lock:
 			try:
 				return self.transport.read(path)
-			except DeviceGone:
-				self._drop(path)
+			except DeviceGone as e:
+				self._drop(path, e)
 				raise
 
 

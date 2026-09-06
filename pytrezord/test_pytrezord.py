@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # Unit tests for pytrezord.py - run: python3 test_pytrezord.py  (no device needed)
-import json, struct, threading, unittest, urllib.request, urllib.error
+import contextlib, io, json, struct, threading, unittest, urllib.request, urllib.error
 from http.server import ThreadingHTTPServer
 
 import pytrezord
@@ -81,8 +81,10 @@ class BridgeTests(unittest.TestCase):
 	def test_device_unplug_drops_session(self):
 		s = self.b.acquire("1:11", None)
 		self.t.opened.clear()  # simulates the cable coming out
-		with self.assertRaises(DeviceGone):
+		with contextlib.redirect_stderr(io.StringIO()) as err, self.assertRaises(DeviceGone) as raised:
 			self.b.call(s, b"\0\0\0\0\0\0")
+		self.assertEqual(raised.exception.reason, "not connected")
+		self.assertIn(f"device 1:11 dropped, session {s} is gone: not connected", err.getvalue())  # always logged
 		with self.assertRaises(KeyError):
 			self.b.call(s, b"\0\0\0\0\0\0")  # session cleaned up
 
@@ -187,6 +189,13 @@ class FramingTests(unittest.TestCase):
 			self.assertTrue(all(r[0:1] == b"?" for r in dev.reports))
 			self.assertTrue(dev.reports[0].startswith(b"?##"))
 			self.assertEqual(t.read("1:11"), msg, f"payload_len={payload_len}")
+
+	def test_desync_names_the_offending_report(self):
+		dev = self.Endpoints()
+		dev.reports.append(b"?" + b"\0" * 63)  # a continuation report where a header was expected
+		with self.assertRaises(DeviceGone) as raised:
+			self._transport_with(dev).read("1:11")
+		self.assertTrue(raised.exception.reason.startswith("protocol desync"), raised.exception.reason)
 
 
 if __name__ == "__main__":
