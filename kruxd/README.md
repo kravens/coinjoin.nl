@@ -62,6 +62,12 @@ Differences from the Krux flow:
 `test_sabi_link.py` is a loopback check of the command translation against a real
 `UsbSession`: `SABISIGNER_SRC=~/Documents/SabiSigner/src python -m pytest kruxd/test_sabi_link.py`.
 
+Wasabi cannot import a SabiSigner through HWI, so `sabi-wallet.py NAME --network RegTest`
+writes the wallet file instead: one session, two xpub prompts on the device, and a
+KeyManager JSON with `CoinJoinVendor: 3`. Restart Wasabi afterwards. Fund taproot receive
+addresses for the first rounds: Wasabi's Krux PSBT carries no `non_witness_utxo`, which
+the device requires for segwit inputs.
+
 ## Hardware test procedure (WonderMV)
 
 1. Flash `feat/slip-19-coinjoin` build: `ktool.py -B dan -p COM8 -b 2000000 kboot.kfpkg`
