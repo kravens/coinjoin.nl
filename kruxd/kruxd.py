@@ -142,6 +142,11 @@ class SabiLink:
         self._channel = crypto.handshake_initiator(base64.b64decode(reply["pk"], validate=True), host_priv)
         print("SabiSigner pairing code: %s %s -- confirm the same digits on the device"
               % (self._channel.sas[:3], self._channel.sas[3:]))
+        # The device drops every record until the user has approved the pairing, and it
+        # does not say when that happened; only the human knows. A record sent too early
+        # is lost, and the encrypted channel accepts records strictly in order, so nothing
+        # is sent until they say so here.
+        input("Approve the pairing on the device, then press enter here: ")
 
     def authorize(self, account_path, max_rounds, max_fee_per_round_sat, max_total_fee_sat, coordinator="wasabi"):
         """

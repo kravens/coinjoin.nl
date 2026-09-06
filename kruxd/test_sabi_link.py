@@ -69,6 +69,7 @@ def link(monkeypatch):
     seed = Seed(MNEMONIC)
     device = FakeDevice(seed)
     monkeypatch.setitem(sys.modules, "hid", types.SimpleNamespace(device=lambda: device))
+    monkeypatch.setattr("builtins.input", lambda prompt="": "")  # the pairing keypress
     link = kruxd.SabiLink(SABISIGNER_SRC).authorize("m/84'/0'/0'", 3, 1_000, 3_000)
     return link, device, seed
 
