@@ -33,6 +33,35 @@ Policy violations come back as HTTP 400 with the device's reason.
 > wiping the loaded wallet. kruxd keeps the port open for its whole lifetime, so this
 > only happens once, at startup.
 
+## SabiSigner target
+
+The same bridge drives a [SabiSigner](https://github.com/kravens/SabiSigner) (SeedSigner
+fork) over its encrypted USB HID session, presenting the identical HTTP API. Wasabi's Krux
+backend therefore works unchanged: mark the wallet file `"CoinJoinVendor": 3` and Wasabi
+talks to the SabiSigner through this bridge.
+
+```
+pip install hidapi embit
+# device on Tools > USB, seed loaded; SabiSigner checkout at ~/Documents/SabiSigner
+python kruxd.py sabi --account "m/84'/1'/0'" --max-rounds 20 \
+                     --max-fee-per-round-sat 5000 --max-total-fee-sat 50000
+```
+
+Differences from the Krux flow:
+
+* Authorization is host-initiated, so the bridge asks for it at startup with the budget
+  given above. Compare the six pairing digits it prints with the device screen, then
+  approve the budget on the device. `/authorize` from Wasabi is a no-op afterwards.
+* The budget is in satoshis (per round and per session), not sat/vB. The device also
+  refuses a round with fewer than four foreign inputs, and any non-taproot input without
+  its full previous transaction.
+* One account path per authorization: a proof or signature for a key outside it is refused.
+* The device's own `usb.crypto` and `usb.hidframe` modules are imported from the checkout
+  (`--sabisigner-src`), so the bridge carries no protocol code of its own.
+
+`test_sabi_link.py` is a loopback check of the command translation against a real
+`UsbSession`: `SABISIGNER_SRC=~/Documents/SabiSigner/src python -m pytest kruxd/test_sabi_link.py`.
+
 ## Hardware test procedure (WonderMV)
 
 1. Flash `feat/slip-19-coinjoin` build: `ktool.py -B dan -p COM8 -b 2000000 kboot.kfpkg`
