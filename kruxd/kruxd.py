@@ -12,7 +12,7 @@ Exposes a small localhost HTTP API for a Wasabi KeyChain:
 
 Usage: kruxd.py COM8 [--baud 115200]   (serial)
        kruxd.py sim [host]             (simulator TCP :52123)
-       kruxd.py sabi [--account m/84'/1'/0'] [--max-rounds N]
+       kruxd.py sabi [--account m/84'/0'/0'] [--max-rounds N]
                      [--max-fee-per-round-sat N] [--max-total-fee-sat N]
                      [--sabisigner-src PATH]    (SabiSigner over USB HID)
 
@@ -114,7 +114,8 @@ class SabiLink:
     VENDOR_ID = 0x1209
     PRODUCT_ID = 0x0001
 
-    def __init__(self, account_path, max_rounds, max_fee_per_round_sat, max_total_fee_sat, sabisigner_src, coordinator="wasabi"):
+    def __init__(self, sabisigner_src):
+        """Open the device and run the handshake; nothing is authorized yet."""
         import hid  # pip install hidapi
 
         sys.path.insert(0, sabisigner_src)
@@ -126,6 +127,9 @@ class SabiLink:
         self._dev = hid.device()
         self._dev.open(self.VENDOR_ID, self.PRODUCT_ID)
         self._decoder = hidframe.Decoder()
+        self.fingerprint = None
+        self.max_rounds = 0
+        self.rounds_remaining = 0
 
         host_priv = ec.PrivateKey(os.urandom(32))
         self._send_raw(json.dumps({
@@ -139,9 +143,12 @@ class SabiLink:
         print("SabiSigner pairing code: %s %s -- confirm the same digits on the device"
               % (self._channel.sas[:3], self._channel.sas[3:]))
 
-        # The authorization is the one thing the user approves; everything after it is
-        # policy-checked on the device. This blocks until both prompts are answered.
-        approved = self._json({
+    def authorize(self, account_path, max_rounds, max_fee_per_round_sat, max_total_fee_sat, coordinator="wasabi"):
+        """
+        The one thing the user approves; everything after it is policy-checked on the device.
+        Blocks until the pairing and the budget prompts are both answered.
+        """
+        approved = self.json({
             "t": "authorize_coinjoin",
             "coordinator": coordinator,
             "account_path": account_path,
@@ -154,6 +161,7 @@ class SabiLink:
         self.rounds_remaining = approved["rounds_remaining"]
         print("SabiSigner authorized: fingerprint %s, %d rounds, %d sat/round, %d sat total, account %s"
               % (approved["fingerprint"], max_rounds, max_fee_per_round_sat, max_total_fee_sat, account_path))
+        return self
 
     # -- transport ----------------------------------------------------------------------
 
@@ -168,7 +176,7 @@ class SabiLink:
             if message is not None:
                 return message
 
-    def _json(self, body):
+    def json(self, body):
         """One encrypted request; a device-side refusal becomes ValueError like a Krux policy error."""
         self._send_raw(self._channel.seal(json.dumps(body).encode()))
         reply = json.loads(self._channel.open(self._recv_raw()))
@@ -194,7 +202,7 @@ class SabiLink:
                 count = payload[2]
                 indexes = [int.from_bytes(payload[3 + 4 * i:7 + 4 * i], "big") for i in range(count)]
                 commitment = payload[3 + 4 * count:]
-                reply = self._json({
+                reply = self.json({
                     "t": "get_ownership_proof",
                     "path": "m/" + "/".join(str(i - 2**31) + "'" if i >= 2**31 else str(i) for i in indexes),
                     "script_type": script_type,
@@ -202,7 +210,7 @@ class SabiLink:
                 })
                 return base64.b64decode(reply["proof"])
             if cmd == CMD_SIGN:
-                reply = self._json({"t": "sign_coinjoin", "psbt": base64.b64encode(payload[1:]).decode("ascii")})
+                reply = self.json({"t": "sign_coinjoin", "psbt": base64.b64encode(payload[1:]).decode("ascii")})
                 self.rounds_remaining = reply["rounds_remaining"]
                 return base64.b64decode(reply["psbt"])
             raise ValueError("unknown command %d" % cmd)
@@ -282,15 +290,15 @@ def main():
         sys.exit(__doc__)
     if target == "sabi":
         parser = argparse.ArgumentParser(prog="kruxd.py sabi")
-        parser.add_argument("--account", default="m/84'/1'/0'", help="account the device may sign under (default regtest/testnet segwit)")
+        parser.add_argument("--account", default="m/84'/0'/0'", help="account the device may sign under; Wasabi uses coin type 0 even on regtest")
         parser.add_argument("--max-rounds", type=int, default=20)
         parser.add_argument("--max-fee-per-round-sat", type=int, default=5_000)
         parser.add_argument("--max-total-fee-sat", type=int, default=50_000)
         parser.add_argument("--sabisigner-src", default=os.path.expanduser("~/Documents/SabiSigner/src"),
                             help="SabiSigner checkout's src/ (its usb.crypto and usb.hidframe are reused)")
         opts = parser.parse_args(sys.argv[2:])
-        Handler.link = SabiLink(opts.account, opts.max_rounds, opts.max_fee_per_round_sat,
-                                opts.max_total_fee_sat, opts.sabisigner_src)
+        Handler.link = SabiLink(opts.sabisigner_src).authorize(
+            opts.account, opts.max_rounds, opts.max_fee_per_round_sat, opts.max_total_fee_sat)
     else:
         Handler.link = DeviceLink(target, arg.replace("--baud", "").strip() if arg else None)
     server = HTTPServer(("127.0.0.1", HTTP_PORT), Handler)  # localhost only

@@ -43,7 +43,7 @@ talks to the SabiSigner through this bridge.
 ```
 pip install hidapi embit
 # device on Tools > USB, seed loaded; SabiSigner checkout at ~/Documents/SabiSigner
-python kruxd.py sabi --account "m/84'/1'/0'" --max-rounds 20 \
+python kruxd.py sabi --account "m/84'/0'/0'" --max-rounds 20 \
                      --max-fee-per-round-sat 5000 --max-total-fee-sat 50000
 ```
 

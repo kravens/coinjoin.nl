@@ -69,7 +69,7 @@ def link(monkeypatch):
     seed = Seed(MNEMONIC)
     device = FakeDevice(seed)
     monkeypatch.setitem(sys.modules, "hid", types.SimpleNamespace(device=lambda: device))
-    link = kruxd.SabiLink("m/84'/0'/0'", 3, 1_000, 3_000, SABISIGNER_SRC)
+    link = kruxd.SabiLink(SABISIGNER_SRC).authorize("m/84'/0'/0'", 3, 1_000, 3_000)
     return link, device, seed
 
 
