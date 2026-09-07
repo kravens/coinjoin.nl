@@ -2,15 +2,40 @@
 name = "coinjoin-signer"
 version = "0.1.0"
 edition = "2021"
-license = "MIT"
 
 [workspace]
+members = ["crates/wallet-rpc-core"]
+
+[workspace.dependencies]
+# Same revision KeyOS itself builds against, so the crate stays drop-in for the
+# firmware proposal branch.
+ngwallet = { git = "https://github.com/Foundation-Devices/ngwallet", tag = "2.15.0", features = [
+    "rkyv",
+    "sha2",
+] }
+
+[features]
+# Read-only startup check of whether os/usbdev answers a third-party app —
+# the question that decides whether rounds can arrive over USB. Touches no keys,
+# opens no session, so it is safe to install on a real device; read the answer
+# with `foundation logs`. The simulator runs no USB server, so only hardware can
+# answer it.
+usb-probe = ["dep:usbdev-probe"]
+# Headless startup probe of the seed -> account keys -> ownership proof path,
+# for the simulator where touch input cannot be scripted. Never enable in a
+# release bundle, or on a device holding real funds: it opens a session without
+# a human gesture.
+sim-selftest = ["usb-probe"]
 
 [dependencies]
 log = "0.4"
-# Real coinjoin remote-signing logic (policy, SLIP-19 proofs, sessions) from the
-# KeyOS feature branch — the mockup drives it with a test seed + mock backend.
-wallet-rpc-core = { path = "/home/Kevin/KeyOS/os/wallet-rpc-core" }
+# Coinjoin remote-signing engine: policy, SLIP-0019 proofs, sessions, signing.
+wallet-rpc-core = { path = "crates/wallet-rpc-core" }
+# Seed access (os/security). Vendored from KeyOS because the SDK does not ship
+# an api/security client crate; see vendor/security/README.md.
+security = { path = "vendor/security" }
+# Reachability probe for os/usbdev — only linked into sim-selftest builds.
+usbdev-probe = { path = "vendor/usbdev-probe", optional = true }
 log-server = { package = "xous-api-log", path = "/home/Kevin/.foundation/sdk/current/lib/keyos/xous/api/log" }
 serde = { version = "1.0", features = ["derive"] }
 server = { path = "/home/Kevin/.foundation/sdk/current/lib/keyos/server" }

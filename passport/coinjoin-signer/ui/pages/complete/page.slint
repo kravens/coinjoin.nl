@@ -33,16 +33,17 @@ export component CompletePage inherits Rectangle {
             width: 100%;
             vertical-stretch: 0;
             size: lg;
-            eyebrow: "coinjoin.nl";
+            eyebrow: Cj.coordinator;
             title: "Coinjoin finished";
-            body: Cj.rounds + " rounds signed for this session. Every output returned to your own wallet, and total fees stayed within your authorized cap.";
-            footer: "Session key cleared from memory.";
+            body: Cj.rounds + " rounds signed, " + Cj.fee-spent + " of " + Cj.fee-budget
+                + " sat spent. Every output returned to your own wallet.";
+            footer: "Session keys cleared from memory.";
         }
         Rectangle { vertical-stretch: 1; }
         CjButton {
             width: 100%;
             text: "Done";
-            clicked => { Navigate.main-page({ }); }
+            clicked => { Cj.revoke(); Navigate.main-page({ }); }
         }
     }
 }

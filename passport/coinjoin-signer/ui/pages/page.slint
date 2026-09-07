@@ -4,6 +4,7 @@ import { CjStepper } from "../cjstepper.slint";
 import { Card } from "@ui/card.slint";
 import { Chip, ChipColor } from "@ui/chip.slint";
 import { Navigate } from "../gen/navigate.slint";
+import { Cj } from "../cj.slint";
 
 export component MainPagePage inherits Rectangle {
     background: Theme.palette-background;
@@ -32,16 +33,33 @@ export component MainPagePage inherits Rectangle {
             width: 100%;
             vertical-stretch: 0;
             size: lg;
-            eyebrow: "coinjoin.nl coordinator";
+            eyebrow: "WabiSabi remote signer";
             title: "No active session";
-            body: "Connect this Passport from Wasabi Wallet and start a coinjoin. You approve one policy here; rounds are then signed without further taps.";
+            body: "Start a coinjoin in Wasabi Wallet. You approve one policy here; rounds are then signed without further taps.";
             footer: "Your keys never leave the device.";
         }
+        Text {
+            text: "No host transport yet — KeyOS does not give apps a USB or QuantumLink channel. The request below is local; everything after it is the real engine.";
+            color: Theme.palette-muted;
+            font-family: "Montserrat";
+            font-size: 12px;
+            horizontal-alignment: center;
+            wrap: word-wrap;
+        }
         Rectangle { vertical-stretch: 1; }
+        Text {
+            visible: Cj.status != "";
+            text: Cj.status;
+            color: Theme.palette-secondary;
+            font-family: "Montserrat";
+            font-size: 12px;
+            horizontal-alignment: center;
+            wrap: word-wrap;
+        }
         CjButton {
             width: 100%;
             text: "Simulate incoming request";
-            clicked => { Navigate.authorize({ }); }
+            clicked => { Cj.request-demo(); Navigate.authorize({ }); }
         }
     }
 }

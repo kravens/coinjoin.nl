@@ -23,25 +23,46 @@ component ForceDark {
     }
 }
 
+// On device these come from the engine (src/coinjoin.rs); the viewer has no
+// Rust side, so the previews seed the same policy the demo request builds.
+component DemoPolicy {
+    init => {
+        Cj.coordinator = "coinjoin.nl";
+        Cj.network = "mainnet";
+        Cj.account = 0;
+        Cj.fee-budget = 3000;
+        Cj.max-rounds = 10;
+        Cj.valid-for = "12 h";
+        Cj.fingerprint = "5c9e228d";
+    }
+}
+
 export component PreviewHome inherits Window {
     width: 480px; height: 800px; background: Theme.palette-background;
     ForceDark { }
+    DemoPolicy { }
     MainPagePage { width: 100%; height: 100%; }
 }
 export component PreviewAuthorize inherits Window {
     width: 480px; height: 800px; background: Theme.palette-background;
     ForceDark { }
+    DemoPolicy { }
     AuthorizePage { width: 100%; height: 100%; }
 }
 export component PreviewSession inherits Window {
     width: 480px; height: 800px; background: Theme.palette-background;
     ForceDark { }
-    init => { Cj.rounds = 4; }
+    DemoPolicy { }
+    init => {
+        Cj.rounds = 4;
+        Cj.last-result = "Taproot proof for m/86'/0'/0'/1/3 · 105 bytes · fee within budget";
+    }
     SessionPage { width: 100%; height: 100%; }
 }
 export component PreviewComplete inherits Window {
     width: 480px; height: 800px; background: Theme.palette-background;
     ForceDark { }
+    DemoPolicy { }
     init => { Cj.rounds = 10; }
     CompletePage { width: 100%; height: 100%; }
 }

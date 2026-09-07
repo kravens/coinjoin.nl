@@ -16,3 +16,7 @@ support-url = "https://coinjoin.nl/"
 [permissions]
 template = ["gui-app"]
 "os/settings" = ["GetDeviceName", "GetLocale", "GetPrimeColor"]
+# GetSeed: read once per session, at authorization, to derive the coinjoin
+# account keys (os/security asks the user on the trusted display).
+# GetRandom: secure-element entropy for the session token.
+"os/security" = ["GetSeed", "GetRandom"]

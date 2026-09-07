@@ -1,15 +1,40 @@
 // Coinjoin session state, bridged to the real wallet-rpc-core engine in Rust.
+// Every value here is pushed from src/coinjoin.rs — the pages render what the
+// engine actually holds, never a hardcoded example.
 // The preview viewer doesn't run Rust: callbacks are no-ops there and the
 // preview harness seeds these properties directly.
 export global Cj {
+    // --- requested policy (what the user is asked to approve) ---
+    in-out property <string> coordinator: "";
+    in-out property <string> network: "";
+    in-out property <int> account: 0;
+    // Total sats the session may give up, over all rounds together.
+    in-out property <int> fee-budget: 0;
+    // Preformatted by Rust so the screen reads "12 h", not "720 min".
+    in-out property <string> valid-for: "";
+
+    // --- live session ---
     in-out property <bool> session-active: false;
     in-out property <int> rounds: 0;
-    in-out property <int> max-rounds: 10;
-    // Result line for the last simulated round, e.g. "SLIP-19 proof · 106 bytes".
+    in-out property <int> max-rounds: 0;
+    in-out property <int> fee-spent: 0;
+    // Master fingerprint of the seed the session derived from: this must match
+    // the wallet in Wasabi, and proves the keys came from the device.
+    in-out property <string> fingerprint: "";
+    // Result line for the last round, e.g. "Taproot proof · 105 bytes".
     in-out property <string> last-result: "";
+    // Error / explanation line, e.g. a denied seed permission.
+    in-out property <string> status: "";
 
     // Implemented in src/coinjoin.rs against wallet_rpc_core::protocol::Engine.
-    callback authorize();
+    // Loads a request into the engine's pending slot. Until Foundation ships an
+    // app-reachable transport this is a local demo request; a host request will
+    // fill the same slot.
+    callback request-demo();
+    // Runs the real authorization: engine.authorize(policy) — reads the seed
+    // once (trusted-display prompt), derives account keys, opens the session.
+    // False means it failed; `status` says why, and the UI stays put.
+    callback authorize() -> bool;
     callback simulate-round();
     callback revoke();
 }

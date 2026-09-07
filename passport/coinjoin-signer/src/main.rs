@@ -11,6 +11,8 @@ fn app_main(_cx: AppContext, ui: AppWindow) {
 
     theme::init(&ui);
     coinjoin::init(&ui);
+    #[cfg(feature = "sim-selftest")]
+    coinjoin::self_test();
 
     ui.run().expect("UI running");
 }

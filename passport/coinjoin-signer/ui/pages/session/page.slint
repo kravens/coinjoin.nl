@@ -16,7 +16,7 @@ export component SessionPage inherits Rectangle {
         padding-right: 24px;
         padding-top: 24px + UISize.control-center-status-bar-height;
         padding-bottom: 24px;
-        spacing: 14px;
+        spacing: 12px;
         Text {
             text: "Session active";
             color: Theme.palette-foreground;
@@ -27,11 +27,11 @@ export component SessionPage inherits Rectangle {
         }
         HorizontalLayout {
             alignment: center;
-            Chip { text: "Signing for coinjoin.nl"; color: ChipColor.success; }
+            Chip { text: "Signing for " + Cj.coordinator; color: ChipColor.success; }
         }
         CjStepper { current: 2; }
         Text {
-            text: "Unattended — no action needed, leave the device connected.";
+            text: "Unattended — rounds are signed as Wasabi sends them. No host transport yet, so a test round exercises the same engine.";
             color: Theme.palette-muted;
             font-family: "Montserrat";
             font-size: 12px;
@@ -55,10 +55,18 @@ export component SessionPage inherits Rectangle {
                 x: 0;
                 y: 0;
                 height: parent.height;
-                width: parent.width * (Cj.rounds / Cj.max-rounds);
+                width: parent.width * (Cj.max-rounds > 0 ? Cj.rounds / Cj.max-rounds : 0);
                 border-radius: 5px;
                 background: Theme.palette-primary;
             }
+        }
+        Text {
+            text: "Fees used: " + Cj.fee-spent + " / " + Cj.fee-budget + " sat  ·  wallet " + Cj.fingerprint;
+            color: Theme.palette-muted;
+            font-family: "Montserrat";
+            font-size: 12px;
+            horizontal-alignment: center;
+            wrap: word-wrap;
         }
         Card {
             width: 100%;
@@ -68,13 +76,13 @@ export component SessionPage inherits Rectangle {
             body: Cj.rounds == 0
                 ? "Ownership proofs and signatures are produced automatically as rounds arrive."
                 : (Cj.last-result == ""
-                    ? "Ownership proof sent, own inputs signed, fee within cap."
+                    ? "Ownership proof sent, own inputs signed, fee within budget."
                     : Cj.last-result);
         }
         Rectangle { vertical-stretch: 1; }
         CjButton {
             width: 100%;
-            text: Cj.rounds >= Cj.max-rounds ? "View summary" : "Simulate round";
+            text: Cj.rounds >= Cj.max-rounds ? "View summary" : "Run test round";
             clicked => {
                 if (Cj.rounds >= Cj.max-rounds) {
                     Navigate.complete({ });

@@ -1,0 +1,26 @@
+# SPDX-FileCopyrightText: 2026 Kevin Ravensberg <kevinravensberg@proton.me>
+# SPDX-License-Identifier: MIT OR GPL-3.0-or-later
+
+# Minimal `os/usbdev` client: just enough to ask the server three harmless
+# questions and find out whether a third-party app is allowed to talk to it at
+# all. Foundation's position (community thread 1196) is that app USB access is
+# still to come; this measures it instead of assuming, the same way the
+# `os/security` seed permission turned out to be grantable already.
+#
+# If the probe answers, the next step is vendoring the full KeyOS `api/usb`
+# device API (RegisterInterface + Read/WriteEndpoint) and putting the real
+# transport behind it.
+
+[package]
+name = "usbdev-probe"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+log = "0.4.14"
+server = { path = "/home/Kevin/.foundation/sdk/current/lib/keyos/server" }
+xous = { path = "/home/Kevin/.foundation/sdk/current/lib/keyos/xous/xous-rs" }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(keyos)'] }
