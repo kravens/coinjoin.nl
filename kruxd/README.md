@@ -19,9 +19,13 @@ HTTP API on `http://127.0.0.1:21326` (localhost only; 21325 is trezord):
 
 | endpoint | body | returns |
 |---|---|---|
-| POST /info | `{}` | `{fingerprint, rounds_used, max_rounds}` |
+| POST /info | `{}` | `{fingerprint, rounds_used, max_rounds, device: "krux"\|"sabi", script_types: [...]}` plus `authorized` when the device reports it |
+| POST /xpub | `{path: [uint32...]}` | `{fingerprint: hex, xpub: base58}` (SabiSigner only; one device prompt) |
 | POST /proof | `{script_type: "p2wpkh"\|"p2tr", path: [uint32...], commitment: hex}` | `{proof: hex}` (SLIP-19) |
 | POST /sign | `{psbt: base64}` | `{psbt: base64}` signed under device policy |
+
+`script_types` is what the device can sign in a coinjoin round; Wasabi keeps coins of any other
+type out of rounds. The Krux firmware has no xpub command, so `/xpub` answers 400 there.
 
 Device-side policy (set on the Krux: Settings > Security > CoinJoin):
 enabled, min self-transfer %, max fee rate sat/vB, max rounds per session.
@@ -37,8 +41,8 @@ Policy violations come back as HTTP 400 with the device's reason.
 
 The same bridge drives a [SabiSigner](https://github.com/kravens/SabiSigner) (SeedSigner
 fork) over its encrypted USB HID session, presenting the identical HTTP API. Wasabi's Krux
-backend therefore works unchanged: mark the wallet file `"CoinJoinVendor": 3` and Wasabi
-talks to the SabiSigner through this bridge.
+backend therefore works unchanged, and while kruxd is running Wasabi's "Connect hardware
+wallet" screen lists the SabiSigner and imports its accounts over `/xpub`.
 
 ```
 pip install hidapi embit
@@ -62,11 +66,13 @@ Differences from the Krux flow:
 `test_sabi_link.py` is a loopback check of the command translation against a real
 `UsbSession`: `SABISIGNER_SRC=~/Documents/SabiSigner/src python -m pytest kruxd/test_sabi_link.py`.
 
-Wasabi cannot import a SabiSigner through HWI, so `sabi-wallet.py NAME --network RegTest`
-writes the wallet file instead: one session, two xpub prompts on the device, and a
-KeyManager JSON with `CoinJoinVendor: 3`. Restart Wasabi afterwards. Fund taproot receive
-addresses for the first rounds: Wasabi's Krux PSBT carries no `non_witness_utxo`, which
-the device requires for segwit inputs.
+Import in Wasabi: start kruxd (pairing and budget approved), then Add Wallet > Connect
+hardware wallet lists "SabiSigner"; tick coinjoin, and approve the two xpub prompts on the
+device. Wasabi shows the first taproot receive address it derived - compare it with the
+device's address explorer before funding, because the bridge cannot make the device show
+one. Fund taproot addresses: `/info` reports `script_types: ["p2tr"]`, so Wasabi keeps
+segwit coins out of rounds (the device wants a `non_witness_utxo` for those, which a
+coinjoin PSBT cannot carry for foreign inputs).
 
 ## Hardware test procedure (WonderMV)
 

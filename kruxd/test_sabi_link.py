@@ -99,6 +99,34 @@ def test_proof_command_translates_and_verifies(link):
     assert device.confirmations == ["authorize_coinjoin"]  # nothing asked the user again
 
 
+def test_xpub_command_returns_the_account_key_and_fingerprint(link):
+    link, device, seed = link
+    path = [84 + 2**31, 0 + 2**31, 0 + 2**31]
+
+    body = link.request(bytes([kruxd.CMD_XPUB]) + kruxd._path_payload(path))
+
+    root = bip32.HDKey.from_seed(seed.seed_bytes, version=NETWORKS["main"]["xprv"])
+    assert body[:4] == link.fingerprint
+    assert bip32.HDKey.from_base58(body[4:].decode()) == root.derive(path).to_public()
+    assert device.confirmations == ["authorize_coinjoin", "get_xpub"]  # one prompt per account
+
+
+def test_info_says_which_device_answers_and_what_it_signs(link):
+    link, device, seed = link
+    info = kruxd.handle(link, "/info", {})
+    assert info["device"] == "sabi"
+    assert info["script_types"] == ["p2tr"]
+    assert info["authorized"] is True
+    assert info["fingerprint"] == seed.get_fingerprint()
+
+
+def test_xpub_over_http_has_the_documented_shape(link):
+    link, device, seed = link
+    reply = kruxd.handle(link, "/xpub", {"path": [86 + 2**31, 0 + 2**31, 0 + 2**31]})
+    assert reply["fingerprint"] == seed.get_fingerprint()
+    assert reply["xpub"].startswith("xpub")
+
+
 def test_a_device_refusal_is_a_value_error_like_a_krux_policy_error(link):
     link, device, seed = link
     outside = [84 + 2**31, 0 + 2**31, 1 + 2**31, 0, 0]

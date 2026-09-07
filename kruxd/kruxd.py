@@ -5,7 +5,10 @@ Talks the framed link protocol (4-byte BE length + payload) to a Krux device
 on the "CoinJoin USB" screen, over serial (real device) or TCP (simulator).
 Exposes a small localhost HTTP API for a Wasabi KeyChain:
 
-  POST /info               -> {"fingerprint": hex, "rounds_used": n, "max_rounds": n}
+  POST /info               -> {"fingerprint": hex, "rounds_used": n, "max_rounds": n,
+                               "device": "krux"|"sabi", "script_types": [...],
+                               "authorized": bool (only when the device reports it)}
+  POST /xpub  {"path": [uint32...]}          -> {"fingerprint": hex, "xpub": base58}
   POST /proof {"script_type": "p2wpkh"|"p2tr", "path": [uint32...],
                "commitment": hex}          -> {"proof": hex}
   POST /sign  {"psbt": base64}             -> {"psbt": base64}
@@ -39,12 +42,21 @@ CMD_INFO = 1
 CMD_PROOF = 2
 CMD_SIGN = 3
 CMD_AUTHORIZE = 4
+CMD_XPUB = 5
 SCRIPT_TYPES = {"p2wpkh": 0, "p2tr": 1}
 MAGIC = b"KXJ1"  # frame delimiter; must match the extension link.py
 
 
+def _path_str(indexes):
+    """m/84'/0'/0'/0/5 from raw uint32 indexes with the hardened bit set."""
+    return "m/" + "/".join(str(i - 2**31) + "'" if i >= 2**31 else str(i) for i in indexes)
+
+
 class DeviceLink:
     """One framed request/response at a time against the device link."""
+
+    device = "krux"
+    script_types = ("p2wpkh", "p2tr")
 
     def __init__(self, target, arg):
         self._lock = threading.Lock()
@@ -113,6 +125,11 @@ class SabiLink:
 
     VENDOR_ID = 0x1209
     PRODUCT_ID = 0x0001
+
+    device = "sabi"
+    # The device wants the full previous transaction of every non-taproot input, which a
+    # coinjoin PSBT cannot carry for the foreign ones, so only taproot rounds are signable.
+    script_types = ("p2tr",)
 
     def __init__(self, sabisigner_src):
         """Open the device and run the handshake; nothing is authorized yet."""
@@ -202,14 +219,18 @@ class SabiLink:
                 # Authorized at startup from the command line; the device will not take a
                 # budget from the host mid-session without the user, so this is a no-op.
                 return b""
+            if cmd == CMD_XPUB:
+                # One device prompt per account; the fingerprint comes from the device too, so
+                # the wallet can tell whether the accounts belong to the authorized seed.
+                reply = self.json({"t": "get_xpub", "path": _path_str(_indexes(payload, 1))})
+                return bytes.fromhex(reply["fingerprint"]) + reply["xpub"].encode("ascii")
             if cmd == CMD_PROOF:
                 script_type = next(name for name, code in SCRIPT_TYPES.items() if code == payload[1])
-                count = payload[2]
-                indexes = [int.from_bytes(payload[3 + 4 * i:7 + 4 * i], "big") for i in range(count)]
-                commitment = payload[3 + 4 * count:]
+                indexes = _indexes(payload, 2)
+                commitment = payload[3 + 4 * len(indexes):]
                 reply = self.json({
                     "t": "get_ownership_proof",
-                    "path": "m/" + "/".join(str(i - 2**31) + "'" if i >= 2**31 else str(i) for i in indexes),
+                    "path": _path_str(indexes),
                     "script_type": script_type,
                     "commitment": base64.b64encode(commitment).decode("ascii"),
                 })
@@ -221,6 +242,60 @@ class SabiLink:
             raise ValueError("unknown command %d" % cmd)
 
 
+def _indexes(payload, at):
+    """The [count u8][uint32 BE * count] path that starts at payload[at]."""
+    count = payload[at]
+    return [int.from_bytes(payload[at + 1 + 4 * i:at + 5 + 4 * i], "big") for i in range(count)]
+
+
+def _path_payload(path):
+    return bytes([len(path)]) + b"".join(int(index).to_bytes(4, "big") for index in path)
+
+
+def handle(link, path, req):
+    """One HTTP request against the link; None for an unknown path. ValueError/KeyError = 400."""
+    if path == "/info":
+        body = link.request(bytes([CMD_INFO]))
+        result = {
+            "fingerprint": body[:4].hex(),
+            "rounds_used": int.from_bytes(body[4:6], "big"),
+            "max_rounds": int.from_bytes(body[6:8], "big"),
+            "device": link.device,
+            "script_types": list(link.script_types),
+        }
+        if len(body) > 8:  # only the device may say it authorized something
+            result["authorized"] = bool(body[8])
+        return result
+    if path == "/authorize":
+        payload = (
+            bytes([CMD_AUTHORIZE])
+            + int(req["max_rounds"]).to_bytes(2, "big")
+            + int(req["max_fee_rate_sat_vb"]).to_bytes(2, "big")
+            + bytes([int(req["min_self_transfer_pct"])])
+        )
+        try:
+            link.request(payload)  # blocks on the device confirmation
+        except ValueError:
+            # A garbled response frame (e.g. boot/console noise) can look
+            # like a device error even though the device authorized.
+            # Re-check /info before surfacing a failure.
+            info = link.request(bytes([CMD_INFO]))
+            if not (len(info) > 8 and info[8]):
+                raise
+        return {"authorized": True}
+    if path == "/xpub":
+        body = link.request(bytes([CMD_XPUB]) + _path_payload(req["path"]))
+        return {"fingerprint": body[:4].hex(), "xpub": body[4:].decode("ascii")}
+    if path == "/proof":
+        payload = bytes([CMD_PROOF, SCRIPT_TYPES[req["script_type"]]]) + _path_payload(req["path"])
+        payload += bytes.fromhex(req["commitment"])
+        return {"proof": link.request(payload).hex()}
+    if path == "/sign":
+        signed = link.request(bytes([CMD_SIGN]) + base64.b64decode(req["psbt"]))
+        return {"psbt": base64.b64encode(signed).decode()}
+    return None
+
+
 class Handler(BaseHTTPRequestHandler):
     link = None  # set at startup
 
@@ -228,44 +303,8 @@ class Handler(BaseHTTPRequestHandler):
         try:
             length = int(self.headers.get("Content-Length", 0))
             req = json.loads(self.rfile.read(length) or b"{}")
-            if self.path == "/info":
-                body = self.link.request(bytes([CMD_INFO]))
-                result = {
-                    "fingerprint": body[:4].hex(),
-                    "rounds_used": int.from_bytes(body[4:6], "big"),
-                    "max_rounds": int.from_bytes(body[6:8], "big"),
-                    "authorized": bool(body[8]) if len(body) > 8 else False,
-                }
-            elif self.path == "/authorize":
-                payload = (
-                    bytes([CMD_AUTHORIZE])
-                    + int(req["max_rounds"]).to_bytes(2, "big")
-                    + int(req["max_fee_rate_sat_vb"]).to_bytes(2, "big")
-                    + bytes([int(req["min_self_transfer_pct"])])
-                )
-                try:
-                    self.link.request(payload)  # blocks on the device confirmation
-                except ValueError:
-                    # A garbled response frame (e.g. boot/console noise) can look
-                    # like a device error even though the device authorized.
-                    # Re-check /info before surfacing a failure.
-                    info = self.link.request(bytes([CMD_INFO]))
-                    if not (len(info) > 8 and info[8]):
-                        raise
-                result = {"authorized": True}
-            elif self.path == "/proof":
-                payload = bytes([CMD_PROOF, SCRIPT_TYPES[req["script_type"]]])
-                path = req["path"]
-                payload += bytes([len(path)])
-                for index in path:
-                    payload += int(index).to_bytes(4, "big")
-                payload += bytes.fromhex(req["commitment"])
-                result = {"proof": self.link.request(payload).hex()}
-            elif self.path == "/sign":
-                psbt = base64.b64decode(req["psbt"])
-                signed = self.link.request(bytes([CMD_SIGN]) + psbt)
-                result = {"psbt": base64.b64encode(signed).decode()}
-            else:
+            result = handle(self.link, self.path, req)
+            if result is None:
                 self.send_error(404)
                 return
             self._reply(200, result)
