@@ -1,7 +1,0 @@
-# Message ids and types copied from KeyOS v1.3.1 `api/usb/manifest.toml`
-# (`[servers."os/usbdev"]`). Only the read-only queries are declared — this
-# crate exists to test reachability, not to drive the controller.
-[servers."os/usbdev"]
-IsDeviceEmulationEnabled = { id = 9, type = "blockingScalar" }
-IsCableConnected = { id = 14, type = "blockingScalar" }
-NumInterfaces = { id = 7, type = "blockingScalar" }
