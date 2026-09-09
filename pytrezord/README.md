@@ -9,7 +9,7 @@ written against trezord keeps working** without building Go software.
 ## Install & run
 
 ```bash
-pip install pyusb libusb-package
+pip install pyusb                     # plus libusb-package if your system has no libusb
 python3 pytrezord.py                 # listens on 127.0.0.1:21325
 ```
 

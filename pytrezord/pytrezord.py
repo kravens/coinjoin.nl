@@ -49,13 +49,18 @@ class UsbTransport:
 	"""Finds Trezors over libusb and moves protocol-v1 frames in 64-byte reports."""
 
 	def __init__(self):
-		import libusb_package
 		import usb.backend.libusb1
 		self._usb = __import__("usb.core", fromlist=["core"])
 		self._util = __import__("usb.util", fromlist=["util"])
-		self._backend = usb.backend.libusb1.get_backend(find_library=libusb_package.find_library)
+		try:  # only needed where the system has no libusb of its own
+			import libusb_package
+
+			find_library = libusb_package.find_library
+		except ImportError:
+			find_library = None
+		self._backend = usb.backend.libusb1.get_backend(find_library=find_library)
 		if self._backend is None:
-			raise RuntimeError("libusb backend not found - pip install libusb-package")
+			raise RuntimeError("libusb backend not found - install libusb, or pip install libusb-package")
 		self._open = {}  # path -> usb.core.Device
 
 	def enumerate(self):
