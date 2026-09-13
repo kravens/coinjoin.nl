@@ -9,7 +9,7 @@
 import sys, os, time, math, random, json, argparse, shutil, urllib.request
 M = math
 FRAME = 1/21                                         # 21 FPS - one for every million bitcoin
-os.system("")
+if os.name == "nt": os.system("")                    # VT escapes on Windows consoles
 try: sys.stdout.reconfigure(encoding="utf-8")
 except Exception: pass
 
@@ -33,16 +33,71 @@ def short(a):
     if not a: return "unknown"
     return a if len(a)<=15 else a[:7]+"…"+a[-4:]
 
-# ---- data -------------------------------------------------------------------------
+# ---- data (over Tor whenever a SOCKS proxy is around) ------------------------------
+# Every txid / address you look at is a query to the explorer: from your own IP that
+# tells mempool.space which coins are yours. Tor is auto-detected (wasabi's bundled Tor
+# on 37150, system Tor on 9050); --socks pins one, --clearnet opts out loudly.
+UA = "txflow/1.0 (coinjoin.nl)"
+TOR = {"socks": None}                                # (host, port) or None = direct
+
+def socks_connect(host, port, timeout=15):           # minimal SOCKS5 CONNECT -> connected socket
+    import socket
+    s = socket.create_connection(TOR["socks"], timeout=timeout)
+    def rx(n):
+        b = b""
+        while len(b) < n:
+            c = s.recv(n - len(b))
+            if not c: raise OSError("socks: connection closed")
+            b += c
+        return b
+    try:
+        s.sendall(b"\x05\x01\x00")
+        if rx(2) != b"\x05\x00": raise OSError("socks handshake refused")
+        h = str(host).encode()
+        s.sendall(b"\x05\x01\x00\x03" + bytes([len(h)]) + h + int(port).to_bytes(2, "big"))
+        r = rx(4)
+        if r[1] != 0: raise OSError(f"tor could not reach {host} (rep {r[1]})")
+        if r[3] == 1: rx(6)
+        elif r[3] == 4: rx(18)
+        elif r[3] == 3: rx(rx(1)[0] + 2)
+        return s
+    except Exception:
+        s.close(); raise
+
+def tor_detect(explicit=None):                       # -> (host, port) of a live SOCKS proxy, or None
+    import socket
+    cands = [explicit] if explicit else [("127.0.0.1", 9050), ("127.0.0.1", 37150)]
+    for hp in cands:
+        try: socket.create_connection(hp, timeout=0.5).close(); return hp
+        except OSError: continue
+    return None
+
+def _open(url, data=None, headers=None, timeout=20):  # -> response object (read it); follows redirects
+    hdr = {"User-Agent": UA, **(headers or {})}
+    if not TOR["socks"]:
+        return urllib.request.urlopen(urllib.request.Request(url, data=data, headers=hdr), timeout=timeout)
+    import http.client, ssl
+    from urllib.parse import urlparse, urljoin
+    for _ in range(6):
+        u = urlparse(url); host = u.hostname; port = u.port or (443 if u.scheme == "https" else 80)
+        sock = socks_connect(host, port, timeout)
+        if u.scheme == "https": sock = ssl.create_default_context().wrap_socket(sock, server_hostname=host)
+        conn = http.client.HTTPConnection(host, port, timeout=timeout); conn.sock = sock
+        conn.request("POST" if data is not None else "GET",
+                     (u.path or "/") + ("?" + u.query if u.query else ""), data, hdr)
+        r = conn.getresponse()
+        if r.status in (301, 302, 303, 307, 308) and r.getheader("Location"):
+            url = urljoin(url, r.getheader("Location")); conn.close(); continue
+        if r.status >= 400:
+            conn.close(); raise urllib.error.HTTPError(url, r.status, r.reason, r.headers, None)
+        return r
+    raise OSError("too many redirects")
+
 def fetch_json(url, timeout=20):
-    req = urllib.request.Request(url, headers={"User-Agent":"txflow/1.0 (coinjoin.nl)"})
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        return json.loads(r.read().decode())
+    with _open(url, timeout=timeout) as r: return json.loads(r.read().decode())
 
 def fetch_text(url, timeout=20):                     # endpoints returning a bare string (e.g. block hash)
-    req = urllib.request.Request(url, headers={"User-Agent":"txflow/1.0 (coinjoin.nl)"})
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        return r.read().decode().strip()
+    with _open(url, timeout=timeout) as r: return r.read().decode().strip()
 
 LIQUISABI_API = "http://liquisabi.com/api"           # LiquiSabi JSON-RPC dashboard (WabiSabi rounds)
 def coord_name(url):                                 # short coordinator name from its URL
@@ -57,10 +112,9 @@ def fetch_coinjoins(n=10, api=LIQUISABI_API):        # latest n WabiSabi coinjoi
     body = json.dumps({"jsonrpc": "2.0", "id": "1", "method": "dashboard", "params": {
         "since": (now - datetime.timedelta(days=14)).isoformat(), "until": now.isoformat(),
         "page": 1, "pageSize": n, "orderBy": "RoundEndTime", "descending": True, "searchTerm": ""}})
-    req = urllib.request.Request(api, data=body.encode("utf-8"),
-        headers={"Content-Type": "text/plain;charset=UTF-8", "User-Agent": "txflow/1.0 (coinjoin.nl)",
-                 "Origin": "http://liquisabi.com", "Referer": "http://liquisabi.com/"})
-    with urllib.request.urlopen(req, timeout=20) as r:
+    with _open(api, data=body.encode("utf-8"), timeout=20,
+               headers={"Content-Type": "text/plain;charset=UTF-8",
+                        "Origin": "http://liquisabi.com", "Referer": "http://liquisabi.com/"}) as r:
         resp = json.loads(r.read().decode())
     rounds = ((resp.get("result") or resp).get("PaginatedRounds") or {}).get("Rounds") or []
     return [dict(txid=(rd.get("TxId") or "").lower(), coord=coord_name(rd.get("CoordinatorEndpoint") or ""),
@@ -81,9 +135,8 @@ def _fmt_secs(t):                                    # seconds -> "6m 05s" (drop
     return f"{m}m {s:02d}s"
 def fetch_cjnl_feerates(url=CJNL_STATUS):            # {round id -> announced mining fee rate (sat/vB)}
     body = json.dumps({"RoundCheckpoints": []}).encode()
-    req = urllib.request.Request(url, data=body, headers={"User-Agent":"txflow/1.0 (coinjoin.nl)",
-        "Content-Type":"application/json", "Accept":"application/json"})
-    with urllib.request.urlopen(req, timeout=20) as r:
+    with _open(url, data=body, timeout=20,
+               headers={"Content-Type": "application/json", "Accept": "application/json"}) as r:
         d = json.loads(r.read().decode())
     out = {}
     for rs in (d.get("roundStates") or []):
@@ -110,13 +163,17 @@ def fetch_cjnl_rounds(url=CJNL_MONITOR):             # live coinjoin.nl rounds (
 
 def clip_copy(text):                                 # copy to the OS clipboard (best effort)
     import subprocess
-    try:
-        if os.name == "nt": subprocess.run("clip", input=text, text=True, check=True)
-        elif sys.platform == "darwin": subprocess.run("pbcopy", input=text, text=True, check=True)
-        else: subprocess.run(["xclip","-selection","clipboard"], input=text, text=True, check=True)
-        return True
-    except Exception:
-        return False
+    if os.name == "nt": cands = [["clip"]]
+    elif sys.platform == "darwin": cands = [["pbcopy"]]
+    else: cands = [["wl-copy"], ["xclip", "-selection", "clipboard"],   # Wayland first, then X11
+                   ["xsel", "--clipboard", "--input"]]
+    for cmd in cands:
+        try:
+            subprocess.run(cmd, input=text, text=True, check=True, stderr=subprocess.DEVNULL)
+            return True
+        except Exception:
+            continue
+    return False
 
 def parse_tx(tx):
     vin = tx.get("vin",[]) or []; vout = tx.get("vout",[]) or []
@@ -1217,7 +1274,7 @@ def address_report(addr, base):
                 utxos=utxos, prov=provmeta, npriv=npriv, nnon=nnon, warns=warns, txrows=txrows)
 
 def explore_address(addr, base, source):
-    print(f"analyzing privacy of {addr[:18]}... ...", file=sys.stderr)
+    print("analyzing address privacy ...", file=sys.stderr)   # never echo the address into scrollback
     r = address_report(addr, base)                   # one-shot fetch + analysis (may raise -> caller)
     utxos = r["utxos"]; prov = r["prov"]; warns = r["warns"]; txrows = r["txrows"]
     mode = "utxo" if utxos else "tx"                  # empty address -> browse its tx history instead
@@ -1778,8 +1835,23 @@ def main():
     ap.add_argument("--liquisabi", default=LIQUISABI_API, metavar="URL",
                     help="LiquiSabi (or self-hosted/compatible) JSON-RPC dashboard URL for the coinjoin list")
     ap.add_argument("--export", metavar="FILE", help="render to FILE (.gif/.png/.svg/.html) instead of live view")
+    ap.add_argument("--socks", metavar="HOST:PORT", help="Tor SOCKS5 proxy (default: auto-detect 9050 / 37150)")
+    ap.add_argument("--clearnet", action="store_true", help="query the explorer from your own IP (privacy leak)")
     a = ap.parse_args()
     base = a.mempool.rstrip("/")
+    if not a.clearnet:
+        want = None
+        if a.socks:
+            h, _, pt = a.socks.rpartition(":")
+            if not pt.isdigit(): ap.error("--socks wants HOST:PORT")
+            want = (h or "127.0.0.1", int(pt))
+        TOR["socks"] = tor_detect(want)
+        if not TOR["socks"]:
+            if a.socks: sys.exit(f"no SOCKS proxy answering at {a.socks}")
+            print("!  no Tor SOCKS proxy found (9050 / 37150): explorer queries go out from YOUR IP.\n"
+                  "   start Tor (or the wasabi daemon), pass --socks, or --clearnet to silence this.", file=sys.stderr)
+    src_tag = "tor" if TOR["socks"] else "clearnet"
+    print(f"explorer {base} via {src_tag}", file=sys.stderr)
     if a.export:                                      # export mode (gif/png/svg)
         nframes = a.frames if a.frames > 0 else 90
         if a.file:

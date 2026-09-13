@@ -14,7 +14,7 @@
 import sys, os, time, math, random, json, argparse, shutil, re, tempfile, urllib.request
 M = math
 FRAME = 1/21                                          # 21 FPS - the bitcoin frame rate
-os.system("")
+if os.name == "nt": os.system("")                     # enables VT escapes on Windows consoles
 try: sys.stdout.reconfigure(encoding="utf-8")
 except Exception: pass
 
@@ -1011,6 +1011,76 @@ def make_keyreader(mouse=True):
 # ---- Wasabi daemon JSON-RPC client -------------------------------------------------
 class RpcError(Exception): pass
 
+# ---- Tor for everything that leaves the machine ---------------------------------------
+# The daemon does all its networking over Tor; sabi must not undo that by polling the
+# coordinator / liquisabi / nostr / github from the user's own IP (that ties the IP to
+# "runs a wasabi front-end" and, through poll timing, to coinjoin activity).
+TOR_SOCKS = [("127.0.0.1", 37150), ("127.0.0.1", 9050)]   # wasabi's bundled Tor, then system Tor
+UA = "sabi/1.0 (coinjoin.nl)"
+
+def socks_connect(host, port, timeout=15):            # minimal SOCKS5 CONNECT -> connected socket
+    import socket
+    err = None
+    for sh, sp in TOR_SOCKS:
+        try: s = socket.create_connection((sh, sp), timeout=timeout)
+        except OSError as e: err = e; continue
+        def rx(n):
+            b = b""
+            while len(b) < n:
+                c = s.recv(n - len(b))
+                if not c: raise OSError("socks: connection closed")
+                b += c
+            return b
+        try:
+            s.sendall(b"\x05\x01\x00")                # no-auth
+            if rx(2) != b"\x05\x00": raise OSError("socks handshake refused")
+            h = str(host).encode()
+            s.sendall(b"\x05\x01\x00\x03" + bytes([len(h)]) + h + int(port).to_bytes(2, "big"))
+            r = rx(4)
+            if r[1] != 0: raise OSError(f"tor could not reach {host} (rep {r[1]})")
+            if r[3] == 1: rx(4 + 2)                   # swallow BND.ADDR + BND.PORT
+            elif r[3] == 4: rx(16 + 2)
+            elif r[3] == 3: rx(rx(1)[0] + 2)
+            return s
+        except Exception:
+            s.close(); raise
+    raise OSError(f"no Tor SOCKS proxy ({err}) - is the wasabi daemon running?")
+
+def tor_open(url, data=None, headers=None, timeout=20, clearnet_ok=False):
+    # HTTP(S) over Tor, follows redirects (github release assets do). Returns the response;
+    # caller reads it. clearnet_ok: no Tor yet (fresh install) -> direct, never silently.
+    import http.client, ssl
+    from urllib.parse import urlparse, urljoin
+    for _hop in range(6):
+        u = urlparse(url); host = u.hostname; port = u.port or (443 if u.scheme == "https" else 80)
+        try:
+            sock = socks_connect(host, port, timeout)
+        except OSError:
+            if not clearnet_ok: raise
+            req = urllib.request.Request(url, data=data, headers={"User-Agent": UA, **(headers or {})})
+            return urllib.request.urlopen(req, timeout=timeout)
+        if u.scheme == "https":
+            sock = ssl.create_default_context().wrap_socket(sock, server_hostname=host)
+        conn = http.client.HTTPConnection(host, port, timeout=timeout); conn.sock = sock
+        path = (u.path or "/") + ("?" + u.query if u.query else "")
+        conn.request("POST" if data is not None else "GET", path, data,
+                     {"User-Agent": UA, **(headers or {})})
+        r = conn.getresponse()
+        if r.status in (301, 302, 303, 307, 308) and r.getheader("Location"):
+            url = urljoin(url, r.getheader("Location")); conn.close(); continue
+        if r.status >= 400: conn.close(); raise RpcError(f"HTTP {r.status}")
+        return r
+    raise RpcError("too many redirects")
+
+def tor_json(url, data=None, headers=None, timeout=20):
+    with tor_open(url, data, headers, timeout) as r: return json.loads(r.read().decode() or "{}")
+
+def insecure_rpc(url):                                # plaintext creds would cross a network
+    from urllib.parse import urlparse
+    u = urlparse(str(url)); h = (u.hostname or "").lower()
+    return (u.scheme == "http" and h not in ("127.0.0.1", "localhost", "::1")
+            and not h.endswith(".onion"))
+
 class WasabiRpc:
     def __init__(self, url, user=None, password=None):
         self.url = url.rstrip("/"); self.user = user; self.password = password
@@ -1044,34 +1114,11 @@ class BitcoindRpc:                                    # the user's own node, cre
         self.host = u.hostname or "127.0.0.1"; self.port = u.port or 8332
         self.user, _, self.password = str(cred or "").partition(":")
         self.torport = torport
-    def _tor_sock(self, timeout):                     # minimal SOCKS5 CONNECT for .onion endpoints
-        import socket
-        s = socket.create_connection(("127.0.0.1", self.torport), timeout=timeout)
-        def rx(n):
-            b = b""
-            while len(b) < n:
-                c = s.recv(n - len(b))
-                if not c: raise OSError("socks: connection closed")
-                b += c
-            return b
-        try:
-            s.sendall(b"\x05\x01\x00")                # no-auth
-            if rx(2) != b"\x05\x00": raise OSError("tor socks refused (is the wasabi daemon running?)")
-            host = self.host.encode()
-            s.sendall(b"\x05\x01\x00\x03" + bytes([len(host)]) + host + self.port.to_bytes(2, "big"))
-            r = rx(4)
-            if r[1] != 0: raise OSError(f"tor could not reach {self.host} (rep {r[1]})")
-            if r[3] == 1: rx(4 + 2)                   # swallow BND.ADDR + BND.PORT
-            elif r[3] == 4: rx(16 + 2)
-            elif r[3] == 3: rx(rx(1)[0] + 2)
-            return s
-        except Exception:
-            s.close(); raise
     def call(self, method, params=None, timeout=30):
         import http.client, base64
         body = json.dumps({"jsonrpc": "1.0", "id": "sabi", "method": method, "params": params or []})
         conn = http.client.HTTPConnection(self.host, self.port, timeout=timeout)
-        if self.host.endswith(".onion"): conn.sock = self._tor_sock(timeout)
+        if self.host.endswith(".onion"): conn.sock = socks_connect(self.host, self.port, timeout)
         tok = base64.b64encode(f"{self.user}:{self.password}".encode()).decode()
         try:
             conn.request("POST", "/", body, {"Authorization": "Basic " + tok,
@@ -1195,7 +1242,8 @@ def nostr_fetch_release(relay, author_hex, timeout=15):
     import socket, ssl, base64, secrets, hashlib
     from urllib.parse import urlparse
     u = urlparse(relay); host = u.hostname; port = u.port or 443
-    raw = socket.create_connection((host, port), timeout=timeout)
+    try: raw = socks_connect(host, port, timeout)     # relays over Tor, like the wallet's updater
+    except OSError: raw = socket.create_connection((host, port), timeout=timeout)   # no Tor yet (install)
     sock = ssl.create_default_context().wrap_socket(raw, server_hostname=host)
     try:
         key = base64.b64encode(secrets.token_bytes(16)).decode()
@@ -1252,6 +1300,10 @@ def wasabi_release_info(timeout=15):                  # -> dict(version=str, ass
         return dict(version=ver, assets=assets, relay=relay, content=ev.get("content", ""))
     raise RpcError(f"no verified release event from any relay ({err})")
 
+WASABI_MIN_VERSION = (2, 8, 2)                        # a relay withholding newer notes must not downgrade us
+def version_tuple(v):
+    return tuple(int(x) for x in re.findall(r"\d+", str(v))[:3])
+
 def pick_release_asset(version):                      # portable archive with wassabeed for this OS
     import platform
     arm = platform.machine().lower() in ("arm64", "aarch64", "armv7l", "armv6l")
@@ -1272,8 +1324,7 @@ def resolve_asset_url(assets, name):
 
 def _download(url, path, progress=None, timeout=60):
     if not str(url).startswith("https://"): raise RpcError("refusing non-https download")
-    req = urllib.request.Request(url, headers={"User-Agent": "sabi/1.0 (coinjoin.nl)"})
-    with urllib.request.urlopen(req, timeout=timeout) as r, open(path, "wb") as f:
+    with tor_open(url, timeout=timeout, clearnet_ok=True) as r, open(path, "wb") as f:
         total = int(r.headers.get("Content-Length") or 0); done = 0
         while True:
             chunk = r.read(262144)
@@ -1286,6 +1337,9 @@ def wasabi_install(info, progress=lambda s: None):    # -> (wassabeed path, arch
     # verify EVERYTHING before anything is extracted or run - same chain as wasabi itself
     import hashlib, base64, tempfile, zipfile, tarfile
     ver = info["version"]; assets = info["assets"]
+    if version_tuple(ver) < WASABI_MIN_VERSION:
+        raise RpcError(f"release {ver} is older than {'.'.join(map(str, WASABI_MIN_VERSION))} - "
+                       "a relay may be serving a stale note; refusing to downgrade")
     asset = pick_release_asset(ver)
     for need in ("SHA256SUMS.asc", "SHA256SUMS.wasabisig"):
         if need not in assets: raise RpcError(f"release event lacks '{need}'")
@@ -1327,7 +1381,9 @@ def wasabi_install(info, progress=lambda s: None):    # -> (wassabeed path, arch
                     m = (zi.external_attr >> 16) & 0o7777
                     if m: os.chmod(os.path.join(dest, zi.filename), m)
     else:
-        with tarfile.open(apath) as tf: tf.extractall(dest)
+        with tarfile.open(apath) as tf:
+            try: tf.extractall(dest, filter="data")   # 3.12+: no path traversal / device files
+            except TypeError: tf.extractall(dest)
     exe = None
     want = "wassabeed.exe" if os.name == "nt" else "wassabeed"
     for root, _dirs, files in os.walk(dest):
@@ -1403,6 +1459,10 @@ class DemoRpc:                                        # --demo : plausible fake 
             return dict(walletName=wallet or "SavingsWallet", loaded=True, anonScoreTarget=5,
                         isWatchOnly=(wallet == "DailyWallet"),  # demo: 2nd wallet is watch-only
                         isAutoCoinjoin=False, masterKeyFingerprint="8f2a1c3d",
+                        isHardwareWallet=(wallet == "DailyWallet"), coinjoinSignedByDevice=(wallet == "DailyWallet"),
+                        coinjoinDeviceVendor="Trezor" if wallet == "DailyWallet" else "None",
+                        coinjoinDeviceMaxRounds=getattr(self, "limits", (50, 5))[0] or 50,
+                        coinjoinDeviceMaxMiningFeeRate=getattr(self, "limits", (50, 5))[1] or 5,
                         balance=sum(c["amount"] for c in self.coins),
                         coinjoinStatus="In progress" if self.cj else "Idle")   # 2.8.0 field
         if method == "listkeys":
@@ -1453,6 +1513,14 @@ class DemoRpc:                                        # --demo : plausible fake 
             random.Random().shuffle(words)
             return " ".join(words)
         if method == "recoverwallet": return None
+        if method == "importhardwarewallet":                    # preview: verifiedAddresses come back
+            return dict(walletName=p[0] if p else "hw", masterKeyFingerprint="c0ffee42",
+                        accounts=["m/84'/0'/0'", "m/10025'/0'/0'/1'"] if (len(p) > 1 and p[1]) else ["m/84'/0'/0'"],
+                        verifiedAddresses=["bc1q" + "q"*38, "bc1p" + "p"*58] if (len(p) > 1 and p[1]) else ["bc1q" + "q"*38])
+        if method == "enablecoinjoin":
+            return dict(accounts=["m/84'/0'/0'", "m/10025'/0'/0'/1'"], verifiedAddresses=["bc1p" + "p"*58], restartRequired=True)
+        if method == "displayaddress": time.sleep(0.5); return dict(address=p[0] if p else "")
+        if method == "setcoinjoinlimits": self.limits = (p + [None, None])[:2]; return None
         if method in ("canceltransaction", "speeduptransaction"): return "02000000" + "ab"*60
         if method == "broadcast": return dict(txid="e"*64)
         if method == "query":                          # fake Scheme eval - plausible cross-wallet output
@@ -1617,7 +1685,9 @@ def poller(rpc, S, stop):
             # can't sign, the round fails and the coordinator temporarily bans those inputs. Stop
             # cleanly instead. Only DEFINITE gone (a bridge answered with zero devices) counts, and
             # only after 2 consecutive misses, so a transient probe hiccup never nukes a good round.
-            hw_wallet = bool((S.get("winfo") or {}).get("isHardwareWallet"))
+            _wi = S.get("winfo") or {}
+            hw_wallet = bool(_wi.get("coinjoinSignedByDevice", _wi.get("isHardwareWallet")))
+            _vend = str(_wi.get("coinjoinDeviceVendor") or "TREZOR").upper()
             if not hw_wallet: S["hw_gone"] = False
             if hw_wallet and S.get("cj_on") and time.monotonic() - last_hw >= 8:
                 last_hw = time.monotonic()
@@ -1627,16 +1697,13 @@ def poller(rpc, S, stop):
                     except Exception: pass           # critical phase refuses stop - round already lost
                     S["cj_on"] = False; S["single"] = False; S["hw_auth"] = None
                     S["hw_gone"] = True; ding()
-                    S["flash"], S["flasht"] = ("⚠ TREZOR DISCONNECTED - coinjoin stopped to avoid a "
+                    S["flash"], S["flasht"] = (f"⚠ {_vend} DISCONNECTED - coinjoin stopped to avoid a "
                                                "failed round + coordinator ban; reconnect, then start again", 220)
                 elif act == "back":
-                    ding(); S["flash"], S["flasht"] = "✓ trezor reconnected - start coinjoin again", 100
-        if time.monotonic() - last_b >= 15:           # coinjoin.nl coordinator banner (best effort)
+                    ding(); S["flash"], S["flasht"] = f"✓ {_vend.lower()} reconnected - start coinjoin again", 100
+        if time.monotonic() - last_b >= 15:           # coinjoin.nl coordinator banner (best effort, Tor only)
             try:
-                req = urllib.request.Request("https://coinjoin.nl/wabisabi/human-monitor",
-                      headers={"User-Agent": "sabi/1.0"})
-                with urllib.request.urlopen(req, timeout=10) as r:
-                    rs = (json.loads(r.read().decode()).get("RoundStates") or [])
+                rs = tor_json("https://coinjoin.nl/wabisabi/human-monitor", timeout=10).get("RoundStates") or []
                 S["banner"] = rs[0] if rs else None; S["banner_t"] = time.monotonic()
             except Exception: pass
             last_b = time.monotonic()
@@ -1722,7 +1789,7 @@ def save_rules(wname, rules):
         try: allr = json.load(open(RULES_FILE, encoding="utf-8"))
         except Exception: allr = {}
         allr[wname] = rules
-        json.dump(allr, open(RULES_FILE, "w", encoding="utf-8"), indent=1)
+        with open_private(RULES_FILE) as f: json.dump(allr, f, indent=1)
     except Exception:
         pass
 
@@ -1827,16 +1894,19 @@ SCHEME_SNIPPETS = [
   "      (list \"headersLeft\" (headers-left)))"),
 ]
 
+def open_private(path):                               # 0600 from the first byte (umask-independent)
+    return os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w", encoding="utf-8")
+
 def _write_config_atomic(path, text):
     # Never truncate the live Config.json in place: a crash mid-write loses the user's RPC
     # password + all settings. Back it up once, write a temp file, then atomically replace.
     bak = path + ".sabi.bak"
     if not os.path.exists(bak) and os.path.exists(path):
-        try: shutil.copy2(path, bak)                  # one-time safety copy of the original
+        try: shutil.copy2(path, bak); os.chmod(bak, 0o600)   # one-time safety copy (holds the RPC password)
         except Exception: pass
     tmp = path + ".sabi.tmp"
     try:
-        with open(tmp, "w", encoding="utf-8") as f:
+        with open_private(tmp) as f:
             f.write(text); f.flush(); os.fsync(f.fileno())
         os.replace(tmp, path)                         # atomic on the same filesystem
     except Exception:
@@ -1886,11 +1956,9 @@ def fetch_live_coordinators(api=LIQUISABI_API, days=14, n=100, timeout=10):
     body = json.dumps({"jsonrpc": "2.0", "id": "1", "method": "dashboard", "params": {
         "since": (now - datetime.timedelta(days=days)).isoformat(), "until": now.isoformat(),
         "page": 1, "pageSize": n, "orderBy": "RoundEndTime", "descending": True, "searchTerm": ""}})
-    req = urllib.request.Request(api, data=body.encode("utf-8"),
-        headers={"Content-Type": "text/plain;charset=UTF-8", "User-Agent": "sabi/1.0 (coinjoin.nl)",
+    resp = tor_json(api, data=body.encode("utf-8"), timeout=timeout,
+        headers={"Content-Type": "text/plain;charset=UTF-8",
                  "Origin": "http://liquisabi.com", "Referer": "http://liquisabi.com/"})
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        resp = json.loads(r.read().decode())
     rounds = ((resp.get("result") or resp).get("PaginatedRounds") or {}).get("Rounds") or []
     seen = {}
     for rd in rounds:
@@ -1938,13 +2006,14 @@ HELP = ["WASD / ↑↓←→      w up · s down (rows) · a/d = ←→ switch t
         "dashboard  space/enter load wallet · n create wallet · v recover wallet",
         "           i install wasabi: nostr release + signature/sha256 verified download",
         "           p connect to a running daemon on other RPC address/user/pass (RaspiBlitz)",
-        "           t import a TREZOR (coinjoin signs on the device via the bridge)",
+        "           t import a hardware wallet (trezor bridge / coldcard / kruxd)",
         "wallet     k address book · x exclude coin from coinjoin · y copy address",
         "           click anon/amount/confs headers to sort (newest confirmed on top)",
         "history    u speed up (fee bump) · c cancel unconfirmed tx · y copy txid",
-        "           r copy raw hex (fetched from YOUR node; also works after send)",
+        "           h copy raw hex (fetched from YOUR node; also works after send)",
         "coinjoin   space start/stop · o single round · b sweep to other wallet",
-        "           p pay inside coinjoin · x cancel selected payment · e trezor acct",
+        "           p pay inside coinjoin · x cancel selected payment · e device acct",
+        "           l device limits (rounds · max sat/vB the device is asked to approve)",
         "           c choose coordinator (edits Config.json - daemon restart needed)",
         "send       n add payment · i import pasted list · e edit · x remove",
         "           + / - apply no-change round-up/down (exact coin match, no change output)",
@@ -2029,15 +2098,23 @@ def tui(rpc, args, frames=0):
         try: return f"≈ ${sats/1e8*float(xr):,.0f}" if xr and sats else ""
         except Exception: return ""
 
-    def wo():                                         # pure watch-only can't sign; hardware can
+    def hw():                                         # a device signs this wallet's coinjoins
+        wi = S.get("winfo") or {}                     # (preview: coinjoinSignedByDevice; 2.8.x: isHardwareWallet)
+        return bool(wi.get("coinjoinSignedByDevice", wi.get("isHardwareWallet")))
+
+    def hw_vendor():                                  # "Trezor" / "Coldcard" / "Krux" ... for messages
+        v = str((S.get("winfo") or {}).get("coinjoinDeviceVendor") or "")
+        return v if v and v.lower() not in ("none", "unknown") else "TREZOR"
+
+    def wo():                                         # watch-only can't sign; a coinjoin device can
         wi = S.get("winfo") or {}
+        if wi.get("isHardwareWallet") and not hw():
+            flash("◇ device wallet without a coinjoin account - press e on [4] coinjoin to add one", 110)
+            return True
         if wi.get("isWatchOnly") and not wi.get("isHardwareWallet"):
             flash("◇ watch-only wallet - it can't sign; open its hot counterpart", 80)
             return True
         return False
-
-    def hw():
-        return bool((S.get("winfo") or {}).get("isHardwareWallet"))
 
     def fully_private():                              # every coin at/above its anon target
         pr, se, np_ = balances(S)
@@ -2046,7 +2123,7 @@ def tui(rpc, args, frames=0):
     def hw_auth_watch():                              # the device wants a hold-to-confirm NOW
         S["hw_gone"] = False; S["hw_miss"] = 0        # (re)starting: clear any stale disconnect banner
         S["hw_auth"] = time.monotonic()
-        flash("◆ CONFIRM ON YOUR TREZOR - hold to approve the coinjoin batch", 170)
+        flash(f"◆ CONFIRM ON YOUR {hw_vendor().upper()} - approve the coinjoin batch on the device", 170)
         ding()
         def w():
             deadline = time.monotonic() + 200         # matches the daemon's 3-minute device window
@@ -2055,7 +2132,7 @@ def tui(rpc, args, frames=0):
                 if (S.get("cj_status") or "").lower() not in ("", "idle"):
                     S["hw_auth"] = None
                     ding()
-                    S["flash"], S["flasht"] = "✓ trezor authorized - mixing unattended from here on", 150
+                    S["flash"], S["flasht"] = f"✓ {hw_vendor().lower()} authorized - mixing unattended from here on", 150
                     return
                 if fully_private():                   # authorized, but there is nothing to mix:
                     S["hw_auth"] = None               # the daemon goes straight back to idle
@@ -2116,27 +2193,37 @@ def tui(rpc, args, frames=0):
         def cb(v):
             lab = (v.get("label") or "").strip()
             if not lab: flash("✗ wasabi requires a label - who is paying you?", 80); return
-            tap = v.get("taproot", "").strip().lower() in ("y", "yes", "true", "1")
+            tap = v.get("taproot", "").strip().lower() not in ("n", "no", "false", "0")
             def fn():
-                r = rpc.call("getnewaddress", [lab, True] if tap else [lab], wallet=S["wallet"])
+                # 2.8.2 flipped the default to taproot: always pass the flag, never rely on it
+                r = rpc.call("getnewaddress", [lab, bool(tap)], wallet=S["wallet"])
                 addr = (r or {}).get("address") if isinstance(r, dict) else str(r)
                 kp = (r or {}).get("keyPath", "") if isinstance(r, dict) else ""
                 copied = clip_copy(addr or "")
                 qr = [("  " + q, WHITE) for q in qr_lines(addr or "")] if H >= 34 else []
-                S["notice"] = dict(title="RECEIVE  ·  give this address to the payer", lines=[
-                    "", ("  " + (addr or "?"), clamp8(lerp(GREEN, WHITE, .35))), "",
+                dev = ["  ◆ device: showing the address on screen - COMPARE before sharing it",
+                       ] if hw() else []
+                lines = ["", ("  " + (addr or "?"), clamp8(lerp(GREEN, WHITE, .35))), "",
                     f"  label    {lab}", f"  type     {'taproot' if tap else 'segwit'}"
                     + (f"      path {kp}" if kp else ""),
-                    "  " + ("copied to clipboard ✓" if copied else "clipboard unavailable"), ""]
+                    "  " + ("copied to clipboard ✓" if copied else "clipboard unavailable")] + dev + [""] \
                     + qr + ["" if qr else "  (terminal too small for the QR - resize and retry)",
-                    "  one address, one use - never reuse it", "", "  press any key to close"])
+                    "  one address, one use - never reuse it", "", "  press any key to close"]
+                S["notice"] = dict(title="RECEIVE  ·  give this address to the payer", lines=lines)
+                if dev and addr:                      # preview: the device proves the host isn't lying
+                    try:
+                        rpc.call("displayaddress", [addr], wallet=S["wallet"], timeout=130)
+                        lines[6] = "  ◆ device: address shown ✓ - matches what the daemon derived"
+                    except Exception as e:
+                        lines[6] = ("  ✗ device did not confirm this address (" + short(str(e), 30)
+                                               + ") - do NOT use it")
                 return "address ready"
             act("receive", fn)
         open_modal("RECEIVE INTO " + str(S.get("wallet", "")).upper(),
                    [dict(k="label", label="label", v="", mask=False,
                          hint="who/what is this payment for? (required)"),
-                    dict(k="taproot", label="taproot? (y/n)", v="n", mask=False,
-                         hint="n = segwit bc1q (default) · y = taproot bc1p")], cb)
+                    dict(k="taproot", label="taproot? (y/n)", v="y", mask=False,
+                         hint="y = taproot bc1p (wasabi default) · n = segwit bc1q")], cb)
 
     def coins_view():                                 # wallet tab order: sortable columns
         key, rev = S.get("coin_sort") or ("confs", False)
@@ -2348,6 +2435,14 @@ def tui(rpc, args, frames=0):
             rpc.user = (v.get("user") or "").strip() or None
             rpc.password = v.get("password") or None
             S["kick"] = True
+            if insecure_rpc(rpc.url):                 # wallet passwords + mnemonics would cross the LAN
+                S["notice"] = dict(title="⚠ PLAINTEXT RPC OVER THE NETWORK", lines=[
+                    "", "  " + rpc.url, "",
+                    "  this is http to a non-local host: the RPC login, every wallet",
+                    "  password and any recovery words you type travel UNENCRYPTED.",
+                    "  anyone on that network path can read them.", "",
+                    "  use an ssh tunnel (ssh -L 37128:127.0.0.1:37128 host), a .onion,",
+                    "  or https in front of the daemon.", "", "  press any key"])
             flash("reconnecting to " + rpc.url + " ...", 80)
         open_modal("CONNECT TO A RUNNING DAEMON",
                    [dict(k="url", label="RPC address", v=getattr(rpc, "url", "http://127.0.0.1:37128"),
@@ -2457,48 +2552,60 @@ def tui(rpc, args, frames=0):
                        " 4  extract - and only with your approval, start wassabeed", "",
                        "nothing runs before every check passes."])
 
-    def do_import_trezor():                           # trezor coinjoin wallet via the daemon bridge
+    def do_import_hw():                               # hardware wallet via the daemon (preview build)
         def cb(v):
             name = (v.get("name") or "").strip()
             if not name: flash("✗ wallet needs a name"); return
             cj = v.get("coinjoin", "y").strip().lower() not in ("n", "no", "false", "0")
             def fn():
-                # reading the SLIP-25 account asks for confirmation ON THE DEVICE (3 min window)
-                r = rpc.call("importtrezorwallet", [name, cj], timeout=200) or {}
+                # preview 3+: importhardwarewallet(name, enableCoinjoin) - reading the coinjoin
+                # account asks for confirmation ON THE DEVICE (3 min window)
+                r = rpc.call("importhardwarewallet", [name, cj], timeout=200) or {}
                 S["kick"] = True
-                S["notice"] = dict(title="TREZOR WALLET IMPORTED", lines=[
+                S["notice"] = dict(title="HARDWARE WALLET IMPORTED", lines=[
                     "", f"  wallet       {r.get('walletName', name)}",
                     f"  fingerprint  {r.get('masterKeyFingerprint', '?')}",
-                    f"  coinjoin     {'enabled (SLIP-25 account)' if r.get('coinjoinEnabled') else 'off'}", "",
+                    f"  coinjoin     {'enabled (coinjoin account read)' if cj else 'off (watch-only)'}", ""]
+                    + verified_lines(r) + [
                     "  load it on [1] dashboard - coinjoin authorization happens",
                     "  on the device when you start mixing.", "", "  press any key"])
                 return r.get("walletName", name)
-            act("importing from trezor - CONFIRM ON THE DEVICE", fn)
-        open_modal("IMPORT TREZOR WALLET",
+            act("importing hardware wallet - CONFIRM ON THE DEVICE", fn)
+        open_modal("IMPORT HARDWARE WALLET",
                    [dict(k="name", label="wallet name", v="", mask=False, hint=""),
                     dict(k="coinjoin", label="enable coinjoin account? (y/n)", v="y", mask=False,
-                         hint="adds the SLIP-25 coinjoin account - confirm on the device")],
+                         hint="reads the coinjoin account - confirm on the device")],
                    cb, lines=lambda: [
-                       "imports the connected trezor through the daemon's bridge.",
+                       "imports the connected device (trezor bridge / coldcard / kruxd).",
                        "the device will ask you to confirm exporting the accounts -",
                        "keep it connected and unlocked. nothing leaves the device",
-                       "except public keys; coinjoins are signed on the trezor."])
+                       "except public keys; coinjoins are signed on the device.", "",
+                       "the bridge is plain http: the device shows the first receive",
+                       "address of each account - COMPARE it with what sabi shows."])
+
+    def verified_lines(r):                            # preview: addresses the device displayed
+        va = [str(a) for a in (r.get("verifiedAddresses") or [])]
+        if not va: return []
+        return ["  the device showed these first receive addresses - they must match:"] \
+             + ["    " + a for a in va] + [""]
 
     def do_enable_cj_account():                       # add the SLIP-25 account to a loaded trezor wallet
         if not S.get("wallet"): flash("load a wallet first (tab 1, enter)"); return
-        if not hw(): flash("this wallet is not a hardware wallet", 70); return
+        if not (S.get("winfo") or {}).get("isHardwareWallet"): flash("this wallet is not a hardware wallet", 70); return
         def cb(v):
             if v.get("ok", "").strip().lower() != "y": flash("cancelled"); return
             def fn():
                 r = rpc.call("enablecoinjoin", [], wallet=S["wallet"], timeout=200) or {}
-                lines = ["", "  coinjoin account  " + str(r.get("coinjoinAccountKeyPath", "?")), ""]
+                accts = r.get("accounts")
+                lines = ["", "  accounts  " + (", ".join(map(str, accts)) if isinstance(accts, list) else str(accts or "?")), ""]
+                lines += verified_lines(r)
                 if r.get("restartRequired"):
                     lines += ["  ⟳ RESTART the daemon - a loaded wallet only reads its",
                               "  accounts at startup, then start coinjoin as usual.", ""]
-                S["notice"] = dict(title="TREZOR COINJOIN ENABLED", lines=lines + ["  press any key"])
+                S["notice"] = dict(title="DEVICE COINJOIN ENABLED", lines=lines + ["  press any key"])
                 return "enabled"
             act("enabling coinjoin account - CONFIRM ON THE DEVICE", fn)
-        open_modal("ENABLE TREZOR COINJOIN",
+        open_modal("ENABLE DEVICE COINJOIN",
                    [dict(k="ok", label="type y to continue (device will prompt)", v="", mask=False,
                          hint="3 minute window for the on-device confirmation")], cb)
 
@@ -2629,17 +2736,46 @@ def tui(rpc, args, frames=0):
     def do_pay_in_cj():
         if wo(): return
         if not S.get("wallet"): flash("load a wallet first (tab 1, enter)"); return
+        if hw():                                      # the device approves amounts, never destinations
+            flash("✗ payments inside coinjoin are not possible when a device signs the rounds", 110); return
         def cb(v):
             addr = v.get("address", "").strip()
             if not is_btc_address(addr): flash("✗ that doesn't look like a bitcoin address", 70); return
             try: amt = parse_amount(v.get("amount", ""))
             except Exception: flash("✗ bad amount - use BTC like 0.001 (or 150000s)", 70); return
-            act("payment queued inside coinjoin",
-                lambda: rpc.call("payincoinjoin", [addr, amt], wallet=S["wallet"]))
+            act("payment queued inside coinjoin",               # 2.8.2 re-validates the password here
+                lambda: rpc.call("payincoinjoin", [addr, amt, v.get("password", "")], wallet=S["wallet"]))
         open_modal("PAY INSIDE A COINJOIN",
                    [dict(k="address", label="pay to address", v="", mask=False,
                          hint="receiver gets a coinjoin output - maximum privacy"),
-                    dict(k="amount", label="amount (BTC)", v="", mask=False, hint="e.g. 0.001")], cb)
+                    dict(k="amount", label="amount (BTC)", v="", mask=False, hint="e.g. 0.001"),
+                    dict(k="password", label="wallet password", v="", mask=True,
+                         hint="empty if the wallet has none")], cb)
+
+    def do_cj_limits():                               # preview: what the device is asked to approve
+        if not S.get("wallet"): flash("load a wallet first (tab 1, enter)"); return
+        if not hw(): flash("no device signs this wallet's coinjoins - it has no device limits", 80); return
+        wi = S.get("winfo") or {}
+        def cb(v):
+            try:
+                rounds = int(v.get("rounds") or 0); rate = float(v.get("rate") or 0)
+                if rounds < 1 or rate <= 0: raise ValueError
+            except ValueError: flash("✗ rounds must be ≥ 1 and fee rate > 0 sat/vB", 80); return
+            def fn():
+                rpc.call("setcoinjoinlimits", [rounds, rate], wallet=S["wallet"]); S["kick"] = True
+                return f"{rounds} rounds · max {rate:g} sat/vB - the device confirms these on the next start"
+            act("device limits set", fn)
+        open_modal(f"DEVICE COINJOIN LIMITS  ·  {hw_vendor()}",
+                   [dict(k="rounds", label="max rounds per authorization",
+                         v=str(wi.get("coinjoinDeviceMaxRounds") or 50), mask=False,
+                         hint="how many rounds the device may sign unattended"),
+                    dict(k="rate", label="max mining fee rate (sat/vB)",
+                         v=str(wi.get("coinjoinDeviceMaxMiningFeeRate") or 5), mask=False,
+                         hint="rounds priced above this are skipped before any input registers")],
+                   cb, lines=lambda: [
+                       "these two numbers are what you confirm ON THE DEVICE when a",
+                       "coinjoin starts. set them BEFORE authorizing: a preview build",
+                       "may have reset them to the defaults (50 rounds · 5 sat/vB)."])
 
     def do_cancel_pay():
         pays = S.get("pays") or []
@@ -2772,7 +2908,7 @@ def tui(rpc, args, frames=0):
                 if isinstance(r, dict) and r.get("tx"):   # keep the raw hex: 'r' copies it later
                     S["last_send"] = dict(txid=str(txid), hex=str(r["tx"]))
                 queue.clear(); sug_lock.clear(); clip_copy(txid or "")
-                return f"txid {short(txid or '?', 24)} (copied · r = raw hex)"
+                return f"txid {short(txid or '?', 24)} (copied · h = raw hex)"
             act(f"sent {len(pays)} payment(s), {cbtc(total)}", fn)
         nc, np_ = len(coins), len(queue)
         def fee_info(vals):                           # live estimate as the fee target is typed
@@ -3042,9 +3178,9 @@ def tui(rpc, args, frames=0):
                 sp = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"[int(time.time()*10) % 10]
                 rput(ch, col, 1, min(W, TW)-2, sp + " " + str(S["busy"])[:24], AMBER)
             elif S.get("hw_auth"):
-                rput(ch, col, 1, min(W, TW)-2, "◆ CONFIRM ON TREZOR", clamp8(lerp(AMBER, WHITE, .5*pulse)))
+                rput(ch, col, 1, min(W, TW)-2, f"◆ CONFIRM ON {hw_vendor().upper()}", clamp8(lerp(AMBER, WHITE, .5*pulse)))
             elif S.get("hw_gone"):
-                rput(ch, col, 1, min(W, TW)-2, "⚠ TREZOR UNPLUGGED", clamp8(lerp(ORANGE, WHITE, .5*pulse)))
+                rput(ch, col, 1, min(W, TW)-2, f"⚠ {hw_vendor().upper()} UNPLUGGED", clamp8(lerp(ORANGE, WHITE, .5*pulse)))
             return 3
         lcol = lerp(GREEN, GLOW, pulse) if on else lerp(BRAND, GREY, .45)
         rows = 7 if H >= 34 else 5
@@ -3139,10 +3275,10 @@ def tui(rpc, args, frames=0):
             sp = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"[int(time.time()*10) % 10]
             put(ch, col, 2, x0, f"{sp} {S['busy']} ...", AMBER)
         elif S.get("hw_auth"):
-            put(ch, col, 2, x0, "◆ CONFIRM COINJOIN ON YOUR TREZOR - it is waiting for you",
+            put(ch, col, 2, x0, f"◆ CONFIRM COINJOIN ON YOUR {hw_vendor().upper()} - it is waiting for you",
                 clamp8(lerp(AMBER, WHITE, .5*pulse)))
         elif S.get("hw_gone"):
-            put(ch, col, 2, x0, "⚠ TREZOR DISCONNECTED - coinjoin stopped · reconnect, then start again",
+            put(ch, col, 2, x0, f"⚠ {hw_vendor().upper()} DISCONNECTED - coinjoin stopped · reconnect, then start again",
                 clamp8(lerp(ORANGE, WHITE, .5*pulse)))
         nload = len(S.get("loaded") or ())
         if nload > 1: put(ch, col, 1, x0+34, f"· {nload} wallets loaded", lerp(GREEN, GREY, .3))
@@ -3324,7 +3460,7 @@ def tui(rpc, args, frames=0):
                 put(ch, col, y0+4, 4, "old / busy wallets take minutes; coins and history appear when done.", GREY)
             return
         hist = S.get("history") or []
-        put(ch, col, y0, 4, f"HISTORY ({len(hist)})   date · amount · label · txid      y copy txid · r raw hex", GREY)
+        put(ch, col, y0, 4, f"HISTORY ({len(hist)})   date · amount · label · txid      y copy txid · h raw hex", GREY)
         vis = H - (y0+2) - 2; n = len(hist)
         if n:
             sel[2] = max(0, min(sel[2], n-1))
@@ -3380,11 +3516,17 @@ def tui(rpc, args, frames=0):
         if S.get("hw_auth"):
             p2 = qpulse(f, 0.3, step=3)
             left = max(0, 200 - int(time.monotonic() - S["hw_auth"]))
-            put(ch, col, y0+2, x0, f"▸▸ CONFIRM ON YOUR TREZOR NOW ◂◂   hold to approve · {left}s left",
+            put(ch, col, y0+2, x0, f"▸▸ CONFIRM ON YOUR {hw_vendor().upper()} NOW ◂◂   approve on the device · {left}s left",
                 clamp8(lerp(AMBER, WHITE, .5*p2)))
         elif S.get("hw_gone"):                        # signer walked away mid-mix - we stopped
-            put(ch, col, y0+2, x0, "⚠ TREZOR DISCONNECTED - coinjoin stopped · reconnect, then start again",
+            put(ch, col, y0+2, x0, f"⚠ {hw_vendor().upper()} DISCONNECTED - coinjoin stopped · reconnect, then start again",
                 clamp8(lerp(ORANGE, WHITE, .5*qpulse(f, 0.3, step=3))))
+        elif hw():                                    # what the device will be asked to approve
+            wi_ = S.get("winfo") or {}
+            put(ch, col, y0+2, x0, f"◇ {hw_vendor()} signs · limits {wi_.get('coinjoinDeviceMaxRounds', '?')} rounds · "
+                f"max {wi_.get('coinjoinDeviceMaxMiningFeeRate', '?')} sat/vB   (l to change)",
+                lerp(GREEN, GREY, .3))
+            regions.append((y0+2, x0, x0+70, ("ACT", do_cj_limits)))
         elif fully_private():                         # every coin at target: say so, loudly and calmly
             put(ch, col, y0+2, x0, "◆ FULLY PRIVATE - every coin at its anon target · nothing to mix",
                 clamp8(lerp(GREEN, WHITE, .2)))
@@ -3394,13 +3536,14 @@ def tui(rpc, args, frames=0):
             GREEN if on else GREY)
         put(ch, col, y0+4, x0, f"to mix       {btc(se+np_)}", AMBER if se+np_ else GREY)
         put(ch, col, y0+5, x0, f"private      {btc(pr)}", GREEN if pr else GREY)
-        mode = "single round" if S.get("single") else ("auto" if S.get("auto") else "manual")
+        mode = "single round" if S.get("single") else ("rules armed" if S.get("armed") else "manual")
         put(ch, col, y0+6, x0, f"mode         {mode}", lerp(BRAND, WHITE, .25))
         cu = S.get("coord_uri")
         put(ch, col, y0+7, x0, "coordinator  " + (coord_host(cu) if cu else "?"),
             lerp(BRAND, WHITE, .25) if cu else GREY)
         put(ch, col, y0+8, x0, "space start/stop   o one round   b sweep   c coordinator", lerp(BRAND, WHITE, .35))
-        put(ch, col, y0+9, x0, "p pay inside coinjoin   x cancel payment   c coordinator", lerp(BRAND, WHITE, .35))
+        put(ch, col, y0+9, x0, ("e coinjoin account   l device limits   x cancel payment" if hw() else
+                                "p pay inside coinjoin   x cancel payment   e device account"), lerp(BRAND, WHITE, .35))
         pays = S.get("pays") or []
         py = y0 + 11
         put(ch, col, py, x0, f"PAYMENTS INSIDE COINJOIN ({len(pays)})", GREY)
@@ -3486,7 +3629,7 @@ def tui(rpc, args, frames=0):
             put(ch, col, y0+1, 4, "no wallet loaded - go to [1] dashboard and press enter", ORANGE); return
         armed = S.get("armed"); pulse = qpulse(f, 0.15)
         put(ch, col, y0, 4, f"AUTOMATION RULES · {S['wallet']}", GREY)
-        stat = "◆ ARMED - rules are live" if armed else "disarmed - press a to arm (password)"
+        stat = "◆ ARMED - rules are live" if armed else "disarmed - press m to arm (password)"
         put(ch, col, y0, 44, stat, clamp8(lerp(GREEN, WHITE, .4*pulse)) if armed else AMBER)
         rules = S.get("rules") or []
         if not rules:
@@ -3682,6 +3825,7 @@ def tui(rpc, args, frames=0):
     def saver_on():                                   # amounts auto-hide while away ('.' mode)
         nonlocal saver, saver_prev_priv
         saver = pick_saver(); saver_prev_priv = DISCREET["on"]; DISCREET["on"] = True; repaint()
+        S["notice"] = None; S["pager"] = None         # a recovery-words / address card must not linger under it
         _INFALL.clear()
     try:
         f = 0; last_act = time.monotonic(); saver = None; saver_prev_priv = False
@@ -3776,8 +3920,8 @@ def tui(rpc, args, frames=0):
                     r = raw.lower()
                     if TW < W and raw == "]": HOFF = min(W - TW, HOFF + 6)   # thin: pan the viewport
                     elif TW < W and raw == "[": HOFF = max(0, HOFF - 6)
-                    elif tab == 2 and r == "r": do_copy_rawtx()
-                    elif tab == 4 and r == "r": do_copy_last_send()
+                    elif tab == 2 and r == "h": do_copy_rawtx()      # h = hex; r stays refresh everywhere
+                    elif tab == 4 and r == "h": do_copy_last_send()
                     elif r == "r": S["kick"] = True; flash("refreshing ...", 20)
                     elif r == ".":                                # privacy mode: hide amounts + addresses
                         DISCREET["on"] = not DISCREET["on"]
@@ -3787,8 +3931,9 @@ def tui(rpc, args, frames=0):
                     elif r == "l" and tab in (0, 6): do_load_all()   # load every wallet
                     elif tab == 0 and r == "n": do_create_wallet()
                     elif tab == 0 and r == "v": do_recover_wallet()
-                    elif tab == 0 and r == "t": do_import_trezor()
+                    elif tab == 0 and r == "t": do_import_hw()
                     elif tab == 3 and r == "e": do_enable_cj_account()
+                    elif tab == 3 and r == "l": do_cj_limits()
                     elif r == "i" and (tab == 0 or S.get("err")): do_install_wasabi()
                     elif r == "p" and (tab == 0 or S.get("err")): do_rpc_connect()
                     elif tab == 6 and r == "e":
@@ -3960,14 +4105,14 @@ def find_daemon(extra=None):                          # locate the Wasabi daemon
         if p: cands.append(p)
     except Exception:
         pass
-    for name in ("wassabeed", "WalletWasabi.Daemon", "wassabee"):
+    for name in ("wassabeed", "WalletWasabi.Daemon"):   # never 'wassabee': that is the GUI
         w = _sh.which(name)
         if w: cands.append(w)
     if os.name == "nt":
         for pf in (os.environ.get("ProgramFiles"), os.environ.get("ProgramFiles(x86)")):
             if pf:
                 cands += [os.path.join(pf, "WasabiWallet", n)
-                          for n in ("wassabeed.exe", "WalletWasabi.Daemon.exe", "wassabee.exe")]
+                          for n in ("wassabeed.exe", "WalletWasabi.Daemon.exe")]
     elif sys.platform == "darwin":
         cands.append("/Applications/Wasabi Wallet.app/Contents/MacOS/wassabeed")
     else:
@@ -4041,7 +4186,7 @@ def main():
     ap.add_argument("--wallet", default=None, help="wallet name to select at start")
     ap.add_argument("--user", default=os.environ.get("WASABI_RPC_USER"), help="RPC user (if set)")
     ap.add_argument("--pass", dest="password", default=os.environ.get("WASABI_RPC_PASS"),
-                    help="RPC password (if set)")
+                    help="RPC password (visible to every user in `ps` - prefer WASABI_RPC_PASS or the prompt)")
     ap.add_argument("--demo", action="store_true", help="fake daemon with sample data (safe preview)")
     ap.add_argument("--daemon", default=None, metavar="PATH", help="Wasabi daemon executable (for auto-start)")
     ap.add_argument("--frames", type=int, default=0, help="render N frames then exit (testing)")
@@ -4062,6 +4207,9 @@ def main():
             if a.password is None: a.password = cfg["password"]
             print(f"wasabi config found: {cfg['path']}", file=sys.stderr)
         if a.rpc is None: a.rpc = "http://127.0.0.1:37128"
+        if insecure_rpc(a.rpc):
+            print(f"!  {a.rpc} is plain http to a non-local host: the RPC login, wallet passwords and\n"
+                  "   recovery words travel UNENCRYPTED. use an ssh tunnel, a .onion, or https.", file=sys.stderr)
         def rpc_up(t=2):
             try:
                 WasabiRpc(a.rpc, a.user, a.password).call("getstatus", timeout=t); return True
