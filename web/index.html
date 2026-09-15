@@ -320,6 +320,12 @@
     /* ---------- stats strip ---------- */
     .statstrip { color: #1dbc93; font-size: 1.02em; margin: 0.4em auto 0.8em; }
     /* all-time stats tiles (from `coinjoin-stats.py stats`) */
+    .alltime-box { margin-top: 1.4em; padding-top: 1.1em; border-top: 1px solid rgba(255, 255, 255, 0.09); }
+    .alltime-box.foreign { display: none; }   /* live tab: other coordinators' stats live on liquisabi.com */
+    .alltime-head {
+        display: inline-block; margin: 0 0 0.6em; padding-bottom: 0.2em; font-size: 1.15em;
+        font-family: 'Objectivity', sans-serif; font-weight: 500; border-bottom: 2px solid #1dbc93;
+    }
     .alltime { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.6em; max-width: 1100px; margin: 0.4em auto 1em; }
     .alltime div { background: #26282a; border-radius: 12px; padding: 0.7em 0.9em; }
     .alltime b { display: block; color: #1dbc93; font-family: 'Anonymous Pro', monospace; font-size: 1.35em; font-weight: 400; }
@@ -505,8 +511,10 @@
     </p>
     <div id="content"><div class="skel" aria-hidden="true"><div></div><div></div><div></div></div></div>
     <p id="roundsStatus" class="sr-only" aria-live="polite"></p>
-    <p class="sub alltime-head">All-time</p>
-    <div class="alltime"></div>
+    <div class="alltime-box" id="liveAlltime">
+        <h3 class="alltime-head">Statistics: All-time</h3>
+        <div class="alltime"></div>
+    </div>
     <script>
         async function fetchFeeRates() {
             try {
@@ -543,6 +551,7 @@
         function switchCoord(btn) {
             currentCoord = btn.dataset.coord;
             document.querySelectorAll('.coordbtn').forEach(b => b.classList.toggle('coordactive', b === btn));
+            document.getElementById('liveAlltime').classList.toggle('foreign', currentCoord !== 'local');
             document.getElementById('content').innerHTML =
                 '<div class="skel" aria-hidden="true"><div></div><div></div><div></div></div>';
             document.getElementById('roundsStatus').textContent = '';
@@ -680,8 +689,10 @@
     <div id="latest-stats">
         <div id="latestStats"><div class="skel" aria-hidden="true"><div></div><div></div><div></div></div></div>
     </div>
-    <p class="sub alltime-head">All-time</p>
-    <div class="alltime"></div>
+    <div class="alltime-box">
+        <h3 class="alltime-head">Statistics: All-time</h3>
+        <div class="alltime"></div>
+    </div>
     <p><a href="https://liquisabi.com" target="_blank" rel="noopener">Full CoinJoin rounds history on LiquiSabi</a></p>
     <script>
         // Parse `coinjoin-stats.py stats` (`key : value` lines) into tiles, rendered
@@ -704,7 +715,7 @@
                 if (!html) return Promise.reject();
                 document.querySelectorAll('.alltime').forEach(el => el.innerHTML = html);
             })
-            .catch(() => document.querySelectorAll('.alltime, .alltime-head').forEach(el => el.style.display = 'none'));
+            .catch(() => document.querySelectorAll('.alltime-box').forEach(el => el.style.display = 'none'));
     </script>
     <script>
         // Parse `coinjoin-stats.py latest` text (2 lines per round) into a table that
