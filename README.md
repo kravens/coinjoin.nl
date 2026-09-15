@@ -32,10 +32,11 @@ wasabi-coinjoin-latest.timer  (every 5 min)
               2. coinjoin-stats.py sync    stores new rounds in the SQLite fee DB
                                            (per-tx numbers from bitcoind JSON-RPC).
               3. coinjoin-stats.py latest 10 > web/latest-stats.txt  (table source)
+              4. coinjoin-stats.py stats > web/stats.txt              (all-time tiles)
 ```
 
 `web/index.html` fetches `latest-coinjoin.json`, `latest.html` and
-`latest-stats.txt` client-side and renders them.
+`latest-stats.txt` and `stats.txt` client-side and renders them.
 
 ## Scripts
 

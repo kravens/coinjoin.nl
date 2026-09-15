@@ -319,6 +319,11 @@
 
     /* ---------- stats strip ---------- */
     .statstrip { color: #1dbc93; font-size: 1.02em; margin: 0.4em auto 0.8em; }
+    /* all-time stats tiles (from `coinjoin-stats.py stats`) */
+    .alltime { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.6em; max-width: 1100px; margin: 0.4em auto 1em; }
+    .alltime div { background: #26282a; border-radius: 12px; padding: 0.7em 0.9em; }
+    .alltime b { display: block; color: #1dbc93; font-family: 'Anonymous Pro', monospace; font-size: 1.35em; font-weight: 400; }
+    .alltime span { font-size: 0.85em; opacity: 0.75; }
     /* visually hidden, still announced by screen readers */
     .sr-only {
         position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
@@ -500,6 +505,8 @@
     </p>
     <div id="content"><div class="skel" aria-hidden="true"><div></div><div></div><div></div></div></div>
     <p id="roundsStatus" class="sr-only" aria-live="polite"></p>
+    <p class="sub alltime-head">All-time</p>
+    <div class="alltime"></div>
     <script>
         async function fetchFeeRates() {
             try {
@@ -673,7 +680,32 @@
     <div id="latest-stats">
         <div id="latestStats"><div class="skel" aria-hidden="true"><div></div><div></div><div></div></div></div>
     </div>
+    <p class="sub alltime-head">All-time</p>
+    <div class="alltime"></div>
     <p><a href="https://liquisabi.com" target="_blank" rel="noopener">Full CoinJoin rounds history on LiquiSabi</a></p>
+    <script>
+        // Parse `coinjoin-stats.py stats` (`key : value` lines) into tiles, rendered
+        // under both the live-rounds and history tables.
+        fetch('/stats.txt', { cache: 'no-store' })
+            .then(r => r.ok ? r.text() : Promise.reject())
+            .then(t => {
+                const kv = {};
+                t.split('\n').forEach(l => { const m = l.match(/^(.+?)\s*:\s(.+)$/); if (m) kv[m[1].trim()] = m[2].trim(); });
+                const since = (kv['range'] || '').slice(0, 10);
+                const noBtc = v => (v || '').replace(/ \(.*/, '');
+                const tile = (label, v) => v ? `<div><b>${v}</b><span>${label}</span></div>` : '';
+                const html =
+                    tile('coinjoins since ' + since, kv['coinjoins recorded']) +
+                    tile('avg inputs / outputs', kv['avg inputs/outputs']) +
+                    tile('avg fee rate', kv['avg fee rate']) +
+                    tile('avg mining fee', kv['avg mining fee']) +
+                    tile('total mining fee', noBtc(kv['total mining fee'])) +
+                    tile('coordinator fee', noBtc(kv['coordinator scraps']));
+                if (!html) return Promise.reject();
+                document.querySelectorAll('.alltime').forEach(el => el.innerHTML = html);
+            })
+            .catch(() => document.querySelectorAll('.alltime, .alltime-head').forEach(el => el.style.display = 'none'));
+    </script>
     <script>
         // Parse `coinjoin-stats.py latest` text (2 lines per round) into a table that
         // reuses the round-monitor table styling.

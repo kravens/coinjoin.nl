@@ -14,3 +14,5 @@ ExecStart=-/usr/local/bin/coinjoin-stats.py sync
 ExecStart=/usr/local/bin/coinjoin-latest-txid.sh
 # Dump the latest rounds for the index page (after sync, so it includes the new one).
 ExecStart=-/bin/sh -c '/usr/local/bin/coinjoin-stats.py latest 10 > /var/www/coinjoin/latest-stats.txt'
+# All-time aggregate stats for the index page.
+ExecStart=-/bin/sh -c '/usr/local/bin/coinjoin-stats.py stats > /var/www/coinjoin/stats.txt'
