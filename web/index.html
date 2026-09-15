@@ -321,7 +321,7 @@
     .statstrip { color: #1dbc93; font-size: 1.02em; margin: 0.4em auto 0.8em; }
     /* all-time stats tiles (from `coinjoin-stats.py stats`) */
     .alltime-box { margin-top: 1.4em; padding-top: 1.1em; border-top: 1px solid rgba(255, 255, 255, 0.09); }
-    .alltime-box.foreign { display: none; }   /* live tab: other coordinators' stats live on liquisabi.com */
+    #live .foreign { display: none; }   /* other coordinators' stats live on liquisabi.com */
     .alltime-head {
         display: inline-block; margin: 0 0 0.6em; padding-bottom: 0.2em; font-size: 1.15em;
         font-family: 'Objectivity', sans-serif; font-weight: 500; border-bottom: 2px solid #1dbc93;
@@ -503,7 +503,7 @@
 <!-- ============ live rounds ============ -->
 <div class="card" id="live">
     <h2 class="section">Live rounds</h2>
-    <p class="statstrip"></p>
+    <p class="statstrip" id="liveStrip"></p>
     <p class="coordswitch">
         <button class="copybtn coordbtn coordactive" data-coord="local" onclick="switchCoord(this)">coinjoin.nl</button>
         <button class="copybtn coordbtn" data-coord="kruw" onclick="switchCoord(this)">coinjoin.kruw.io</button>
@@ -551,7 +551,8 @@
         function switchCoord(btn) {
             currentCoord = btn.dataset.coord;
             document.querySelectorAll('.coordbtn').forEach(b => b.classList.toggle('coordactive', b === btn));
-            document.getElementById('liveAlltime').classList.toggle('foreign', currentCoord !== 'local');
+            ['liveStrip', 'liveAlltime'].forEach(id =>
+                document.getElementById(id).classList.toggle('foreign', currentCoord !== 'local'));
             document.getElementById('content').innerHTML =
                 '<div class="skel" aria-hidden="true"><div></div><div></div><div></div></div>';
             document.getElementById('roundsStatus').textContent = '';
