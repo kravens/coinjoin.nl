@@ -1,0 +1,182 @@
+diff --git a/next.config.ts b/next.config.ts
+index 6b7b5a5..ddb5a7a 100644
+--- a/next.config.ts
++++ b/next.config.ts
+@@ -5,6 +5,8 @@ const pkg = JSON.parse(readFileSync("./package.json", "utf-8")) as { version: st
+ 
+ const nextConfig: NextConfig = {
+   output: "export",
++  basePath: "/viewer",
++  assetPrefix: "/viewer",
+   trailingSlash: true,
+   images: { unoptimized: true },
+   env: {
+diff --git a/public/sitemap.xml b/public/sitemap.xml
+index 80eb88f..34a6cce 100644
+--- a/public/sitemap.xml
++++ b/public/sitemap.xml
+@@ -2,43 +2,43 @@
+ <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+   <url>
+     <loc>https://am-i.exposed/</loc>
+-    <lastmod>2026-03-21</lastmod>
++    <lastmod>2026-06-09</lastmod>
+     <changefreq>weekly</changefreq>
+     <priority>1.0</priority>
+   </url>
+   <url>
+     <loc>https://am-i.exposed/setup-guide/</loc>
+-    <lastmod>2026-03-23</lastmod>
++    <lastmod>2026-06-09</lastmod>
+     <changefreq>monthly</changefreq>
+     <priority>0.7</priority>
+   </url>
+   <url>
+     <loc>https://am-i.exposed/about/</loc>
+-    <lastmod>2026-03-21</lastmod>
++    <lastmod>2026-06-09</lastmod>
+     <changefreq>monthly</changefreq>
+     <priority>0.6</priority>
+   </url>
+   <url>
+     <loc>https://am-i.exposed/faq/</loc>
+-    <lastmod>2026-03-21</lastmod>
++    <lastmod>2026-06-09</lastmod>
+     <changefreq>monthly</changefreq>
+     <priority>0.7</priority>
+   </url>
+   <url>
+     <loc>https://am-i.exposed/glossary/</loc>
+-    <lastmod>2026-03-21</lastmod>
++    <lastmod>2026-06-09</lastmod>
+     <changefreq>monthly</changefreq>
+     <priority>0.7</priority>
+   </url>
+   <url>
+     <loc>https://am-i.exposed/guide/</loc>
+-    <lastmod>2026-03-20</lastmod>
++    <lastmod>2026-06-09</lastmod>
+     <changefreq>monthly</changefreq>
+     <priority>0.8</priority>
+   </url>
+   <url>
+     <loc>https://am-i.exposed/observatory/</loc>
+-    <lastmod></lastmod>
++    <lastmod>2026-06-09</lastmod>
+     <changefreq>daily</changefreq>
+     <priority>0.7</priority>
+   </url>
+diff --git a/src/app/page.tsx b/src/app/page.tsx
+index aa90c7f..d70cc89 100644
+--- a/src/app/page.tsx
++++ b/src/app/page.tsx
+@@ -5,8 +5,6 @@ import { useTranslation } from "react-i18next";
+ import { motion, AnimatePresence } from "motion/react";
+ import { DiagnosticLoader } from "@/components/DiagnosticLoader";
+ import { ResultsPanel } from "@/components/ResultsPanel";
+-import { InstallPrompt } from "@/components/InstallPrompt";
+-import { AppStoreAnnouncement } from "@/components/AppStoreAnnouncement";
+ import { GlowCard } from "@/components/ui/GlowCard";
+ import { DestinationOnlyResult } from "@/components/DestinationOnlyResult";
+ import { ErrorView } from "@/components/ErrorView";
+@@ -305,8 +303,6 @@ export default function Home() {
+         )}
+       </AnimatePresence>
+ 
+-      <AppStoreAnnouncement />
+-      <InstallPrompt />
+       {phase === "complete" && <Suspense fallback={null}><TipToast /></Suspense>}
+ 
+       {pendingXpub && (
+diff --git a/src/components/viz/TxFlowDiagram.tsx b/src/components/viz/TxFlowDiagram.tsx
+index 9eb65a9..4248103 100644
+--- a/src/components/viz/TxFlowDiagram.tsx
++++ b/src/components/viz/TxFlowDiagram.tsx
+@@ -1,6 +1,6 @@
+ "use client";
+ 
+-import { useState } from "react";
++import { useState, useEffect } from "react";
+ import { ParentSize } from "@visx/responsive";
+ import { useTranslation } from "react-i18next";
+ import { useTheme } from "@/hooks/useTheme";
+@@ -15,12 +15,17 @@ export type { TxFlowDiagramProps };
+ export function TxFlowDiagram({ tx, findings, onAddressClick, usdPrice, outspends, boltzmannResult, isCoinJoinOverride, onExitLinkability }: TxFlowDiagramProps) {
+   const { t, i18n } = useTranslation();
+   useTheme(); // re-render on theme change for SVG_COLORS
+-  const [showAllInputs, setShowAllInputs] = useState(false);
+-  const [showAllOutputs, setShowAllOutputs] = useState(false);
++  const [showAllInputs, setShowAllInputs] = useState(true);
++  const [showAllOutputs, setShowAllOutputs] = useState(true);
+   const { isExpanded, expand, collapse } = useFullscreen();
+-  const [linkabilityMode, setLinkabilityMode] = useState(!!isCoinJoinOverride);
++  const [linkabilityMode, setLinkabilityMode] = useState(!!isCoinJoinOverride && !!boltzmannResult);
+   const hasLinkability = !!boltzmannResult;
+ 
++  // Auto-open the full view once the tx has loaded (coinjoin.nl embed preference).
++  useEffect(() => {
++    expand();
++  }, [expand]);
++
+   const displayInCount = showAllInputs ? tx.vin.length : Math.min(tx.vin.length, MAX_DISPLAY);
+   const displayOutCount = showAllOutputs ? tx.vout.length : Math.min(tx.vout.length, MAX_DISPLAY);
+   const maxSide = Math.max(displayInCount, displayOutCount);
+diff --git a/src/hooks/useCjLinkabilityView.ts b/src/hooks/useCjLinkabilityView.ts
+index 9347461..d710496 100644
+--- a/src/hooks/useCjLinkabilityView.ts
++++ b/src/hooks/useCjLinkabilityView.ts
+@@ -1,8 +1,11 @@
+ import { useState, useEffect } from "react";
+ 
+ /**
+- * Manages CoinJoin linkability view state.
+- * Auto-resets when query changes. In pro mode, auto-enables when Boltzmann is computed for a CoinJoin.
++ * Manages CoinJoin linkability / Transaction flow view state.
++ * In pro mode, CoinJoins default to the Transaction flow view; normal txs and
++ * normie mode use the standard view. Re-evaluates when query/tx/mode changes.
++ * (boltzmannResult is accepted for API compatibility but no longer gates the default;
++ * linkability coloring inside the flow view still only activates when it is present.)
+  */
+ export function useCjLinkabilityView(
+   query: string,
+@@ -12,23 +15,12 @@ export function useCjLinkabilityView(
+ ): [boolean, (v: boolean) => void] {
+   const [cjLinkabilityView, setCjLinkabilityView] = useState(false);
+ 
+-  // Reset CJ linkability view when query changes or when the tx is not a CoinJoin
+-  useEffect(() => {
+-    const t = setTimeout(() => setCjLinkabilityView(false), 0);
+-    return () => clearTimeout(t);
+-  }, [query, isCoinJoin]);
++  void boltzmannResult;
+ 
+-  // Pro mode: auto-switch to linkability view when Boltzmann is computed for a CoinJoin
+-  // Normie mode: always reset to normal view
+   useEffect(() => {
+-    if (proMode && boltzmannResult != null && isCoinJoin) {
+-      const t = setTimeout(() => setCjLinkabilityView(true), 0);
+-      return () => clearTimeout(t);
+-    } else if (!proMode) {
+-      const t = setTimeout(() => setCjLinkabilityView(false), 0);
+-      return () => clearTimeout(t);
+-    }
+-  }, [proMode, boltzmannResult, isCoinJoin]);
++    const t = setTimeout(() => setCjLinkabilityView(proMode && isCoinJoin), 0);
++    return () => clearTimeout(t);
++  }, [query, isCoinJoin, proMode]);
+ 
+   return [cjLinkabilityView, setCjLinkabilityView];
+ }
+diff --git a/src/hooks/useExperienceMode.ts b/src/hooks/useExperienceMode.ts
+index df65573..381def0 100644
+--- a/src/hooks/useExperienceMode.ts
++++ b/src/hooks/useExperienceMode.ts
+@@ -5,7 +5,7 @@ import { createLocalStorageStore } from "./createLocalStorageStore";
+ 
+ const store = createLocalStorageStore<boolean>(
+   "ami-experience-mode",
+-  false,
++  true,
+   (raw) => raw === "1",
+   (val) => (val ? "1" : "0"),
+ );
