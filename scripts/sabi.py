@@ -1138,6 +1138,12 @@ class BitcoindRpc:                                    # the user's own node, cre
 WASABI_NOSTR_NPUB = "npub129hpcwy3h7uhpzwzts6utkt2p5st7lf4qpzp3d2j0p6z56lvkpgspngzeq"
 WASABI_RELEASE_PUBKEY = "02c8ab8eea76c83788e246a1baee10c04a134ec11be6553946f6ae65e47ae9a608"
 NOSTR_RELAYS = ["wss://relay.primal.net", "wss://nos.lol", "wss://nostr.mom"]
+# sabid (Rust re-implementation of the daemon, github.com/kravens/sabid): releases carry
+# SHA256SUMS + SHA256SUMS.sabidsig, a secp256k1 ECDSA signature over sha256(SHA256SUMS) by the
+# release key below (33-byte compressed pubkey, hex). Empty = no key pinned yet: sabi refuses
+# to install sabid until it is. Pin it from a signed release's release-key.hex, out of band.
+SABID_REPO = "kravens/sabid"
+SABID_RELEASE_PUBKEY = ""
 
 # secp256k1, verification only (no key material ever touches this code)
 _P  = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F
@@ -1420,6 +1426,79 @@ def wasabi_install(info, progress=lambda s: None):    # -> (wassabeed path, arch
         open(os.path.join(os.path.expanduser("~"), ".sabi-daemon"), "w", encoding="utf-8").write(exe)
     except Exception: pass
     return exe, got
+
+def sabid_release_info(timeout=20):                   # -> dict(version=str, assets={name: url}, content=str)
+    # GitHub's "latest" skips pre-releases, so take the newest published release of any kind.
+    url = f"https://api.github.com/repos/{SABID_REPO}/releases?per_page=5"
+    with tor_open(url, headers={"Accept": "application/vnd.github+json", "User-Agent": "sabi/1.0 (coinjoin.nl)"},
+                  timeout=timeout, clearnet_ok=True) as r:
+        rels = json.loads(r.read().decode())
+    for rel in rels if isinstance(rels, list) else []:
+        if rel.get("draft"): continue
+        assets = {a["name"]: a["browser_download_url"] for a in rel.get("assets", []) if a.get("browser_download_url")}
+        return dict(version=str(rel.get("tag_name", "")).lstrip("v"), tag=rel.get("tag_name", ""),
+                    assets=assets, content=rel.get("body") or "", prerelease=bool(rel.get("prerelease")))
+    raise RpcError(f"no published release at github.com/{SABID_REPO}")
+
+def pick_sabid_asset(tag):                            # the release workflow builds linux x64 only, so far
+    import platform
+    if os.name == "nt" or sys.platform == "darwin" or platform.machine().lower() not in ("x86_64", "amd64"):
+        raise RpcError("sabid has no build for this machine yet (linux x86_64 only)")
+    return f"sabid-{tag}-linux-x64.tar.gz"
+
+def sabid_install(info, progress=lambda s: None):     # -> (sabid path, archive sha256 hex)
+    # same order as wasabi_install: signature, then hash, then extract; nothing runs before that
+    import hashlib, base64, tempfile, tarfile
+    if not SABID_RELEASE_PUBKEY:
+        raise RpcError("no sabid release key is pinned in sabi.py yet - installing sabid is not possible "
+                       "until a signed release exists (see sabid's README, Releases)")
+    tag = info["tag"]; assets = info["assets"]
+    asset = pick_sabid_asset(tag)
+    for need in ("SHA256SUMS", "SHA256SUMS.sabidsig", asset):
+        if need not in assets: raise RpcError(f"release {tag} lacks '{need}'")
+    tmp = tempfile.mkdtemp(prefix=f"sabi-sabid-{tag}-")
+    progress("fetching signature files ...")
+    sums = open(_download(assets["SHA256SUMS"], os.path.join(tmp, "SHA256SUMS")), "rb").read()
+    sig = open(_download(assets["SHA256SUMS.sabidsig"], os.path.join(tmp, "s.sabidsig")), "rb").read()
+    progress("verifying release signature ...")
+    if not ecdsa_verify_der(bytes.fromhex(SABID_RELEASE_PUBKEY), hashlib.sha256(sums).digest(),
+                            base64.b64decode(sig.strip())):
+        raise RpcError("SIGNATURE INVALID - SHA256SUMS is not signed by the pinned sabid release key")
+    expected = None
+    for line in sums.decode("utf-8", "replace").splitlines():
+        parts = line.split()
+        if len(parts) == 2 and parts[1].lstrip("*").removeprefix("./") == asset: expected = parts[0].lower()
+    if not expected: raise RpcError(f"{asset} not listed in the signed SHA256SUMS")
+    apath = os.path.join(tmp, asset)
+    def pcb(done, total):
+        progress(f"downloading {asset}  {done//1048576} / {total//1048576} MB" if total else f"downloading {asset}  {done//1048576} MB")
+    _download(assets[asset], apath, pcb)
+    progress("checking sha256 ...")
+    h = hashlib.sha256()
+    with open(apath, "rb") as f:
+        for chunk in iter(lambda: f.read(1048576), b""): h.update(chunk)
+    got = h.hexdigest()
+    if got != expected:
+        os.remove(apath)
+        raise RpcError(f"HASH MISMATCH - expected {expected[:16]}..., got {got[:16]}... (download deleted)")
+    dest = os.path.join(os.path.expanduser("~"), f"sabid-{tag}")
+    progress(f"extracting to {dest} ...")
+    with tarfile.open(apath) as tf:
+        try: tf.extractall(dest, filter="data")
+        except TypeError: tf.extractall(dest)
+    exe = None
+    for root, _dirs, files in os.walk(dest):
+        if "sabid" in files: exe = os.path.join(root, "sabid"); break
+    if not exe: raise RpcError(f"extracted, but sabid not found under {dest}")
+    try: os.chmod(exe, os.stat(exe).st_mode | 0o755)
+    except Exception: pass
+    try:
+        open(os.path.join(os.path.expanduser("~"), ".sabi-daemon"), "w", encoding="utf-8").write(exe)
+    except Exception: pass
+    return exe, got
+
+def is_sabid(exe):
+    return os.path.basename(str(exe or "")).lower().startswith("sabid")
 
 class DemoRpc:                                        # --demo : plausible fake daemon, no network
     def __init__(self):
@@ -2489,6 +2568,67 @@ def tui(rpc, args, frames=0):
             return
         _install_wizard()
 
+    def _sabid_wizard():                              # guided, verified sabid install (github + pinned key)
+        def stage3(exe, sha, ver):
+            def cb(v):
+                if v.get("ok", "").strip().lower() != "y":
+                    flash(f"not started - sabid is ready at {exe}", 110); return
+                start_daemon_assist(exe)
+            open_modal(f"SABID {ver} VERIFIED ✓",
+                       [dict(k="ok", label="start sabid now? (y/n)", v="y", mask=False,
+                             hint="sabi starts `sabid daemon` with the RPC credentials in Config.json")],
+                       cb, lines=lambda: [
+                           "signature   VALID - signed by the pinned sabid release key",
+                           "sha256      " + sha[:32], "            " + sha[32:],
+                           "sabid       " + exe, "",
+                           "sabi remembered this path (~/.sabi-daemon) for future starts.",
+                           "sabid and Wasabi must not run at the same time; sabid refuses to."])
+        def stage2(info):
+            ver = info["version"]
+            try: asset = pick_sabid_asset(info["tag"])
+            except RpcError as e: flash("✗ " + str(e), 140); return
+            def cb(v):
+                if v.get("ok", "").strip().lower() != "y": flash("cancelled - nothing downloaded"); return
+                def fn():
+                    try:
+                        exe, sha = sabid_install(info, progress=lambda s: S.update(busy=str(s)))
+                    except Exception as e:
+                        S["notice"] = dict(title="SABID INSTALL FAILED", lines=[
+                            "", "  " + str(e), "", "  nothing was installed.", "", "  press any key"])
+                        return "install failed"
+                    stage3(exe, sha, ver)
+                    return "verified ✓"
+                act("installing sabid", fn)
+            open_modal("DOWNLOAD SABID " + ver + "?",
+                       [dict(k="ok", label="download + verify now? (y/n)", v="", mask=False,
+                             hint="a few MB - progress shows in the header")],
+                       cb, lines=lambda: [
+                           f"release      sabid {ver}" + ("  (pre-release)" if info.get("prerelease") else ""),
+                           f"this machine {asset}",
+                           f"host         github.com/{SABID_REPO}", "",
+                           "before anything is extracted or run, sabi verifies:",
+                           "  1. the pinned sabid release key's secp256k1 signature over SHA256SUMS",
+                           "  2. the archive's sha256 against that signed list",
+                           "a failed check deletes the download and stops.",
+                           "" if SABID_RELEASE_PUBKEY else "!  no release key pinned in this sabi.py yet - the install will refuse."])
+        def cb1(v):
+            if v.get("ok", "").strip().lower() != "y": flash("cancelled"); return
+            def fn():
+                info = sabid_release_info()
+                stage2(info)
+                return f"found sabid {info['version']}"
+            act("asking github for the latest sabid release", fn)
+        open_modal("INSTALL SABID",
+                   [dict(k="ok", label="fetch latest release info? (y/n)", v="", mask=False,
+                         hint="read-only step - you approve again before any download")],
+                   cb1, lines=lambda: [
+                       "sabid is a Rust re-implementation of the wasabi daemon (github.com/kravens/sabid):",
+                       "same wallet files, same RPC, coinjoins with Trezor and Coldcard, MCP for agents.", "",
+                       " 1  fetch the release list from github (over Tor when available)",
+                       " 2  download - verify the pinned release key's signature + sha256",
+                       " 3  extract - and only with your approval, start `sabid daemon`", "",
+                       "nothing runs before every check passes."])
+
     def _install_wizard():                            # guided, verified wasabi install (nostr)
         def stage3(exe, sha, ver):                    # everything verified - offer to start it
             def cb(v):
@@ -2540,6 +2680,28 @@ def tui(rpc, args, frames=0):
                 stage2(info)
                 return f"found Wasabi {info['version']} (event signature valid)"
             act("checking nostr relays for the latest release", fn)
+        def cb0(v):
+            if (v.get("which") or "w").strip().lower().startswith("s"): _sabid_wizard(); return
+            open_modal("INSTALL WASABI DAEMON",
+                       [dict(k="ok", label="fetch latest release info? (y/n)", v="", mask=False,
+                             hint="read-only step - you approve again before any download")],
+                       cb1, lines=lambda: [
+                           "sabi installs the official wasabi daemon (wassabeed) for you:", "",
+                           " 1  fetch the release announcement over nostr",
+                           "    relays: " + ", ".join(r.split("//")[1] for r in NOSTR_RELAYS),
+                           " 2  verify the announcement (schnorr, wasabi team npub)",
+                           " 3  download - verify team ECDSA signature + sha256 (pinned keys)",
+                           " 4  extract - and only with your approval, start wassabeed", "",
+                           "nothing runs before every check passes."])
+        open_modal("INSTALL A DAEMON",
+                   [dict(k="which", label="which daemon? (w = wasabi, s = sabid)", v="w", mask=False,
+                         hint="wasabi: the official wassabeed.  sabid: the Rust daemon, same wallets and RPC")],
+                   cb0, lines=lambda: [
+                       "w  wasabi daemon (wassabeed) - release announced over nostr, team-signed",
+                       "s  sabid (github.com/kravens/sabid) - release signed by the pinned sabid key"
+                       + ("" if SABID_RELEASE_PUBKEY else "  [no key pinned yet]"), "",
+                       "both are verified before anything is extracted or run."])
+        return
         open_modal("INSTALL WASABI DAEMON",
                    [dict(k="ok", label="fetch latest release info? (y/n)", v="", mask=False,
                          hint="read-only step - you approve again before any download")],
@@ -4105,9 +4267,12 @@ def find_daemon(extra=None):                          # locate the Wasabi daemon
         if p: cands.append(p)
     except Exception:
         pass
-    for name in ("wassabeed", "WalletWasabi.Daemon"):   # never 'wassabee': that is the GUI
+    for name in ("wassabeed", "WalletWasabi.Daemon", "sabid"):   # never 'wassabee': that is the GUI
         w = _sh.which(name)
         if w: cands.append(w)
+    for p in (os.path.join(os.path.expanduser("~"), ".cargo", "bin", "sabid"),
+              os.path.join(os.path.expanduser("~"), ".local", "bin", "sabid")):
+        if os.path.isfile(p): cands.append(p)
     if os.name == "nt":
         for pf in (os.environ.get("ProgramFiles"), os.environ.get("ProgramFiles(x86)")):
             if pf:
@@ -4133,6 +4298,16 @@ def launch_daemon(exe, rpc_user=None, rpc_pass=None):  # start it; captures outp
         env = {**os.environ, "WASABI_JSONRPCSERVERENABLED": "true"}
         if rpc_user and rpc_pass:
             env["WASABI_JSONRPCUSER"] = rpc_user; env["WASABI_JSONRPCPASSWORD"] = rpc_pass
+        argv = [exe]
+        if is_sabid(exe):                             # sabid reads Config.json at start, not env vars
+            argv = [exe, "daemon"]
+            cfg = wasabi_config()
+            path = cfg["path"] if cfg else os.path.join(os.path.expanduser("~"), ".walletwasabi", "client", "Config.json")
+            if not os.path.exists(path):
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                _write_config_atomic(path, json.dumps({"JsonRpcServerEnabled": True}, indent=2))
+            if rpc_user and rpc_pass:
+                apply_rpc_config(path, rpc_user, rpc_pass)
         logf = open(DAEMON_LOG, "wb")                 # capture stdout+stderr: the WHY when it dies
         kw = dict(stdin=subprocess.DEVNULL, stdout=logf, stderr=subprocess.STDOUT, env=env,
                   cwd=os.path.dirname(exe) or None)
@@ -4140,7 +4315,7 @@ def launch_daemon(exe, rpc_user=None, rpc_pass=None):  # start it; captures outp
             kw["creationflags"] = 0x00000008 | 0x00000200   # DETACHED | NEW_PROCESS_GROUP
         else:
             kw["start_new_session"] = True
-        return subprocess.Popen([exe], **kw)          # the handle: caller watches for early exit
+        return subprocess.Popen(argv, **kw)          # the handle: caller watches for early exit
     except Exception as e:
         try: open(DAEMON_LOG, "w", encoding="utf-8").write(f"could not exec {exe}: {e}\n")
         except Exception: pass
@@ -4233,7 +4408,7 @@ def main():
             if sys.stdin.isatty() and (not cfg or cfg["enabled"]):
                 exe = find_daemon(a.daemon)
                 if exe:
-                    try: ans = input(f"Wasabi daemon isn't answering. Start it now?\n   ({exe}) [Y/n] ").strip().lower()
+                    try: ans = input(f"The daemon isn't answering. Start it now?\n   ({exe}) [Y/n] ").strip().lower()
                     except (EOFError, KeyboardInterrupt): ans = "n"
                     if ans != "n" and launch_daemon(exe):
                         print("daemon starting - waiting for RPC ", end="", file=sys.stderr, flush=True)
@@ -4251,8 +4426,9 @@ def main():
                           "downloads + verifies it for you (or pass --daemon PATH).", file=sys.stderr)
         for attempt in range(3):                       # quick pre-flight probe: say what we found
             try:
-                WasabiRpc(a.rpc, a.user, a.password).call("getstatus", timeout=3)
-                print(f"daemon detected at {a.rpc} ✓", file=sys.stderr)
+                st = WasabiRpc(a.rpc, a.user, a.password).call("getstatus", timeout=3) or {}
+                kind = f"{st.get('daemon')} {st.get('version', '')}".strip() if st.get("daemon") else "wasabi daemon"
+                print(f"{kind} detected at {a.rpc} ✓", file=sys.stderr)
                 break
             except RpcError as e:
                 if "401" in str(e) and sys.stdin.isatty():   # auth needed -> ask, don't hardcode
