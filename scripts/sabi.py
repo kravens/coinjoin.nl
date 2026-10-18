@@ -1735,6 +1735,21 @@ def is_cj_row(h):
                 or str(h.get("label", "")).lower() == "coinjoin")
 
 _BLK_RE = re.compile(r"Block \((\d+)\) downloaded")
+def _sync_from_rpc(S, winfo):                         # sabid: getwalletinfo.syncProgress {height, tip}
+    sp = (winfo or {}).get("syncProgress")
+    if not isinstance(sp, dict) or not sp.get("height"): return
+    try: h = int(sp["height"])
+    except Exception: return
+    now = time.monotonic()
+    S["sync_h"] = h
+    if not S.get("sync_h0") or S["sync_h0"] > h: S["sync_h0"] = h
+    samples = S.setdefault("sync_rpc_hist", [])
+    samples.append((now, h))
+    samples[:] = [(t, x) for (t, x) in samples if now - t <= 120]
+    if len(samples) >= 2 and samples[-1][0] > samples[0][0]:
+        S["sync_rate"] = (samples[-1][1] - samples[0][1]) * 60.0 / (samples[-1][0] - samples[0][0])
+    S["sync_t"] = now
+
 def _tail_log(S):                                     # local daemon Logs.txt -> wallet-scan progress
     path = S.get("logpath")                           # (RPC exposes no per-wallet sync progress)
     if not path: return
@@ -1818,6 +1833,7 @@ def poller(rpc, S, stop):
             try:
                 S["winfo"] = rpc.call("getwalletinfo", [], wallet=wname)
                 S["no_coord"] = False                 # 2.8.0: getwalletinfo throws without a coordinator
+                _sync_from_rpc(S, S["winfo"])         # sabid reports the scan position itself
                 if S["winfo"] and S["winfo"].get("loaded") is False:
                     S["wloading"] = True; S["werr"] = None    # async load: filters still processing -
                 else:                                         # coins/history would throw until loaded
