@@ -1138,12 +1138,14 @@ class BitcoindRpc:                                    # the user's own node, cre
 WASABI_NOSTR_NPUB = "npub129hpcwy3h7uhpzwzts6utkt2p5st7lf4qpzp3d2j0p6z56lvkpgspngzeq"
 WASABI_RELEASE_PUBKEY = "02c8ab8eea76c83788e246a1baee10c04a134ec11be6553946f6ae65e47ae9a608"
 NOSTR_RELAYS = ["wss://relay.primal.net", "wss://nos.lol", "wss://nostr.mom"]
-# sabid (Rust re-implementation of the daemon, github.com/kravens/sabid): releases carry
-# SHA256SUMS + SHA256SUMS.sabidsig, a secp256k1 ECDSA signature over sha256(SHA256SUMS) by the
-# release key below (33-byte compressed pubkey, hex). Empty = no key pinned yet: sabi refuses
-# to install sabid until it is. Pin it from a signed release's release-key.hex, out of band.
+# sabid (Rust re-implementation of the daemon, github.com/kravens/sabid): a release carries
+# SHA256SUMS and a detached OpenPGP signature of it (SHA256SUMS.sig or .asc) by the maintainer's
+# Ed25519 key below, the key that also signs the Wasabi preview releases. Verified in pure python
+# (pgp_verify_ed25519), no gpg needed. The raw 32-byte Ed25519 public key is what is checked;
+# the fingerprint is shown so a user can compare it with the key's other publications.
 SABID_REPO = "kravens/sabid"
-SABID_RELEASE_PUBKEY = ""
+SABID_PGP_FINGERPRINT = "2536F69E9C3725662B6C146BDCF17F7A01272020"
+SABID_PGP_ED25519_PUBKEY = "171b0f79ee579b020300fd8b4e06206fe52ed693f272b0f44071c9eca791df4e"
 
 # secp256k1, verification only (no key material ever touches this code)
 _P  = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F
@@ -1427,6 +1429,100 @@ def wasabi_install(info, progress=lambda s: None):    # -> (wassabeed path, arch
     except Exception: pass
     return exe, got
 
+# ---- OpenPGP detached signatures by an Ed25519 key, pure python (RFC 4880 v4 packets, EdDSA algo 22) ----
+_ED_P = 2**255 - 19
+_ED_L = 2**252 + 27742317777372353535851937790883648493
+_ED_D = (-121665 * pow(121666, -1, _ED_P)) % _ED_P
+
+def _ed_decode(b):                                    # 32-byte compressed point -> (x, y) or None
+    y = int.from_bytes(b, "little"); sign = y >> 255; y &= (1 << 255) - 1
+    if y >= _ED_P: return None
+    x2 = (y * y - 1) * pow(_ED_D * y * y + 1, -1, _ED_P) % _ED_P
+    x = pow(x2, (_ED_P + 3) // 8, _ED_P)
+    if (x * x - x2) % _ED_P: x = x * pow(2, (_ED_P - 1) // 4, _ED_P) % _ED_P
+    if (x * x - x2) % _ED_P: return None
+    if x == 0 and sign: return None
+    if x & 1 != sign: x = _ED_P - x
+    return (x, y)
+
+def _ed_add(P, Q):                                    # twisted Edwards addition, affine (one verify: fine)
+    (x1, y1), (x2, y2) = P, Q
+    k = _ED_D * x1 * x2 * y1 * y2
+    return ((x1 * y2 + x2 * y1) * pow(1 + k, -1, _ED_P) % _ED_P, (y1 * y2 + x1 * x2) * pow(1 - k, -1, _ED_P) % _ED_P)
+
+def _ed_mul(k, P):
+    R = (0, 1)
+    while k:
+        if k & 1: R = _ed_add(R, P)
+        P = _ed_add(P, P); k >>= 1
+    return R
+
+_ED_B = _ed_decode(bytes.fromhex("5866666666666666666666666666666666666666666666666666666666666666"))
+
+def ed25519_verify(pub32, msg, sig64):
+    import hashlib
+    A = _ed_decode(pub32); R = _ed_decode(sig64[:32]); s = int.from_bytes(sig64[32:], "little")
+    if A is None or R is None or s >= _ED_L: return False
+    k = int.from_bytes(hashlib.sha512(sig64[:32] + pub32 + msg).digest(), "little") % _ED_L
+    return _ed_mul(s, _ED_B) == _ed_add(R, _ed_mul(k, A))
+
+def pgp_dearmor(data):                                # "-----BEGIN PGP ..." text -> packet bytes; binary passes through
+    import base64
+    if not data.lstrip().startswith(b"-----BEGIN PGP"): return data
+    body, inside, past_headers = [], False, False
+    for line in data.decode("utf-8", "replace").splitlines():
+        if line.startswith("-----BEGIN"): inside = True; continue
+        if line.startswith("-----END"): break
+        if not inside: continue
+        if not past_headers:
+            if not line.strip(): past_headers = True
+            elif ":" not in line: past_headers = True; body.append(line.strip())
+            continue
+        if not line.strip() or line.startswith("="): continue
+        body.append(line.strip())
+    return base64.b64decode("".join(body))
+
+def _pgp_packet(data, i=0):                           # -> (tag, body)
+    t = data[i]
+    if not t & 0x80: raise ValueError("not an OpenPGP packet")
+    if t & 0x40:                                      # new format lengths
+        tag = t & 0x3f; l = data[i + 1]
+        if l < 192: return tag, data[i + 2:i + 2 + l]
+        if l < 224: n = ((l - 192) << 8) + data[i + 2] + 192; return tag, data[i + 3:i + 3 + n]
+        if l == 255: n = int.from_bytes(data[i + 2:i + 6], "big"); return tag, data[i + 6:i + 6 + n]
+        raise ValueError("partial body length")
+    tag = (t >> 2) & 0xF; lt = t & 3                  # old format lengths
+    if lt == 0: return tag, data[i + 2:i + 2 + data[i + 1]]
+    if lt == 1: n = int.from_bytes(data[i + 1:i + 3], "big"); return tag, data[i + 3:i + 3 + n]
+    if lt == 2: n = int.from_bytes(data[i + 1:i + 5], "big"); return tag, data[i + 5:i + 5 + n]
+    raise ValueError("indeterminate length")
+
+def pgp_verify_ed25519(sig_bytes, data, pub32_hex):
+    """True when sig_bytes is a detached OpenPGP v4 signature (EdDSA, algo 22) over data by the
+    Ed25519 key pub32_hex. The signed digest is SHA-256/384/512 over data + the hashed part of the
+    signature packet + the v4 trailer, as gpg computes it. Anything unexpected is False."""
+    import hashlib
+    try:
+        tag, body = _pgp_packet(pgp_dearmor(sig_bytes))
+        if tag != 2 or body[0] != 4 or body[1] != 0x00 or body[2] != 22: return False
+        hash_algo = body[3]
+        hl = int.from_bytes(body[4:6], "big"); i = 6 + hl
+        hashed_portion = body[:i]
+        i += 2 + int.from_bytes(body[i:i + 2], "big")   # unhashed subpackets
+        i += 2                                           # left 16 bits of the digest
+        def mpi(i):
+            bits = int.from_bytes(body[i:i + 2], "big"); n = (bits + 7) // 8
+            return body[i + 2:i + 2 + n], i + 2 + n
+        r, i = mpi(i); s, i = mpi(i)
+        if len(r) > 32 or len(s) > 32: return False
+        sig64 = r.rjust(32, b"\0") + s.rjust(32, b"\0")   # MPIs drop leading zero octets of the native encoding
+        h = {8: hashlib.sha256, 9: hashlib.sha384, 10: hashlib.sha512}.get(hash_algo)
+        if not h: return False
+        trailer = b"\x04\xff" + len(hashed_portion).to_bytes(4, "big")
+        return ed25519_verify(bytes.fromhex(pub32_hex), h(data + hashed_portion + trailer).digest(), sig64)
+    except Exception:
+        return False
+
 def sabid_release_info(timeout=20):                   # -> dict(version=str, assets={name: url}, content=str)
     # GitHub's "latest" skips pre-releases, so take the newest published release of any kind.
     url = f"https://api.github.com/repos/{SABID_REPO}/releases?per_page=5"
@@ -1448,22 +1544,20 @@ def pick_sabid_asset(tag):                            # the release workflow bui
 
 def sabid_install(info, progress=lambda s: None):     # -> (sabid path, archive sha256 hex)
     # same order as wasabi_install: signature, then hash, then extract; nothing runs before that
-    import hashlib, base64, tempfile, tarfile
-    if not SABID_RELEASE_PUBKEY:
-        raise RpcError("no sabid release key is pinned in sabi.py yet - installing sabid is not possible "
-                       "until a signed release exists (see sabid's README, Releases)")
+    import hashlib, tempfile, tarfile
     tag = info["tag"]; assets = info["assets"]
     asset = pick_sabid_asset(tag)
-    for need in ("SHA256SUMS", "SHA256SUMS.sabidsig", asset):
-        if need not in assets: raise RpcError(f"release {tag} lacks '{need}'")
+    sig_name = next((n for n in ("SHA256SUMS.sig", "SHA256SUMS.asc") if n in assets), None)
+    if "SHA256SUMS" not in assets: raise RpcError(f"release {tag} lacks SHA256SUMS")
+    if not sig_name: raise RpcError(f"release {tag} is not signed yet (no SHA256SUMS.sig) - refusing to install it")
+    if asset not in assets: raise RpcError(f"release {tag} lacks '{asset}'")
     tmp = tempfile.mkdtemp(prefix=f"sabi-sabid-{tag}-")
     progress("fetching signature files ...")
     sums = open(_download(assets["SHA256SUMS"], os.path.join(tmp, "SHA256SUMS")), "rb").read()
-    sig = open(_download(assets["SHA256SUMS.sabidsig"], os.path.join(tmp, "s.sabidsig")), "rb").read()
+    sig = open(_download(assets[sig_name], os.path.join(tmp, sig_name)), "rb").read()
     progress("verifying release signature ...")
-    if not ecdsa_verify_der(bytes.fromhex(SABID_RELEASE_PUBKEY), hashlib.sha256(sums).digest(),
-                            base64.b64decode(sig.strip())):
-        raise RpcError("SIGNATURE INVALID - SHA256SUMS is not signed by the pinned sabid release key")
+    if not pgp_verify_ed25519(sig, sums, SABID_PGP_ED25519_PUBKEY):
+        raise RpcError(f"SIGNATURE INVALID - SHA256SUMS is not signed by the pinned sabid key {SABID_PGP_FINGERPRINT[-16:]}")
     expected = None
     for line in sums.decode("utf-8", "replace").splitlines():
         parts = line.split()
@@ -2578,7 +2672,7 @@ def tui(rpc, args, frames=0):
                        [dict(k="ok", label="start sabid now? (y/n)", v="y", mask=False,
                              hint="sabi starts `sabid daemon` with the RPC credentials in Config.json")],
                        cb, lines=lambda: [
-                           "signature   VALID - signed by the pinned sabid release key",
+                           f"signature   VALID - OpenPGP, key {SABID_PGP_FINGERPRINT[-16:]} (pinned)",
                            "sha256      " + sha[:32], "            " + sha[32:],
                            "sabid       " + exe, "",
                            "sabi remembered this path (~/.sabi-daemon) for future starts.",
@@ -2607,10 +2701,9 @@ def tui(rpc, args, frames=0):
                            f"this machine {asset}",
                            f"host         github.com/{SABID_REPO}", "",
                            "before anything is extracted or run, sabi verifies:",
-                           "  1. the pinned sabid release key's secp256k1 signature over SHA256SUMS",
+                           f"  1. the OpenPGP signature over SHA256SUMS by key {SABID_PGP_FINGERPRINT[-16:]} (pinned)",
                            "  2. the archive's sha256 against that signed list",
-                           "a failed check deletes the download and stops.",
-                           "" if SABID_RELEASE_PUBKEY else "!  no release key pinned in this sabi.py yet - the install will refuse."])
+                           "a failed check deletes the download and stops."])
         def cb1(v):
             if v.get("ok", "").strip().lower() != "y": flash("cancelled"); return
             def fn():
@@ -2625,7 +2718,7 @@ def tui(rpc, args, frames=0):
                        "sabid is a Rust re-implementation of the wasabi daemon (github.com/kravens/sabid):",
                        "same wallet files, same RPC, coinjoins with Trezor and Coldcard, MCP for agents.", "",
                        " 1  fetch the release list from github (over Tor when available)",
-                       " 2  download - verify the pinned release key's signature + sha256",
+                       " 2  download - verify the maintainer's OpenPGP signature (pinned key) + sha256",
                        " 3  extract - and only with your approval, start `sabid daemon`", "",
                        "nothing runs before every check passes."])
 
@@ -2698,8 +2791,7 @@ def tui(rpc, args, frames=0):
                          hint="wasabi: the official wassabeed.  sabid: the Rust daemon, same wallets and RPC")],
                    cb0, lines=lambda: [
                        "w  wasabi daemon (wassabeed) - release announced over nostr, team-signed",
-                       "s  sabid (github.com/kravens/sabid) - release signed by the pinned sabid key"
-                       + ("" if SABID_RELEASE_PUBKEY else "  [no key pinned yet]"), "",
+                       "s  sabid (github.com/kravens/sabid) - release signed by the maintainer's PGP key (pinned)", "",
                        "both are verified before anything is extracted or run."])
         return
         open_modal("INSTALL WASABI DAEMON",
