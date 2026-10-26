@@ -684,7 +684,9 @@ struct HomeView: View {
                 caption("PRIVACY")
                 VStack(spacing: 4) {
                     HStack(spacing: 10) {
-                        Icon(.shieldTick, size: 34).foregroundStyle(percentage == 100 ? Wasabi.privacyStrong : .secondary)
+                        // Greens up with the percentage, like the bar below it fills.
+                        Icon(.shieldTick, size: 34).foregroundStyle(Color.secondary.mix(with: Wasabi.privacyStrong, by: Double(percentage) / 100))
+                            .animation(.easeInOut(duration: 0.6), value: percentage)
                         Text("\(percentage)%").font(.title.weight(.bold)).monospacedDigit().frosted(mirror.discreet)
                     }
                     HStack(spacing: 5) {

@@ -4,6 +4,15 @@ Native iOS companion for a desktop Wasabi Wallet: balance, privacy, transactions
 coinjoin control over Wasabi's JSON-RPC, reached through Tailscale or a client-authorized Tor onion service (Arti
 embedded in the app).
 
+<p align="center">
+  <img src="release/screenshots/home.png" alt="Home" width="15%">
+  <img src="release/screenshots/coins.png" alt="Coins" width="15%">
+  <img src="release/screenshots/privacy.png" alt="Privacy" width="15%">
+  <img src="release/screenshots/receiveAddress.png" alt="Receive" width="15%">
+  <img src="release/screenshots/sendReview.png" alt="Send review" width="15%">
+  <img src="release/screenshots/menu.png" alt="Menu" width="15%">
+</p>
+
 ## Build
 
 Needs Xcode 27+, [XcodeGen](https://github.com/yonaskolb/XcodeGen) and Rust (rustup with the iOS targets).
