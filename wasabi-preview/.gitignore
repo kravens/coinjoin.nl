@@ -1,0 +1,10 @@
+*.xcodeproj/
+build/
+DerivedData/
+ota/out/
+ota/key.pem
+tor-client.auth_private
+tor/target/
+tor/WasabiTor.xcframework/
+.claude/
+ota/cert.pem

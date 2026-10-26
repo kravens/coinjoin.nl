@@ -1,0 +1,30 @@
+[package]
+name = "wasabitor"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+# ephemeral-keystore + onion-service-cli-extra (both experimental in 0.47) give an in-memory keystore
+# and TorClient::keymgr(), so the client-auth key never touches disk.
+arti-client = { version = "0.47", default-features = false, features = ["tokio", "native-tls", "compression", "onion-service-client", "keymgr", "static-sqlite", "ephemeral-keystore", "onion-service-cli-extra"] }
+tor-rtcompat = { version = "0.47", features = ["tokio", "native-tls"] }
+tor-hsclient = { version = "0.47", features = ["keymgr"] }
+tor-hscrypto = "0.47"
+tor-keymgr = { version = "0.47", features = ["ephemeral-keystore"] }
+tor-llcrypto = "0.47"
+tor-config = "0.47"
+data-encoding = "2"
+tokio = { version = "1", features = ["rt-multi-thread", "io-util", "time", "sync"] }
+# Cargo.lock pins libc 0.2.189: from 0.2.190 libc hides proc_pidinfo on iOS and sysinfo 0.38 (via tor-memquota)
+# stops compiling for aarch64-apple-ios. Re-check before `cargo update`.
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

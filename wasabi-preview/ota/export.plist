@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>method</key><string>debugging</string>
+<key>teamID</key><string>XVW345W8QC</string>
+<key>signingStyle</key><string>automatic</string>
+<key>manifest</key><dict>
+  <key>appURL</key><string>https://HOST:8443/WasabiPreview.ipa</string>
+  <key>displayImageURL</key><string>https://HOST:8443/icon.png</string>
+  <key>fullSizeImageURL</key><string>https://HOST:8443/icon.png</string>
+</dict>
+</dict></plist>

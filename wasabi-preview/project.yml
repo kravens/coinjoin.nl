@@ -1,0 +1,62 @@
+name: WasabiPreview
+options:
+  bundleIdPrefix: nl.kravens
+  deploymentTarget:
+    iOS: "26.0"
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    CODE_SIGN_STYLE: Automatic
+    DEVELOPMENT_TEAM: XVW345W8QC
+    "EXCLUDED_ARCHS[sdk=iphonesimulator*]": x86_64 # Arti is only built for Apple Silicon simulators
+targets:
+  WasabiPreview:
+    type: application
+    platform: iOS
+    sources: [WasabiPreview]
+    dependencies:
+      - framework: tor/WasabiTor.xcframework # built by tor/build.sh (Arti, Rust)
+        embed: false
+      - sdk: Security.framework
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: nl.kravens.WasabiPreview
+        MARKETING_VERSION: "1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        TARGETED_DEVICE_FAMILY: "1"
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Wasabi Preview
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_NSLocalNetworkUsageDescription: Connects to Wasabi Wallet running on your computer.
+    info:
+      path: WasabiPreview/Info.plist
+      properties:
+        NSCameraUsageDescription: Scans bitcoin QR codes to fill in the address and amount.
+        NSFaceIDUsageDescription: Confirms sending bitcoin.
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true # plain HTTP to the Tailscale IP; WireGuard already encrypts it
+  # Edge gestures against demo data on the simulator: xcodebuild test -scheme WasabiPreview -destination 'id=<sim>'
+  WasabiPreviewUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [WasabiPreviewUITests]
+    dependencies:
+      - target: WasabiPreview
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: nl.kravens.WasabiPreviewUITests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: WasabiPreview
+schemes:
+  WasabiPreview:
+    build:
+      targets:
+        WasabiPreview: all
+        WasabiPreviewUITests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets: [WasabiPreviewUITests]
+    archive:
+      config: Release
