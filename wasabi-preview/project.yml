@@ -25,7 +25,8 @@ targets:
         CURRENT_PROJECT_VERSION: "1"
         TARGETED_DEVICE_FAMILY: "1"
         GENERATE_INFOPLIST_FILE: YES
-        INFOPLIST_KEY_CFBundleDisplayName: Wasabi Preview
+        INFOPLIST_KEY_CFBundleDisplayName: Wasabi Mobile # home-screen label; the app itself is Wasabi Preview Mobile
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_NSLocalNetworkUsageDescription: Connects to Wasabi Wallet running on your computer.
     info:

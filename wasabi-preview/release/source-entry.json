@@ -1,0 +1,37 @@
+{
+  "name": "Wasabi Preview Mobile",
+  "bundleIdentifier": "nl.kravens.WasabiPreview",
+  "developerName": "Kevin Ravensberg",
+  "subtitle": "Your desktop Wasabi Wallet, in your pocket.",
+  "localizedDescription": "A companion for Wasabi Wallet running on your own computer. See your balance, privacy progress and transactions, receive with a QR code, and send by scanning QR codes or pasting BIP 321 payment links.\n\nThe app holds no keys: your computer's Wasabi does the signing, and every payment asks for Face ID first. It connects only through your own Tailscale network or a client-authorized Tor onion service, with Tor (Arti) built into the app.\n\nPrivacy without the jargon: choose lower fees or more privacy when you send or receive, and Wasabi's coinjoin (a non-custodial collaborative transaction) makes new coins private. Discreet mode frosts amounts and addresses, and a Black theme keeps OLED pixels off.\n\nRequires Wasabi Wallet on your computer with its JSON-RPC server enabled.",
+  "iconURL": "https://raw.githubusercontent.com/kravens/coinjoin.nl/main/wasabi-preview/release/icon.png",
+  "tintColor": "#29903B",
+  "category": "utilities",
+  "screenshots": [
+    "https://raw.githubusercontent.com/kravens/coinjoin.nl/main/wasabi-preview/release/screenshots/home.png",
+    "https://raw.githubusercontent.com/kravens/coinjoin.nl/main/wasabi-preview/release/screenshots/coins.png",
+    "https://raw.githubusercontent.com/kravens/coinjoin.nl/main/wasabi-preview/release/screenshots/privacy.png",
+    "https://raw.githubusercontent.com/kravens/coinjoin.nl/main/wasabi-preview/release/screenshots/receiveAddress.png",
+    "https://raw.githubusercontent.com/kravens/coinjoin.nl/main/wasabi-preview/release/screenshots/sendReview.png",
+    "https://raw.githubusercontent.com/kravens/coinjoin.nl/main/wasabi-preview/release/screenshots/menu.png"
+  ],
+  "versions": [
+    {
+      "version": "1.0",
+      "buildVersion": "1",
+      "date": "2026-10-26",
+      "localizedDescription": "First release.",
+      "downloadURL": "https://github.com/kravens/coinjoin.nl/releases/download/wasabi-preview-mobile-1.0/WasabiPreviewMobile-1.0.ipa",
+      "size": 4664982,
+      "minOSVersion": "26.0"
+    }
+  ],
+  "appPermissions": {
+    "entitlements": [],
+    "privacy": {
+      "NSCameraUsageDescription": "Scans bitcoin QR codes to fill in the address and amount.",
+      "NSFaceIDUsageDescription": "Confirms sending bitcoin.",
+      "NSLocalNetworkUsageDescription": "Connects to Wasabi Wallet running on your computer."
+    }
+  }
+}

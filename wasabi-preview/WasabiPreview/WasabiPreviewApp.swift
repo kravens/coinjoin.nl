@@ -1,3 +1,4 @@
+import CryptoKit
 import SwiftUI
 
 @main
@@ -285,7 +286,8 @@ enum Screen: String {
     case send, sendLow, sendHigh, sendAmount, sendAmountHigh, sendFee, sendReview, sendSuccess
 
     static let current = ProcessInfo.processInfo.environment["WASABI_SCREEN"].flatMap(Screen.init)
-    static let demoAddress = "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4"
+    static let demoAddress = "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4" // BIP173 test vector
+    static let demoTaprootAddress = "bc1p0xlxvlhemja6c4dqv22uapctqupfhlxm9h8z3k2e72q4k9hcz7vqzk5jj0" // BIP350 test vector
     static let demoTxid = "4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b"
 
     var flow: ContentView.Flow? {
@@ -313,21 +315,32 @@ enum Screen: String {
 extension Mirror {
     static let demo = ProcessInfo.processInfo.environment["WASABI_DEMO"] == "1"
 
+    // Store screenshots and UI tests: made-up but believable data. Addresses are BIP173's public test vector, txids are
+    // hashes of a counter; nothing here belongs to a real wallet.
     func loadDemo() {
         func decode<T: Decodable>(_ json: String) -> T { try! JSONDecoder().decode(T.self, from: Data(json.utf8)) }
+        func txid(_ i: Int) -> String { SHA256.hash(data: Data("wasabi-preview-demo-\(i)".utf8)).map { String(format: "%02x", $0) }.joined() }
         server = Server(host: "100.64.0.1", user: "demo", password: "demo")
-        status = decode(#"{"torStatus":"Not running","bestBlockchainHeight":"920000","filtersLeft":0,"network":"Main","exchangeRate":95000,"peers":[{"isConnected":true}]}"#)
-        info = decode(#"{"loaded":true,"balance":2250000,"coinjoinStatus":"Idle","anonScoreTarget":5,"isWatchOnly":false,"isHardwareWallet":false}"#)
-        wallets = ["Demo"]
-        wallet = "Demo"
+        status = decode(#"{"torStatus":"Running","bestBlockchainHeight":"921337","filtersLeft":0,"network":"Main","exchangeRate":95000,"peers":[{"isConnected":true},{"isConnected":true},{"isConnected":true},{"isConnected":true},{"isConnected":true},{"isConnected":true},{"isConnected":true},{"isConnected":true}]}"#)
+        info = decode(#"{"loaded":true,"balance":4876543,"coinjoinStatus":"In progress","anonScoreTarget":10,"isWatchOnly":false,"isHardwareWallet":false}"#)
+        wallets = ["Daily", "Savings"]
+        wallet = "Daily"
         fees = ["2": 3.1, "6": 1.6, "144": 1.0]
-        let txid = { (i: Int) in String(repeating: "a", count: 62) + String(format: "%02d", i) }
-        coins = (1...8).map { i in
-            Coin(txid: txid(i), index: 0, amount: 1_000_000 / i, anonymityScore: Double(i), confirmed: true, confirmations: 10 * i, label: "Demo coin \(i)",
-                 address: Screen.demoAddress, excludedFromCoinjoin: i == 3, spentBy: nil)
+        let coinSpecs: [(Int, Double, String?)] = [
+            (1_048_576, 34, nil), (1_048_576, 21, nil), (524_288, 27, nil), (524_288, 12, nil), (262_144, 15, nil),
+            (500_000, 6, "Bitcoin meetup refund"), (918_559, 1, "Salary October"), (50_000, 1, "Coffee change"),
+        ]
+        coins = coinSpecs.enumerated().map { i, spec in
+            Coin(txid: txid(i), index: i % 3, amount: spec.0, anonymityScore: spec.1, confirmed: i != 7, confirmations: i == 7 ? 0 : 6 + 17 * i,
+                 label: spec.2, address: Screen.demoAddress, excludedFromCoinjoin: false, spentBy: nil)
         }
-        history = decode("[" + (1...12).map { i in
-            #"{"datetime":\#(1_750_000_000 + i * 86_400),"height":"\#(910_000 + i)","amount":\#(i % 3 == 0 ? -40_000 : 250_000),"label":"Demo \#(i)","tx":"\#(txid(i))","islikelycoinjoin":\#(i % 4 == 0)}"#
+        let historySpecs: [(Int, String, Bool)] = [
+            (-21_500, "Groceries", false), (-1_237, "", true), (918_559, "Salary October", false), (-988, "", true),
+            (-64_000, "Dinner with friends", false), (500_000, "Bitcoin meetup refund", false), (-1_412, "", true),
+            (-15_000, "Coffee at the corner bar", false), (2_000_000, "From savings", false), (-1_105, "", true),
+        ]
+        history = decode("[" + historySpecs.enumerated().map { i, spec in
+            #"{"datetime":\#(1_792_000_000 - i * 61_200),"height":"\#(i == 0 ? "Mempool" : String(921_337 - 9 * i))","amount":\#(spec.0),"label":"\#(spec.1)","tx":"\#(txid(100 + i))","islikelycoinjoin":\#(spec.2)}"#
         }.joined(separator: ",") + "]")
         updated = .now
     }
@@ -715,11 +728,12 @@ struct HomeView: View {
                     HStack(spacing: 12) {
                         Icon(item.islikelycoinjoin ? .shield : item.amount > 0 ? .receive : .send, size: 16).foregroundStyle(.secondary)
                         VStack(alignment: .leading) {
-                            Text(item.title)
-                            Text(item.datetime.formatted(date: .abbreviated, time: .shortened)).font(.caption).foregroundStyle(.secondary)
+                            Text(item.title).lineLimit(1)
+                            Text(item.datetime.formatted(date: .abbreviated, time: .shortened)).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                         }
-                        Spacer()
-                        Amount(sats: item.amount, mirror: mirror, signed: true)
+                        Spacer(minLength: 8)
+                        // One line always: a pending clock next to a long amount used to wrap "BTC" onto a second line.
+                        Amount(sats: item.amount, mirror: mirror, signed: true).lineLimit(1).minimumScaleFactor(0.7).layoutPriority(1)
                         if item.pending { Icon(.clock, size: 15).foregroundStyle(.secondary).accessibilityLabel("Pending") }
                     }
                 }

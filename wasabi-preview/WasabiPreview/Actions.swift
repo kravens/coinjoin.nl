@@ -15,7 +15,7 @@ struct ReceiveView: View {
     init(mirror: Mirror) {
         self.mirror = mirror
         #if DEBUG
-        if Screen.current == .receiveAddress { _label = State(initialValue: "Demo"); _amount = State(initialValue: "0.001"); _address = State(initialValue: Screen.demoAddress) }
+        if Screen.current == .receiveAddress { _label = State(initialValue: "Alice, concert tickets"); _amount = State(initialValue: "0.001"); _address = State(initialValue: Screen.demoTaprootAddress) }
         #endif
     }
 

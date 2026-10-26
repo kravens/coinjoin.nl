@@ -1,4 +1,4 @@
-//! Minimal C ABI around arti-client for Wasabi Preview: bootstrap once, then POST JSON-RPC
+//! Minimal C ABI around arti-client for Wasabi Preview Mobile: bootstrap once, then POST JSON-RPC
 //! to a client-authorized v3 onion service over one reused HTTP/1.1 keep-alive stream.
 //!
 //! Wasabi's HttpListener only answers to its own prefix, so the Host header is supplied by

@@ -1,4 +1,4 @@
-# Wasabi Preview
+# Wasabi Preview Mobile
 
 Native iOS companion for a desktop Wasabi Wallet: balance, privacy, transactions, receive, send (QR, BIP 321) and
 coinjoin control over Wasabi's JSON-RPC, reached through Tailscale or a client-authorized Tor onion service (Arti

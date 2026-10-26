@@ -8,3 +8,4 @@ tor/target/
 tor/WasabiTor.xcframework/
 .claude/
 ota/cert.pem
+release/*.ipa

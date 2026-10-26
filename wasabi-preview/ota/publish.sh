@@ -10,7 +10,7 @@ rm -rf ota/out
 # This Mac's Tailscale IP; the self-signed install cert is made for this IP only and stays local (gitignored).
 host=${OTA_HOST:-$(/Applications/Tailscale.app/Contents/MacOS/Tailscale ip -4)}
 [ -f ota/cert.pem ] || openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 825 -keyout ota/key.pem -out ota/cert.pem \
-  -subj "/CN=Wasabi Preview install $host" -addext "subjectAltName=IP:$host" -addext "basicConstraints=critical,CA:TRUE" \
+  -subj "/CN=Wasabi Preview Mobile install $host" -addext "subjectAltName=IP:$host" -addext "basicConstraints=critical,CA:TRUE" \
   -addext "nameConstraints=critical,permitted;IP:$host/255.255.255.255" -addext "keyUsage=critical,digitalSignature,keyCertSign" -addext "extendedKeyUsage=serverAuth"
 sed "s/HOST/$host/g" ota/export.plist > build/export.plist
 xcodebuild -quiet -exportArchive -archivePath build/WasabiPreview.xcarchive -exportOptionsPlist build/export.plist \
@@ -20,7 +20,7 @@ openssl x509 -in ota/cert.pem -outform der -out ota/out/install.cer
 link="itms-services://?action=download-manifest&url=https://$host:8443/manifest.plist"
 cat > ota/out/index.html <<HTML
 <meta name="viewport" content="width=device-width">
-<h1><a href="$link">Install Wasabi Preview</a></h1>
+<h1><a href="$link">Install Wasabi Preview Mobile</a></h1>
 <p>First time: <a href="http://$host:8080/install.cer">get the certificate</a>, install it under Settings, General, VPN &amp; Device Management,
 then turn it on under Settings, General, About, Certificate Trust Settings.</p>
 HTML

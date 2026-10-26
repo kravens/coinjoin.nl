@@ -10,7 +10,7 @@ final class GestureTests: XCTestCase {
         app = XCUIApplication()
         app.launchEnvironment = ["WASABI_SCREEN": "home", "WASABI_DEMO": "1"]
         app.launch()
-        XCTAssertTrue(app.staticTexts["Balance Demo"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["Balance Daily"].waitForExistence(timeout: 10))
     }
 
     private func drag(from: CGVector, to: CGVector) {
@@ -42,8 +42,8 @@ final class GestureTests: XCTestCase {
 
     func testVerticalScrollAndRowSwipeOpenNothing() throws {
         // Open the coin accordion and swipe a row from inside the list: the row's own trailing action must still appear.
-        app.staticTexts["Balance Demo"].tap()
-        let row = app.staticTexts["Demo coin 1"]
+        app.staticTexts["Balance Daily"].tap()
+        let row = app.staticTexts["Bitcoin meetup refund"]
         XCTAssertTrue(row.waitForExistence(timeout: 3))
         let y = row.frame.midY / app.frame.height
         drag(from: CGVector(dx: 0.85, dy: y), to: CGVector(dx: 0.5, dy: y)) // far enough to reveal, short of a full swipe that would fire it
@@ -55,7 +55,7 @@ final class GestureTests: XCTestCase {
         drag(from: CGVector(dx: 0.98, dy: 0.8), to: CGVector(dx: 0.98, dy: 0.3))
         XCTAssertFalse(menu.exists)
         XCTAssertFalse(scanner.exists)
-        XCTAssertFalse(app.staticTexts["Balance Demo"].isHittable) // it did scroll
+        XCTAssertFalse(app.staticTexts["Balance Daily"].isHittable) // it did scroll
     }
 
     func testPastedPaymentLandsInSend() throws {
