@@ -191,6 +191,15 @@ class FramingTests(unittest.TestCase):
 			self.assertTrue(dev.reports[0].startswith(b"?##"))
 			self.assertEqual(t.read("1:11"), msg, f"payload_len={payload_len}")
 
+	def test_zero_length_reads_are_skipped(self):
+		dev = self.Endpoints()
+		t = self._transport_with(dev)
+		msg = struct.pack(">HI", 17, 100) + bytes(100)
+		t.write("1:11", msg)
+		dev.reports[1:1] = [b""]
+		dev.reports.insert(0, b"")
+		self.assertEqual(t.read("1:11"), msg)
+
 	def test_desync_names_the_offending_report(self):
 		dev = self.Endpoints()
 		dev.reports.append(b"?" + b"\0" * 63)  # a continuation report where a header was expected

@@ -127,7 +127,10 @@ class UsbTransport:
 		if dev is None:
 			raise DeviceGone(path, "not open")
 		try:
-			return bytes(dev.read(ENDPOINT_IN, REPORT_LEN, timeout=timeout_ms))
+			while True:  # skip zero-length reads (seen on Linux), as trezord-go and trezorlib do
+				report = bytes(dev.read(ENDPOINT_IN, REPORT_LEN, timeout=timeout_ms))
+				if report:
+					return report
 		except self._usb.USBTimeoutError as e:
 			raise DeviceTimeout(path, f"usb read timed out: {e}") from e
 		except self._usb.USBError as e:
