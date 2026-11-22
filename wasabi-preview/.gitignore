@@ -9,3 +9,4 @@ tor/WasabiTor.xcframework/
 .claude/
 ota/cert.pem
 release/*.ipa
+release/*.apk

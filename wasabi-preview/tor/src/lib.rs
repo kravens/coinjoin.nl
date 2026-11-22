@@ -22,6 +22,9 @@ use tor_keymgr::KeystoreSelector;
 use tor_llcrypto::pk::curve25519::{PublicKey, StaticKeypair, StaticSecret};
 use tor_rtcompat::PreferredRuntime;
 
+#[cfg(target_os = "android")]
+mod android;
+
 type Client = Arc<TorClient<PreferredRuntime>>;
 type Conn = (String, BufReader<DataStream>);
 

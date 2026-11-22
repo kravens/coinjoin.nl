@@ -1,0 +1,28 @@
+# Zapstore listing. Publish after ./build.sh: `zsp publish` from this folder (SIGN_WITH in an owner-only .env).
+repository: https://github.com/kravens/coinjoin.nl
+release_source: ./app/build/outputs/apk/release/app-release.apk
+
+name: Wasabi Preview Mobile
+summary: Companion for your desktop Wasabi Wallet, over Tailscale or Tor
+description: |
+  Wasabi Preview Mobile shows and controls a Wasabi Wallet running on your own computer. The wallet and its keys stay
+  on the computer; the phone talks to Wasabi's JSON-RPC over Tailscale or a client-authorized Tor onion service
+  (Arti is built into the app).
+
+  - Balance, privacy progress, coins and transactions
+  - Receive with BIP 321 payment requests and QR codes
+  - Send by scanning or pasting, confirmed with your fingerprint or PIN, as a private payment inside a coinjoin round by default
+  - Start and stop coinjoin from the Privacy screen
+
+  No Google Play services. Run desktop/wasabi-remote.sh on the computer (macOS or Arch) to set up the connection.
+license: MIT
+website: https://github.com/kravens/coinjoin.nl/tree/main/wasabi-preview
+tags: [bitcoin, wallet, privacy, coinjoin, tor]
+icon: ./app/src/main/res/drawable-nodpi/app_icon.png
+images:
+  - ./zapstore/home.png
+  - ./zapstore/privacy.png
+  - ./zapstore/receiveAddress.png
+  - ./zapstore/sendReview.png
+  - ./zapstore/transaction.png
+  - ./zapstore/coin.png

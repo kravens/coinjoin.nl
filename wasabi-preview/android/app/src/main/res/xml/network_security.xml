@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The RPC runs over plain HTTP inside Tailscale's WireGuard tunnel (Tor needs no cleartext permission: Arti does its own I/O).
+     Server.isTailscale refuses every other host before a request is made. -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

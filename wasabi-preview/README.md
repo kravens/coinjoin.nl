@@ -1,6 +1,6 @@
 # Wasabi Preview Mobile
 
-Native iOS companion for a desktop Wasabi Wallet: balance, privacy, transactions, receive, send (QR, BIP 321) and
+Native iOS and Android companion for a desktop Wasabi Wallet: balance, privacy, transactions, receive, send (QR, BIP 321) and
 coinjoin control over Wasabi's JSON-RPC, reached through Tailscale or a client-authorized Tor onion service (Arti
 embedded in the app).
 
@@ -24,6 +24,21 @@ open WasabiPreview.xcodeproj
 ```
 
 Set your own `DEVELOPMENT_TEAM` in `project.yml` to sign for your device.
+
+## Android
+
+`android/` is the same app for Android, GrapheneOS and (through Waydroid) Omarchy Mobile: Kotlin and Jetpack Compose,
+with the same Arti bridge from `tor/` loaded over JNI. Few dependencies on purpose: Compose, CameraX and ZXing for QR
+codes. HTTP, JSON, the Android Keystore (connection settings, encrypted), biometrics and network monitoring come from
+the platform, and nothing needs Google Play services. `android/build.sh` builds `libwasabitor.so` and the APK and runs
+the unit tests (the iOS self-check vectors: BIP 173/350/321, coin selection, privacy percentage, fee choices).
+
+Debug builds take the same screenshot hooks as the iOS simulator, as intent extras:
+`adb shell am start -n nl.kravens.wasabipreview/.MainActivity --ez demo true --es screen sendReview`.
+
+Release builds are signed with `~/.config/wasabi-mobile/release.p12` when it exists (its password in the macOS
+Keychain as `wasabi-mobile-release`), otherwise with the debug key. `android/zapstore.yaml` is the Zapstore listing:
+after `android/build.sh`, run `zsp publish` in `android/`.
 
 ## Desktop side
 

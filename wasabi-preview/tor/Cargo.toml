@@ -5,13 +5,13 @@ edition = "2021"
 publish = false
 
 [lib]
-crate-type = ["staticlib", "rlib"]
+crate-type = ["staticlib", "cdylib", "rlib"] # .a for iOS, .so for Android
 
 [dependencies]
 # ephemeral-keystore + onion-service-cli-extra (both experimental in 0.47) give an in-memory keystore
 # and TorClient::keymgr(), so the client-auth key never touches disk.
-arti-client = { version = "0.47", default-features = false, features = ["tokio", "native-tls", "compression", "onion-service-client", "keymgr", "static-sqlite", "ephemeral-keystore", "onion-service-cli-extra"] }
-tor-rtcompat = { version = "0.47", features = ["tokio", "native-tls"] }
+arti-client = { version = "0.47", default-features = false, features = ["tokio", "compression", "onion-service-client", "keymgr", "static-sqlite", "ephemeral-keystore", "onion-service-cli-extra"] }
+tor-rtcompat = { version = "0.47", features = ["tokio"] }
 tor-hsclient = { version = "0.47", features = ["keymgr"] }
 tor-hscrypto = "0.47"
 tor-keymgr = { version = "0.47", features = ["ephemeral-keystore"] }
@@ -19,6 +19,20 @@ tor-llcrypto = "0.47"
 tor-config = "0.47"
 data-encoding = "2"
 tokio = { version = "1", features = ["rt-multi-thread", "io-util", "time", "sync"] }
+
+# TLS to the Tor relays: Apple's Security framework on iOS (native-tls); rustls on Android, where native-tls would
+# mean cross-compiling OpenSSL.
+[target.'cfg(not(target_os = "android"))'.dependencies]
+arti-client = { version = "0.47", default-features = false, features = ["native-tls"] }
+tor-rtcompat = { version = "0.47", features = ["native-tls"] }
+
+[target.'cfg(target_os = "android")'.dependencies]
+arti-client = { version = "0.47", default-features = false, features = ["rustls"] }
+tor-rtcompat = { version = "0.47", features = ["rustls"] }
+jni = { version = "0.21", default-features = false }
+# Arti leaves choosing rustls's crypto provider to the app; ring cross-compiles with the NDK alone (aws-lc-rs needs cmake).
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+
 # Cargo.lock pins libc 0.2.189: from 0.2.190 libc hides proc_pidinfo on iOS and sysinfo 0.38 (via tor-memquota)
 # stops compiling for aarch64-apple-ios. Re-check before `cargo update`.
 
