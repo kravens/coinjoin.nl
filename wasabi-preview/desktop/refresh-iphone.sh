@@ -14,7 +14,7 @@ if [ "${1:-}" = --sync ]; then
   COPY="$HOME/Library/Application Support/wasabi-mobile-refresh"
   PLIST=$HOME/Library/LaunchAgents/nl.kravens.wasabi-mobile-refresh.plist
   mkdir -p "$COPY/build"
-  rsync -a --delete --exclude /build --exclude /.git --exclude /tor/target --exclude /release/*.ipa --exclude /tor-client.auth_private --exclude /ota/out --exclude /ota/key.pem --exclude /ota/cert.pem "$SRC/" "$COPY/"
+  rsync -a --delete --exclude /build --exclude /.git --exclude /android --exclude /release/*.apk --exclude /tor/target --exclude /release/*.ipa --exclude /tor-client.auth_private --exclude /ota/out --exclude /ota/key.pem --exclude /ota/cert.pem "$SRC/" "$COPY/"
   cp -R "$SRC/build/dd" "$COPY/build/" 2>/dev/null # keeps the installed build's profile date, so no needless reinstall
   cat >"$PLIST" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
