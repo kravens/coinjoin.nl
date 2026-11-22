@@ -1,4 +1,4 @@
-//! Live check against the real onion: `WASABI_AUTH_FILE=... WASABI_RPC_PASSWORD=... cargo test --release -- --ignored --nocapture`.
+//! Live check against the real onion: `WASABI_AUTH_FILE=... WASABI_RPC_PASSWORD=... [WASABI_RPC_USER=...] cargo test --release -- --ignored --nocapture`.
 //! Read-only RPC (listwallets) only.
 use std::ffi::{c_void, CString};
 use std::sync::mpsc;
@@ -16,6 +16,7 @@ unsafe extern "C" fn done(ctx: *mut c_void, status: i32, body: *const u8, len: u
 fn listwallets_over_onion() {
     let auth = std::fs::read_to_string(std::env::var("WASABI_AUTH_FILE").unwrap()).unwrap();
     let password = std::env::var("WASABI_RPC_PASSWORD").unwrap();
+    let user = std::env::var("WASABI_RPC_USER").unwrap_or("preview".into());
     let dir = std::env::temp_dir().join("wasabitor-test");
     let dir_c = CString::new(dir.to_str().unwrap()).unwrap();
     assert_eq!(unsafe { wasabitor::wasabitor_start(dir_c.as_ptr()) }, 0);
@@ -31,12 +32,12 @@ fn listwallets_over_onion() {
     let auth_c = CString::new(auth.trim()).unwrap();
     let path = CString::new("/").unwrap();
     let host = CString::new("127.0.0.1:37128").unwrap();
-    let authz = CString::new(data_encoding::BASE64.encode(format!("preview:{password}").as_bytes())).unwrap();
+    let authz = CString::new(data_encoding::BASE64.encode(format!("{user}:{password}").as_bytes())).unwrap();
     for i in 0..3 {
         let t = Instant::now();
         let body = br#"{"jsonrpc":"2.0","id":"1","method":"listwallets","params":[]}"#;
         unsafe {
-            wasabitor::wasabitor_post(auth_c.as_ptr(), 80, path.as_ptr(), host.as_ptr(), authz.as_ptr(), body.as_ptr(), body.len(), &tx as *const _ as *mut c_void, done);
+            wasabitor::wasabitor_post(auth_c.as_ptr(), 80, path.as_ptr(), host.as_ptr(), authz.as_ptr(), body.as_ptr(), body.len(), true, &tx as *const _ as *mut c_void, done);
         }
         let (status, body, error) = rx.recv_timeout(std::time::Duration::from_secs(200)).unwrap();
         let text = String::from_utf8_lossy(&body);

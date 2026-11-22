@@ -5,7 +5,7 @@ struct Server: Codable, Equatable {
     enum Transport: String, Codable, CaseIterable { case tailscale, onion }
 
     var transport = Transport.tailscale
-    var host = "" // the computer's Tailscale IP or MagicDNS name, entered in Settings
+    var host = "" // the computer's Tailscale IP or MagicDNS name, entered under Connection
     var port = 37128
     var user = ""
     var password = ""
@@ -100,7 +100,7 @@ struct WasabiRPC {
         let statusCode: Int
         if server.transport == .onion {
             // Wasabi's HttpListener only answers its own prefix, so Host names the loopback RPC port, not the onion.
-            (statusCode, data) = try await Tor.post(authLine: server.authLine, path: "/" + (wallet ?? ""), host: "127.0.0.1:\(server.port)", authorization: credentials, body: body)
+            (statusCode, data) = try await Tor.post(authLine: server.authLine, path: "/" + (wallet ?? ""), host: "127.0.0.1:\(server.port)", authorization: credentials, body: body, retry: Self.reads.contains(method))
         } else {
             guard var url = URL(string: "http://\(server.host):\(server.port)/") else { throw RPCError("Invalid host") }
             if let wallet { url.append(path: wallet) }
@@ -138,7 +138,7 @@ struct Status: Decodable {
     let bestBlockchainHeight: String
     let filtersLeft: Int
     let network: String
-    let exchangeRate: Double
+    let exchangeRate: Double? // absent when the desktop has no exchange-rate provider; then no fiat amounts
     let peers: [Peer]
     struct Peer: Decodable { let isConnected: Bool }
 }
@@ -214,6 +214,7 @@ struct CoinjoinPayment: Decodable, Identifiable {
     let state: [State]
     struct State: Decodable { let status: String }
     var status: String { state.first?.status ?? "?" }
+    var waiting: Bool { status == "Pending" || status == "In progress" } // then Signed, Finished
 }
 
 // getfeerates: block target -> sat/vB, e.g. {"2": 1.064, "6": 0.5}.

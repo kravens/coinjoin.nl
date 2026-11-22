@@ -238,11 +238,10 @@ enum Bitcoin {
         return Array(hash.prefix(4)) == Array(bytes.suffix(4)) ? payload : nil
     }
 
-    static func uri(address: String, sats: Int?, label: String) -> String {
-        var query: [String] = []
-        if let sats, sats > 0 { query.append("amount=" + btc(sats).replacing(/0+$/, with: "").replacing(/\.$/, with: "")) }
-        if !label.isEmpty, let encoded = label.addingPercentEncoding(withAllowedCharacters: .alphanumerics) { query.append("label=" + encoded) }
-        return "bitcoin:" + address + (query.isEmpty ? "" : "?" + query.joined(separator: "&"))
+    // No label: Wasabi's label says who is paying, which is the receiver's private note, not something to hand the payer.
+    static func uri(address: String, sats: Int?) -> String {
+        guard let sats, sats > 0 else { return "bitcoin:" + address }
+        return "bitcoin:" + address + "?amount=" + btc(sats).replacing(/0+$/, with: "").replacing(/\.$/, with: "")
     }
 
     // Raw tx from `build`: which outpoints it spends and the output total. Fee = known inputs - outputs.
@@ -281,6 +280,19 @@ enum Bitcoin {
             p += scriptLength
         }
         return (inputs, outputs)
+    }
+
+    // At most three fee choices, the ones people pick by: fastest, about an hour and about a day. Wasabi's own list can run
+    // to a dozen targets, or collapse to one when fees are flat; targets with the same rate as a faster one are dropped.
+    static func feeChoices(_ fees: [String: Double]) -> [String] {
+        let targets = fees.keys.compactMap(Int.init).sorted()
+        guard let fastest = targets.first else { return [] }
+        let near = { (want: Int) in targets.min { abs($0 - want) < abs($1 - want) }! }
+        var choices: [Int] = []
+        for target in Set([fastest, near(6), near(144)]).sorted() where choices.last.map({ fees[String($0)] != fees[String(target)] }) ?? true {
+            choices.append(target)
+        }
+        return choices.map(String.init)
     }
 
     // sabi.py pick_coins(): confirmed coins, private first, then semi, then non-private, largest first. `onlyPrivate` (the
@@ -344,6 +356,14 @@ enum Bitcoin {
         let onion = String(repeating: "a", count: 56) + ".onion"
         assert(Server(transport: .onion, onion: onion, onionKey: "KEY").isAllowed && Server(transport: .onion, onion: onion, onionKey: "x:descriptor:x25519:KEY\n").authLine == String(repeating: "a", count: 56) + ":descriptor:x25519:KEY")
         assert(!Server(transport: .onion, onion: "100.101.102.103").isAllowed && !Server(transport: .tailscale, host: onion).isAllowed) // .onion only over Tor, Tailscale only over Tailscale
+        func tx(_ time: Int, round: Bool) -> HistoryItem {
+            try! JSONDecoder().decode(HistoryItem.self, from: Data(#"{"datetime":\#(time),"height":"1","amount":-1,"tx":"\#(time)","islikelycoinjoin":\#(round)}"#.utf8))
+        }
+        let chains = HistoryItem.chains([tx(1, round: true), tx(5, round: true), tx(3, round: false), tx(4, round: true), tx(2, round: true), tx(6, round: false)])
+        assert(chains.map { $0.map(\.tx) } == [["6"], ["5", "4"], ["3"], ["2", "1"]]) // newest first; a normal transaction splits a chain
+        assert(feeChoices(["2": 9, "3": 8, "6": 5, "12": 4, "144": 2, "1008": 1]) == ["2", "6", "144"])
+        assert(feeChoices(["2": 1]) == ["2"] && feeChoices([:]).isEmpty)
+        assert(feeChoices(["2": 3, "6": 3, "144": 1]) == ["2", "144"]) // same rate as a faster target: dropped
         assert(sats(btc: "1") == 100_000_000)
         assert(sats(btc: "0.00000001") == 1)
         assert(sats(btc: "99999999999") == nil) // above 21M BTC: rejected instead of overflowing
@@ -370,7 +390,7 @@ enum Bitcoin {
         assert(uri == Payment(address: v0, sats: 123_000, label: "Café", message: nil))
         assert((try? parse(" \(legacy) ")) == Payment(address: legacy, sats: nil, label: nil, message: nil))
         assert(fails("hello", .notBitcoin) && fails("", .notBitcoin))
-        assert(uri == (try? parse(self.uri(address: v0, sats: 123_000, label: "Café"))))
+        assert((try? parse(self.uri(address: v0, sats: 123_000))) == Payment(address: v0, sats: 123_000, label: nil, message: nil))
 
         // BIP 321 test vectors. The spec's own example addresses (175tWpb8K1S7NmH4Zx6rewF9WQrcZv245W and its bc1/tb1 strings) fail
         // their checksums, so the structure is checked with real addresses of the same types and the literal vector must fail.

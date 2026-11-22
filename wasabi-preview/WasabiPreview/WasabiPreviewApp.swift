@@ -1,4 +1,5 @@
 import CryptoKit
+import Network
 import SwiftUI
 
 @main
@@ -7,7 +8,6 @@ struct WasabiPreviewApp: App {
         #if DEBUG
         Bitcoin.selfCheck()
         WasabiIcon.selfCheck()
-        PrivacyStop.selfCheck()
         #endif
     }
 
@@ -36,11 +36,16 @@ struct RootView: View {
 @MainActor @Observable
 final class Mirror {
     var server = Keychain.load() ?? Server() {
-        didSet { failingSince = nil; linkError = nil; status = nil; updated = nil }
+        didSet { failingSince = nil; linkError = nil; status = nil; updated = nil; walletLoaded = false }
     }
     var wallets: [String] = []
     var wallet: String? = UserDefaults.standard.string(forKey: "wallet") {
-        didSet { UserDefaults.standard.set(wallet, forKey: "wallet"); loadPrivacyStop(); seenIncoming = nil; coinjoinHint = nil; allCoins = [] }
+        didSet {
+            guard wallet != oldValue else { return }
+            UserDefaults.standard.set(wallet, forKey: "wallet"); loadPrivacyStop(); seenIncoming = nil; coinjoinHint = nil; allCoins = []
+            // Never the old wallet's numbers under the new wallet's name.
+            info = nil; coins = []; history = []; payments = []; walletError = nil; walletLoaded = false
+        }
     }
     // The privacy slider's stop, per wallet; the default is the desktop's Default Strategy.
     var privacyStop = PrivacyStop.balanced {
@@ -50,6 +55,13 @@ final class Mirror {
             #endif
             if let wallet { UserDefaults.standard.set(privacyStop.rawValue, forKey: "privacy." + wallet) }
         }
+    }
+    // A private payment on a Lower fees wallet starts coinjoin for that payment only; Wasabi itself would keep going until
+    // every coin is private, so refresh stops it again once no payment waits. ponytail: only while the app refreshes; a
+    // phone left closed lets rounds run until it opens again (or the wallet is private), a desktop-side stop if that bites.
+    var stopAfterPayments: Bool {
+        get { wallet.map { UserDefaults.standard.bool(forKey: "paymentStop." + $0) } ?? false }
+        set { if let wallet { UserDefaults.standard.set(newValue, forKey: "paymentStop." + wallet) } }
     }
     var coinjoinHint: String? // why a coinjoin did not start by itself (wallet not logged in on the computer); shown quietly, never as a prompt
     var allCoins: [Coin] = [] // listcoins, fetched when a coin screen opens
@@ -67,6 +79,7 @@ final class Mirror {
     var fees: FeeRates = [:]
     var error: String?
     var walletError: String?
+    var walletLoaded = false // info, coins, history and payments belong to `wallet`
     var updated: Date?
     var notice: String?
     var passphrase: PassphraseRequest?
@@ -120,7 +133,7 @@ final class Mirror {
     var target: Int { info?.anonScoreTarget ?? 5 }
     var balance: Int { info?.balance ?? coins.reduce(0) { $0 + $1.amount } }
     var walletNotLoaded: Bool { walletError?.contains("no wallet loaded") == true }
-    var ready: Bool { status != nil && error == nil && walletError == nil }
+    var ready: Bool { status != nil && walletLoaded && error == nil && walletError == nil }
 
     // Wasabi's buckets (SmartCoinExtensions.cs): private at/above the anon target, semi-private from 2 (Constants.SemiPrivateThreshold).
     var privacy: (private: Int, semi: Int, nonPrivate: Int) {
@@ -185,32 +198,54 @@ final class Mirror {
         }
 
         if wallet.map(wallets.contains) != true { wallet = wallets.first }
-        guard let wallet else { return }
+        guard let wallet else { walletLoaded = true; return }
         do {
             // getwalletinfo fails when no coordinator is configured; balance then falls back to the coin sum.
-            do { info = try await rpc.call("getwalletinfo", wallet: wallet) } catch where !RPCError.isTransport(error) { info = nil }
-            coins = try await rpc.call("listunspentcoins", wallet: wallet)
-            history = try await rpc.call("gethistory", wallet: wallet)
-            do { payments = try await rpc.call("listpaymentsincoinjoin", wallet: wallet) } catch where !RPCError.isTransport(error) { payments = [] }
+            var info: WalletInfo?
+            do { info = try await rpc.call("getwalletinfo", wallet: wallet) } catch where !RPCError.isTransport(error) {}
+            let coins: [Coin] = try await rpc.call("listunspentcoins", wallet: wallet)
+            let history: [HistoryItem] = try await rpc.call("gethistory", wallet: wallet)
+            var payments: [CoinjoinPayment]? // nil when unknown: never read as "no payment waits"
+            do { payments = try await rpc.call("listpaymentsincoinjoin", wallet: wallet) } catch where !RPCError.isTransport(error) {}
+            guard self.wallet == wallet else { return } // switched meanwhile; that wallet's own refresh fills these in
+            self.info = info
+            self.coins = coins
+            self.history = history
+            self.payments = payments ?? []
+            walletLoaded = true
             walletError = nil
             // A payment that was not on screen before: this is what "after receiving" means while the app is open.
             let incoming = Set(history.filter { $0.amount > 0 && !$0.islikelycoinjoin }.map(\.tx))
             let fresh = seenIncoming.map { $0.wallet == wallet && !incoming.subtracting($0.txs).isEmpty } ?? false
             seenIncoming = (wallet, incoming)
-            if fresh, self.wallet == wallet { await autoCoinjoin() }
+            if fresh { await autoCoinjoin() }
+            if let payments, stopAfterPayments, !payments.contains(where: \.waiting) { await stopPaymentCoinjoin(wallet) }
         } catch where RPCError.isTransport(error) {
             linkFailed(error, started: started) // keep the last coins and history on screen
         } catch {
+            guard self.wallet == wallet else { return }
             coins = []
             history = []
             payments = []
+            walletLoaded = true // loaded as far as it goes: the gate shows walletError
             walletError = error.localizedDescription
         }
     }
 
     // With data on screen a dropped link only greys the top-left light. Before the first answer, a slow first Tor circuit
     // (Arti reports it as a timeout) still counts as connecting for 3 minutes.
+    // The phone's network path, each time it changes; the first value is the current path.
+    static func networkChanges() -> AsyncStream<Void> {
+        AsyncStream { continuation in
+            let monitor = NWPathMonitor()
+            monitor.pathUpdateHandler = { _ in continuation.yield() }
+            continuation.onTermination = { _ in monitor.cancel() }
+            monitor.start(queue: .global(qos: .utility))
+        }
+    }
+
     private func linkFailed(_ error: any Error, started: Date) {
+        if Task.isCancelled { return } // the refresh loop restarted (foreground, network change); the link did not fail
         let since = failingSince ?? started
         failingSince = since
         if status == nil, server.transport == .onion, Date.now.timeIntervalSince(since) < 180 { return }
@@ -235,6 +270,14 @@ final class Mirror {
         } catch {
             coinjoinHint = error.localizedDescription
         }
+    }
+
+    private func stopPaymentCoinjoin(_ wallet: String) async {
+        guard privacyStop == .cheap, info?.coinjoining == true else { stopAfterPayments = false; return }
+        do {
+            try await rpc.call("stopcoinjoin", wallet: wallet)
+            stopAfterPayments = false
+        } catch {} // kept, so the next refresh tries again
     }
 
     // Runs a mutating action. If Wasabi says the wallet is not logged in, asks for the passphrase once and retries with it.
@@ -281,7 +324,7 @@ final class Mirror {
 // Screenshot runs: `SIMCTL_CHILD_WASABI_SCREEN=sendReview simctl launch ...` opens that screen, with demo data where a step would
 // otherwise need a write to the RPC (new address, build). Nothing here ever reaches Wasabi.
 enum Screen: String {
-    case home, coins, coin, transaction, privacy, menu
+    case home, coins, coin, transaction, rounds, privacy, menu, settings, connection
     case receive, receiveLow, receiveHigh, receiveAddress
     case send, sendLow, sendHigh, sendAmount, sendAmountHigh, sendFee, sendReview, sendSuccess
 
@@ -294,7 +337,7 @@ enum Screen: String {
         switch self {
         case .receive, .receiveLow, .receiveHigh, .receiveAddress: .receive
         case .send, .sendLow, .sendHigh, .sendAmount, .sendAmountHigh, .sendFee, .sendReview, .sendSuccess: .send(nil)
-        case .home, .coins, .coin, .transaction, .privacy, .menu: nil
+        case .home, .coins, .coin, .transaction, .rounds, .privacy, .menu, .settings, .connection: nil
         }
     }
 
@@ -321,10 +364,10 @@ extension Mirror {
         func decode<T: Decodable>(_ json: String) -> T { try! JSONDecoder().decode(T.self, from: Data(json.utf8)) }
         func txid(_ i: Int) -> String { SHA256.hash(data: Data("wasabi-preview-demo-\(i)".utf8)).map { String(format: "%02x", $0) }.joined() }
         server = Server(host: "100.64.0.1", user: "demo", password: "demo")
+        wallet = "Daily" // first: switching wallet clears the data below
         status = decode(#"{"torStatus":"Running","bestBlockchainHeight":"921337","filtersLeft":0,"network":"Main","exchangeRate":95000,"peers":[{"isConnected":true},{"isConnected":true},{"isConnected":true},{"isConnected":true},{"isConnected":true},{"isConnected":true},{"isConnected":true},{"isConnected":true}]}"#)
         info = decode(#"{"loaded":true,"balance":4876543,"coinjoinStatus":"In progress","anonScoreTarget":10,"isWatchOnly":false,"isHardwareWallet":false}"#)
         wallets = ["Daily", "Savings"]
-        wallet = "Daily"
         fees = ["2": 3.1, "6": 1.6, "144": 1.0]
         let coinSpecs: [(Int, Double, String?)] = [
             (1_048_576, 34, nil), (1_048_576, 21, nil), (524_288, 27, nil), (524_288, 12, nil), (262_144, 15, nil),
@@ -335,14 +378,15 @@ extension Mirror {
                  label: spec.2, address: Screen.demoAddress, excludedFromCoinjoin: false, spentBy: nil)
         }
         let historySpecs: [(Int, String, Bool)] = [
-            (-21_500, "Groceries", false), (-1_237, "", true), (918_559, "Salary October", false), (-988, "", true),
-            (-64_000, "Dinner with friends", false), (500_000, "Bitcoin meetup refund", false), (-1_412, "", true),
+            (-21_500, "Groceries", false), (-1_237, "", true), (-988, "", true), (-1_412, "", true), (918_559, "Salary October", false),
+            (-64_000, "Dinner with friends", false), (500_000, "Bitcoin meetup refund", false),
             (-15_000, "Coffee at the corner bar", false), (2_000_000, "From savings", false), (-1_105, "", true),
         ]
         history = decode("[" + historySpecs.enumerated().map { i, spec in
             #"{"datetime":\#(1_792_000_000 - i * 61_200),"height":"\#(i == 0 ? "Mempool" : String(921_337 - 9 * i))","amount":\#(spec.0),"label":"\#(spec.1)","tx":"\#(txid(100 + i))","islikelycoinjoin":\#(spec.2)}"#
         }.joined(separator: ",") + "]")
         updated = .now
+        walletLoaded = true
     }
 }
 #endif
@@ -354,11 +398,16 @@ struct ContentView: View {
     @State private var mirror = Mirror()
     @State private var flow: Flow?
     @State private var path = NavigationPath()
-    @State private var showSettings = false
+    @State private var sheet: MenuSheet?
     @State private var menu = false
     @State private var scanning = false
     @State private var scanDrag: CGFloat = 0 // the right-edge pan in progress; a camera glyph follows it
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var networkChanges = 0
+
+    // The refresh loop restarts, dropping a request stuck on a dead link, when any of these change.
+    private struct LoopKey: Equatable { let server: Server; let active: Bool; let network: Int }
 
     enum Flow: Identifiable, Equatable {
         case receive
@@ -372,6 +421,7 @@ struct ContentView: View {
     }
 
     enum Route: Hashable { case privacy }
+    enum MenuSheet: String, Identifiable { case connection, settings; var id: String { rawValue } }
 
     init() {
         #if DEBUG
@@ -401,6 +451,7 @@ struct ContentView: View {
                     }
                 }
                 .navigationDestination(for: HistoryItem.self) { TransactionView(mirror: mirror, item: $0) }
+                .navigationDestination(for: [HistoryItem].self) { PrivacyRoundsView(mirror: mirror, rounds: $0) }
                 .navigationDestination(for: Coin.self) { CoinView(mirror: mirror, coin: $0) }
                 .navigationDestination(for: Route.self) { _ in PrivacyView(mirror: mirror) }
         }
@@ -416,24 +467,37 @@ struct ContentView: View {
         })
         .overlay(alignment: .trailing) { if scanDrag > 0, !reduceMotion { scanHint } }
         .fullScreenCover(isPresented: $scanning) { ScannerSheet(network: mirror.network) { flow = .send($0) } }
-        .sheet(isPresented: $showSettings) { SettingsView(mirror: mirror) }
+        .sheet(item: $sheet) { sheet in
+            switch sheet {
+            case .connection: ConnectionView(mirror: mirror)
+            case .settings: SettingsView()
+            }
+        }
         .sheet(item: $flow) { flow in
             switch flow {
             case .receive: ReceiveView(mirror: mirror)
             case .send(let payment): SendView(mirror: mirror, payment: payment)
             }
         }
-        .wasabiAlerts(mirror, active: flow == nil && !showSettings)
+        .wasabiAlerts(mirror, active: flow == nil && sheet == nil)
         .overlay { if mirror.busy, flow == nil { ProgressView().padding().glassEffect() } }
-        .onAppear { if mirror.server.user.isEmpty { showSettings = true } }
-        .task(id: mirror.server) {
+        .onAppear {
+            if mirror.server.user.isEmpty || Screen.current == .connection { sheet = .connection }
+            if Screen.current == .settings { sheet = .settings }
+        }
+        // Polls while the app is in front. Coming back to the app or a network change (Tailscale's tunnel coming up, Wi-Fi
+        // to cellular) restarts it at once instead of waiting out a request's timeout on the old path.
+        .task(id: LoopKey(server: mirror.server, active: scenePhase == .active, network: networkChanges)) {
+            guard scenePhase == .active else { return }
             while !Task.isCancelled {
                 await mirror.refresh()
                 try? await Task.sleep(for: .seconds(mirror.torProgress == nil ? 5 : 1))
             }
         }
+        .task { for await _ in Mirror.networkChanges().dropFirst() { networkChanges += 1 } }
         #if DEBUG
-        .onChange(of: mirror.history.count) {
+        .onChange(of: mirror.history.count, initial: true) {
+            if Screen.current == .rounds, path.isEmpty, let chain = HistoryItem.chains(mirror.history).first(where: { $0.count > 1 }) { path.append(chain) }
             if Screen.current == .transaction, path.isEmpty, let first = mirror.history.max(by: { $0.datetime < $1.datetime }) { path.append(first) }
         }
         .onChange(of: mirror.coins.count) {
@@ -468,17 +532,33 @@ struct ContentView: View {
         .accessibilityValue(mirror.link == .failed ? "Link timed out" : "")
     }
 
-    // Connection first (what the ≡ dot was about), then the two screens that left the top bar, then the node facts.
+    // By scope: the link to the computer on top (what the ≡ dot is about; tapping it edits the connection), then this
+    // wallet's privacy and the app's own settings, then what the computer's Wasabi reports, for reference.
     private var menuContent: some View {
         VStack(alignment: .leading, spacing: 18) {
-            LinkStatus(mirror: mirror)
+            Button { menu = false; sheet = .connection } label: {
+                HStack {
+                    LinkStatus(mirror: mirror)
+                    Spacer()
+                    Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
+                }
+                .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("menu.connection")
+            .accessibilityHint("Edit the connection")
+            if mirror.link == .failed {
+                Button("Retry now") { Task { await mirror.refresh() } }
+                    .buttonStyle(.glass)
+                    .disabled(mirror.refreshing)
+            }
             Divider()
-            menuItem("Privacy", .shieldTick) { path.append(Route.privacy) }
-            menuItem("Settings", .settings) { showSettings = true }
+            menuItem("Privacy", .shieldTick, detail: mirror.wallet.map { "\($0): \(mirror.privacyStop.name)" }) { path.append(Route.privacy) }
+            menuItem("Settings", .settings, detail: "Addresses, fees, theme") { sheet = .settings }
             if let status = mirror.status {
                 Divider()
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("WASABI").font(.caption2.weight(.bold)).foregroundStyle(.secondary)
+                    Text("WASABI ON THE COMPUTER").font(.caption2.weight(.bold)).foregroundStyle(.secondary)
                     nodeRow(.network, "Network", status.network)
                     nodeRow(.tor, "Tor", status.torStatus)
                     nodeRow(.blockHeight, "Block height", status.bestBlockchainHeight)
@@ -490,9 +570,14 @@ struct ContentView: View {
         }
     }
 
-    private func menuItem(_ title: String, _ icon: WasabiIcon, _ act: @escaping () -> Void) -> some View {
+    private func menuItem(_ title: String, _ icon: WasabiIcon, detail: String? = nil, _ act: @escaping () -> Void) -> some View {
         Button { menu = false; act() } label: {
-            Label { Text(title) } icon: { Icon(icon, size: 20) }
+            Label {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                    if let detail { Text(detail).font(.footnote).foregroundStyle(.secondary) }
+                }
+            } icon: { Icon(icon, size: 20) }
                 .font(.body)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.vertical, 6)
@@ -554,9 +639,9 @@ extension View {
 
     // Common list header: connection error, or the unloaded-wallet state with a Load button.
     @ViewBuilder func walletGate(_ mirror: Mirror) -> some View {
-        if mirror.status == nil, mirror.error == nil, mirror.linkError == nil {
+        if mirror.status == nil || !mirror.walletLoaded, mirror.error == nil, mirror.linkError == nil {
             ConnectingLoader(transport: mirror.server.transport, progress: mirror.torProgress)
-        } else if let error = mirror.error ?? (mirror.status == nil ? mirror.linkError : nil) {
+        } else if let error = mirror.error ?? (mirror.status == nil || !mirror.walletLoaded ? mirror.linkError : nil) {
             Label { Text(error) } icon: { Icon(.warning) }.foregroundStyle(Wasabi.error)
         } else if let walletError = mirror.walletError, let wallet = mirror.wallet {
             Label(walletError, systemImage: "lock").foregroundStyle(.secondary)
@@ -718,28 +803,13 @@ struct HomeView: View {
         .accessibilityHint("Opens the Privacy screen")
     }
 
-    // Transaction rows as bitcoin.design describes them: direction icon, label, date, signed amount; tap for details.
     private var transactions: some View {
         Section {
             caption("TRANSACTIONS").listRowSeparator(.hidden).padding(.top, 4)
             if mirror.history.isEmpty {
                 Text("No transactions yet").foregroundStyle(.secondary)
             }
-            ForEach(mirror.history.sorted { $0.datetime > $1.datetime }) { item in
-                NavigationLink(value: item) {
-                    HStack(spacing: 12) {
-                        Icon(item.islikelycoinjoin ? .shield : item.amount > 0 ? .receive : .send, size: 16).foregroundStyle(.secondary)
-                        VStack(alignment: .leading) {
-                            Text(item.title).lineLimit(1)
-                            Text(item.datetime.formatted(date: .abbreviated, time: .shortened)).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                        }
-                        Spacer(minLength: 8)
-                        // One line always: a pending clock next to a long amount used to wrap "BTC" onto a second line.
-                        Amount(sats: item.amount, mirror: mirror, signed: true).lineLimit(1).minimumScaleFactor(0.7).layoutPriority(1)
-                        if item.pending { Icon(.clock, size: 15).foregroundStyle(.secondary).accessibilityLabel("Pending") }
-                    }
-                }
-            }
+            ForEach(HistoryItem.chains(mirror.history), id: \.[0].id) { HistoryRow(mirror: mirror, items: $0) }
         }
         .wasabiRows(card: true)
     }
@@ -748,6 +818,118 @@ struct HomeView: View {
 extension HistoryItem {
     var title: String { islikelycoinjoin ? "Privacy round" : (label?.isEmpty == false ? label! : amount > 0 ? "Received" : "Sent") }
     var pending: Bool { height == "Mempool" }
+
+    // Newest first, with each run of consecutive privacy rounds as one entry; any other transaction ends a run.
+    static func chains(_ items: [HistoryItem]) -> [[HistoryItem]] {
+        var chains: [[HistoryItem]] = []
+        for item in items.sorted(by: { $0.datetime > $1.datetime }) {
+            if item.islikelycoinjoin, chains.last?.last?.islikelycoinjoin == true {
+                chains[chains.count - 1].append(item)
+            } else {
+                chains.append([item])
+            }
+        }
+        return chains
+    }
+}
+
+// Stacked shields for a chain of privacy rounds: each one hides what is behind it, so the outlines don't tangle.
+struct ShieldStack: View {
+    @ScaledMetric(relativeTo: .body) private var size: CGFloat = 16
+
+    init(size: CGFloat = 16) { _size = ScaledMetric(wrappedValue: size, relativeTo: .body) }
+
+    // The shield's outer contour, without the second one that cuts out its inside.
+    private struct Silhouette: Shape {
+        static let outer = SVGPath(WasabiIcon.shield.rawValue.prefix { $0 != "Z" } + "Z")
+        func path(in rect: CGRect) -> Path { Self.outer.path(in: rect) }
+    }
+
+    var body: some View {
+        ZStack(alignment: .leading) {
+            ForEach([2, 1, 0], id: \.self) { layer in
+                ZStack {
+                    Silhouette().fill(.black).blendMode(.destinationOut) // opaque, or a translucent style only half erases
+                    Icon(.shield, size: size * 0.875).opacity(1 - Double(layer) * 0.3)
+                }
+                .frame(width: size * 0.875, height: size * 0.875)
+                .offset(x: size * 0.1875 * Double(layer))
+            }
+        }
+        .compositingGroup()
+        .frame(width: size * 1.25, height: size, alignment: .leading)
+        .accessibilityHidden(true)
+    }
+}
+
+// Transaction row as bitcoin.design describes it: direction icon, label, date, signed amount; tap for details.
+// More than one item is a chain of privacy rounds, which opens its own list.
+struct HistoryRow: View {
+    let mirror: Mirror
+    let items: [HistoryItem]
+
+    var body: some View {
+        if items.count > 1 {
+            NavigationLink(value: items) { content }
+        } else {
+            NavigationLink(value: items[0]) { content }
+        }
+    }
+
+    private var content: some View {
+        let item = items[0]
+        return HStack(spacing: 12) {
+            Group {
+                if items.count > 1 {
+                    ShieldStack()
+                } else {
+                    Icon(item.islikelycoinjoin ? .shield : item.amount > 0 ? .receive : .send, size: 16).frame(width: 20) // as wide as the stack
+                }
+            }
+            .foregroundStyle(.secondary)
+            VStack(alignment: .leading) {
+                Text(items.count > 1 ? "Privacy rounds" : item.title).lineLimit(1)
+                Text(items.count > 1 ? "\(items.count) rounds, \(item.datetime.formatted(.dateTime.day().month()))" : item.datetime.formatted(date: .abbreviated, time: .shortened))
+                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            }
+            .layoutPriority(item.islikelycoinjoin ? 2 : 0) // these titles are short and fixed, so they fit; the amount shrinks a little instead
+            Spacer(minLength: 8)
+            // One line always: a pending clock next to a long amount used to wrap "BTC" onto a second line.
+            Amount(sats: items.reduce(0) { $0 + $1.amount }, mirror: mirror, signed: true).lineLimit(1).minimumScaleFactor(0.7).layoutPriority(1)
+            if items.contains(where: \.pending) { Icon(.clock, size: 15).foregroundStyle(.secondary).accessibilityLabel("Pending") }
+        }
+    }
+}
+
+// The rounds of one chain, each opening its own transaction.
+struct PrivacyRoundsView: View {
+    let mirror: Mirror
+    let rounds: [HistoryItem]
+
+    var body: some View {
+        let total = rounds.reduce(0) { $0 + $1.amount }
+        List {
+            Section {
+                VStack(spacing: 6) {
+                    ShieldStack(size: 30).foregroundStyle(.secondary)
+                    Amount(sats: total, mirror: mirror, signed: true, font: .title.weight(.light))
+                    if let usd = mirror.usd(abs(total)) { Text(usd).foregroundStyle(.secondary).frosted(mirror.discreet) }
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
+                .tileSurface()
+            }
+            .glassRow()
+            Section("\(rounds.count) rounds") {
+                ForEach(rounds) { HistoryRow(mirror: mirror, items: [$0]) }
+            }
+            .wasabiRows()
+        }
+        .scrollContentBackground(.hidden)
+        .background { Backdrop() }
+        .navigationTitle("Privacy rounds")
+        .navigationBarTitleDisplayMode(.inline)
+    }
 }
 
 // Receive | Send, pinned under the home: the two things a wallet is for. Coinjoin is a setting of those flows (the privacy
@@ -859,10 +1041,11 @@ struct TransactionView: View {
     }
 }
 
-struct SettingsView: View {
+// How the phone reaches Wasabi on the computer. Kept apart from the preferences: it needs Save, and it is what the first
+// launch asks for.
+struct ConnectionView: View {
     let mirror: Mirror
     @State private var server = Server()
-    @AppStorage("theme") private var theme = AppTheme.wasabi
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -896,9 +1079,53 @@ struct SettingsView: View {
                     }
                     .wasabiRows()
                 }
-                Section("JSON-RPC login") {
+                Section {
                     TextField("User", text: $server.user)
                     SecureField("Password", text: $server.password)
+                } header: {
+                    Text("JSON-RPC login")
+                } footer: {
+                    Text("desktop/wasabi-remote.sh sets all of this up on the computer and writes these values to ~/.config/wasabi-remote/phone.txt.")
+                }
+                .wasabiRows()
+            }
+            .scrollContentBackground(.hidden)
+            .background { Backdrop() }
+            .autocorrectionDisabled()
+            .textInputAutocapitalization(.never)
+            .dismissableKeyboard()
+            .navigationTitle("Connection")
+            .toolbar {
+                Button("Save") {
+                    server.onion = server.onion.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                    Keychain.save(server)
+                    mirror.server = server
+                    dismiss()
+                }
+            }
+            .onAppear { server = mirror.server }
+        }
+    }
+}
+
+// The app's own preferences, for every wallet. They apply right away; the wallet's privacy choice lives on the Privacy
+// screen and the link to the computer under Connection.
+struct SettingsView: View {
+    @AppStorage("theme") private var theme = AppTheme.wasabi
+    @AppStorage("taproot") private var taproot = true
+    @AppStorage("customFee") private var customFee = false
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Toggle("Receive to Taproot addresses", isOn: $taproot)
+                    Toggle("Custom fee rate when sending", isOn: $customFee)
+                } header: {
+                    Text("Sending and receiving")
+                } footer: {
+                    Text("Taproot is the newest address type; turn it off to hand out SegWit addresses to senders whose wallets cannot pay Taproot. A custom fee rate adds a sat/vB choice next to the confirmation times.")
                 }
                 .wasabiRows()
                 Section {
@@ -910,25 +1137,14 @@ struct SettingsView: View {
                 } header: {
                     Text("Appearance")
                 } footer: {
-                    Text("Black keeps most of the screen pure black, so OLED pixels stay off and use less energy. Applies right away.")
+                    Text("Black keeps most of the screen pure black, so OLED pixels stay off and use less energy.")
                 }
                 .wasabiRows()
             }
             .scrollContentBackground(.hidden)
             .background { Backdrop() }
-            .autocorrectionDisabled()
-            .textInputAutocapitalization(.never)
-            .dismissableKeyboard()
             .navigationTitle("Settings")
-            .toolbar {
-                Button("Save") {
-                    server.onion = server.onion.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-                    Keychain.save(server)
-                    mirror.server = server
-                    dismiss()
-                }
-            }
-            .onAppear { server = mirror.server }
+            .toolbar { Button("Done") { dismiss() } }
         }
     }
 }

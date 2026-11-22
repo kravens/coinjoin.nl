@@ -22,12 +22,13 @@ enum Tor {
     }
 
     /// One HTTP POST to port 80 of the onion named in `authLine`; Arti runs the request on its own threads.
-    static func post(authLine: String, path: String, host: String, authorization: String, body: Data) async throws -> (Int, Data) {
+    /// `retry` allows sending it again when a reused stream fails, so it is only for reads.
+    static func post(authLine: String, path: String, host: String, authorization: String, body: Data, retry: Bool) async throws -> (Int, Data) {
         start()
         return try await withCheckedThrowingContinuation { continuation in
             let reply = Unmanaged.passRetained(Reply(continuation)).toOpaque()
             body.withUnsafeBytes { bytes in
-                wasabitor_post(authLine, 80, path, host, authorization, bytes.baseAddress, bytes.count, reply) { ctx, status, body, length, error in
+                wasabitor_post(authLine, 80, path, host, authorization, bytes.baseAddress, bytes.count, retry, reply) { ctx, status, body, length, error in
                     let reply = Unmanaged<Reply>.fromOpaque(ctx!).takeRetainedValue()
                     if let error {
                         reply.continuation.resume(throwing: RPCError(String(cString: error), transport: true))

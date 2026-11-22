@@ -7,7 +7,7 @@ struct ReceiveView: View {
     @State private var label = ""
     @State private var amount = ""
     @State private var unit = "BTC"
-    @State private var taproot = true
+    @AppStorage("taproot") private var taproot = true // Settings › Sending and receiving
     @State private var address: String?
     @State private var brightness: CGFloat?
     @Environment(\.dismiss) private var dismiss
@@ -20,7 +20,7 @@ struct ReceiveView: View {
     }
 
     private var sats: Int? { unit == "BTC" ? Bitcoin.sats(btc: amount) : Int(amount) }
-    private var uri: String? { address.map { Bitcoin.uri(address: $0, sats: sats, label: label) } }
+    private var uri: String? { address.map { Bitcoin.uri(address: $0, sats: sats) } }
     private var screen: UIScreen? { (UIApplication.shared.connectedScenes.first as? UIWindowScene)?.screen }
 
     var body: some View {
@@ -42,22 +42,17 @@ struct ReceiveView: View {
                     Picker("Unit", selection: $unit) { Text("BTC").tag("BTC"); Text("sats").tag("sats") }.pickerStyle(.segmented).fixedSize()
                 }
                 if let sats, let usd = mirror.usd(sats) { Text(usd).font(.caption).foregroundStyle(.secondary).frosted(mirror.discreet) }
-                Toggle("Taproot address", isOn: $taproot)
             } footer: {
-                Text("Wasabi labels every address so you know later where the coins came from. Leave the amount empty and the sender fills it in.")
+                Text("Only you see the label: Wasabi keeps it so you know later where the coins came from. Leave the amount empty and the sender fills it in.")
             }
             .wasabiRows()
             .walletGate(mirror)
-            if mirror.walletError == nil {
-                Section {
-                    PrivacySlider(mirror: mirror, explanation: explanation)
-                } header: {
-                    Text("After the money arrives")
-                }
-                .wasabiRows()
-            }
         }
         .dismissableKeyboard()
+        .onChange(of: unit) { old, new in // converts, like Send; keeping the digits would turn 1 BTC into 1 sat
+            guard let value = old == "BTC" ? Bitcoin.sats(btc: amount) : Int(amount) else { amount = ""; return }
+            amount = new == "BTC" ? Bitcoin.btc(value) : String(value)
+        }
         .safeAreaInset(edge: .bottom) {
             PrimaryAction(title: "Create address", icon: .receive, disabled: label.trimmingCharacters(in: .whitespaces).isEmpty || mirror.busy) {
                 let (label, taproot) = (label, taproot)
@@ -112,23 +107,6 @@ struct ReceiveView: View {
         .onAppear { brightness = screen?.brightness; screen?.brightness = 1 }
         .onDisappear { if let brightness { screen?.brightness = brightness } }
     }
-
-    // What each stop does once a payment lands, in the words of what the RPC can really do.
-    private var explanation: String {
-        let target = mirror.target
-        switch mirror.privacyStop {
-        case .cheap:
-            return "Nothing more happens and no coinjoin fees are paid. The coins stay as they arrive; you can make them private later from the Privacy screen."
-        case .balanced:
-            if mirror.info?.isAutoCoinjoin == true { return "Wasabi on your computer already starts making coins private by itself and stops once every coin reaches the privacy target (\(target))." }
-            if mirror.info?.canAutoCoinjoin == false { return "This wallet's keys are on a device, so a coinjoin has to be started by hand from the Privacy screen; Wasabi then asks the device." }
-            return "When the money arrives while this app is open, Wasabi starts making it private and stops once every coin reaches the privacy target (\(target)). Each round costs a share of its mining fee."
-        case .private:
-            if mirror.info?.isAutoCoinjoin == true { return "Wasabi on your computer already keeps making coins private by itself. The privacy target (\(target)) is set there." }
-            if mirror.info?.canAutoCoinjoin == false { return "This wallet's keys are on a device, so a coinjoin has to be started by hand from the Privacy screen; Wasabi then asks the device." }
-            return "Wasabi keeps making private whatever arrives, now and later, and stays on. The privacy target (\(target)) itself is set in Wasabi on your computer."
-        }
-    }
 }
 
 // Send as bitcoin.design's step-by-step flow: where to, how much, how fast, then review, Face ID and a success screen.
@@ -138,10 +116,10 @@ struct SendView: View {
     @State private var address = ""
     @State private var amount = ""
     @State private var unit = "BTC"
-    @State private var subtractFee = false
     @State private var label = ""
     @State private var feeTarget = "6"
     @State private var customRate = 1
+    @AppStorage("customFee") private var customFee = false // Settings › Sending and receiving
     @State private var scanning = false
     @State private var review: Review?
     @State private var sent: String? // txid, or the payment id when paid in coinjoin
@@ -166,11 +144,12 @@ struct SendView: View {
     // when the link has no (usable) amount, the fee step when it has; the review and Face ID are never skipped.
     init(mirror: Mirror, payment: Bitcoin.Payment? = nil) {
         self.mirror = mirror
+        if mirror.info?.deviceSigns != true { _feeTarget = State(initialValue: "private") } // the mobile default
         if let payment {
             _address = State(initialValue: payment.address)
             _label = State(initialValue: payment.label ?? payment.message ?? "")
             if let sats = payment.sats, sats > 0 { _amount = State(initialValue: Bitcoin.btc(sats)) }
-            if mirror.ready { _path = State(initialValue: amountValid && !inCoinjoin ? [.amount, .fee] : [.amount]) }
+            if mirror.ready { _path = State(initialValue: amountValid ? [.amount, .fee] : [.amount]) }
         }
         #if DEBUG
         guard payment == nil, let screen = Screen.current, screen.prefilledSend else { return }
@@ -188,29 +167,22 @@ struct SendView: View {
         #endif
     }
 
-    // The slider stop, as far as this wallet allows it: a device-signed wallet cannot pay inside a round (payincoinjoin
-    // refuses), so Lower fees falls back to a normal transaction and the copy says so.
-    private var inCoinjoin: Bool { mirror.privacyStop == .cheap && mirror.info?.deviceSigns != true }
-    private var onlyPrivate: Bool { mirror.privacyStop == .private }
+    // A private payment (payincoinjoin) is the default. Not for a device-signed wallet, whose rounds need the device
+    // (payincoinjoin refuses), and not for Send all: a round cannot pay out the whole balance.
+    private var privateAllowed: Bool { mirror.info?.deviceSigns != true && !sendAll }
+    private var inCoinjoin: Bool { feeTarget == "private" && privateAllowed }
+    private var onlyPrivate: Bool { mirror.privacyStop == .private } // regular transactions only
     private var sats: Int? { unit == "BTC" ? Bitcoin.sats(btc: amount) : Int(amount) }
     private var spendable: [Coin] { mirror.coins.filter { $0.confirmed && (!onlyPrivate || $0.anonymityScore >= Double(mirror.target)) } }
     private var available: Int { spendable.reduce(0) { $0 + $1.amount } }
-    private var notYetPrivate: Int { mirror.coins.filter(\.confirmed).reduce(0) { $0 + $1.amount } - available } // confirmed but not yet private
-    private var feeTargets: [String] { mirror.fees.keys.sorted { Int($0) ?? 0 < Int($1) ?? 0 } }
-    private var amountValid: Bool { (sats ?? 0) > 0 && (inCoinjoin || subtractFee || sats! <= available) }
-
-    private var explanation: String {
-        switch mirror.privacyStop {
-        case .cheap:
-            mirror.info?.deviceSigns == true
-                ? "A hardware device signs this wallet's rounds, so a payment inside a round is not possible. This sends a normal transaction instead."
-                : "Paid out of one of Wasabi's next privacy rounds, so there is no separate transaction fee. Slower: usually hours rather than minutes."
-        case .balanced:
-            "A normal transaction that spends your most private coins first. You are warned before private and non-private coins would be combined."
-        case .private:
-            "Spends only coins that already reached the privacy target (\(mirror.target)). If they do not cover the amount, wait until more coins are private or choose Balanced."
-        }
-    }
+    private var confirmed: Int { mirror.coins.filter(\.confirmed).reduce(0) { $0 + $1.amount } }
+    private var notYetPrivate: Int { confirmed - available } // confirmed but not yet private
+    private var feeTargets: [String] { Bitcoin.feeChoices(mirror.fees) }
+    // Only a send-all pays its fee out of the amount; anything less leaves room for the fee on top.
+    private var sendAll: Bool { sats == available }
+    private var subtractFee: Bool { sendAll }
+    // A round can draw on any confirmed coin; a regular transaction only on what the privacy setting lets it spend.
+    private var amountValid: Bool { (sats ?? 0) > 0 && sats! <= (inCoinjoin ? confirmed : available) }
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -219,7 +191,7 @@ struct SendView: View {
                     switch step {
                     case .amount: amountStep
                     case .fee: feeStep
-                    case .review: if let review { ReviewView(mirror: mirror, review: review) { path.append(.success) }.flowScreen("Review") { dismiss() } }
+                    case .review: if let review { ReviewView(mirror: mirror, review: review).flowScreen("Review") { dismiss() } }
                     case .success: success
                     }
                 }
@@ -228,22 +200,16 @@ struct SendView: View {
         .interactiveDismissDisabled(mirror.busy) // a half-finished build or send should not be swiped away
         .sheet(isPresented: $scanning) { ScannerSheet(network: mirror.network, found: apply) }
         .onChange(of: review?.id) { if review != nil { path.append(.review) } }
+        // On `sent` rather than on perform's result: a retry from the passphrase prompt succeeds outside the Review screen.
+        .onChange(of: sent) { if sent != nil { path.append(.success) } }
         // Fee rates may arrive after the view appears; keep the picker on a target Wasabi actually offers.
-        .onChange(of: feeTargets, initial: true) {
-            if feeTarget != "custom", !feeTargets.contains(feeTarget), let first = feeTargets.first { feeTarget = first }
-        }
+        .onChange(of: feeTargets, initial: true) { keepFeeTargetUsable() }
+        .onChange(of: privateAllowed) { keepFeeTargetUsable() }
     }
 
     // Step 1: where to. Scanning is the primary way in, as the guide suggests; paste and typing are right there too.
     private var destination: some View {
         List {
-            Section {
-                PrivacySlider(mirror: mirror, explanation: explanation)
-            } header: {
-                Text("Privacy")
-            }
-            .wasabiRows()
-            .walletGate(mirror)
             Section {
                 HStack(spacing: 12) {
                     Button { scanning = true } label: { HStack(spacing: 8) { Icon(.qr); Text("Scan QR") }.frame(maxWidth: .infinity) }
@@ -264,6 +230,7 @@ struct SendView: View {
                 Text("To")
             }
             .wasabiRows()
+            .walletGate(mirror)
             Section {
                 TextField("Who are you paying", text: $label)
             } header: {
@@ -295,32 +262,27 @@ struct SendView: View {
                     Picker("Unit", selection: $unit) { Text("BTC").tag("BTC"); Text("sats").tag("sats") }.pickerStyle(.segmented).fixedSize()
                 }
                 if let sats, let usd = mirror.usd(sats) { Text(usd).foregroundStyle(.secondary).frosted(mirror.discreet) }
-                if let sats, sats > 0, !inCoinjoin, !subtractFee, sats > available {
-                    Label { Text(onlyPrivate ? "More than the private balance" : "More than the confirmed balance") } icon: { Icon(.warning, size: 14) }.font(.caption).foregroundStyle(Wasabi.error)
-                }
+                if let sats, sats > 0, !amountValid { overBalance }
             } footer: {
-                if onlyPrivate {
+                if inCoinjoin {
+                    Text("Available: \(mirror.btc(confirmed)) in confirmed coins")
+                } else if onlyPrivate {
                     Text("Private and ready: \(mirror.btc(available)) in \(spendable.count) coins." + (notYetPrivate > 0 ? " Another \(mirror.btc(notYetPrivate)) is still being made private." : ""))
                 } else {
                     Text("Available: \(mirror.btc(available)) in \(spendable.count) confirmed coins")
                 }
             }
             .wasabiRows()
-            if !inCoinjoin {
-                Section {
-                    Toggle("Subtract fee from amount", isOn: $subtractFee)
-                    Button {
-                        unit = "BTC"
-                        amount = Bitcoin.btc(available)
-                        subtractFee = true
-                    } label: {
-                        HStack(spacing: 0) { Text("Send all ("); Amount(sats: available, mirror: mirror); Text(verbatim: ")") }
-                    }
-                } footer: {
-                    Text(onlyPrivate ? "Send all spends every private coin and takes the mining fee out of the amount." : "Send all spends every confirmed coin and takes the mining fee out of the amount.")
+            Section {
+                Button {
+                    amount = unit == "BTC" ? Bitcoin.btc(available) : String(available) // in the unit on screen; switching it would re-parse
+                } label: {
+                    HStack(spacing: 0) { Text("Send all ("); Amount(sats: available, mirror: mirror); Text(verbatim: ")") }
                 }
-                .wasabiRows()
+            } footer: {
+                Text("Send all is a regular transaction: it spends every \(onlyPrivate ? "private" : "confirmed") coin and takes the mining fee out of the amount.")
             }
+            .wasabiRows()
         }
         .dismissableKeyboard()
         .onChange(of: unit) { old, new in
@@ -329,17 +291,43 @@ struct SendView: View {
         }
         .flowScreen("Amount") { dismiss() }
         .safeAreaInset(edge: .bottom) {
-            PrimaryAction(title: inCoinjoin ? "Review payment" : "Continue", system: inCoinjoin ? nil : "chevron.right", disabled: !amountValid || mirror.busy) {
-                if inCoinjoin { prepare() } else { path.append(.fee) }
-            }
+            PrimaryAction(title: "Continue", system: "chevron.right", disabled: !amountValid || mirror.busy) { path.append(.fee) }
         }
     }
 
-    // Step 3: how fast. Wasabi offers block targets; the rough wait time comes first because that is what people choose by.
+    private var overBalance: some View {
+        Label { Text(!inCoinjoin && onlyPrivate ? "More than the private balance" : "More than the confirmed balance") } icon: { Icon(.warning, size: 14) }
+            .font(.caption).foregroundStyle(Wasabi.error)
+    }
+
+    // A fee choice the screen still offers, else about an hour.
+    private func keepFeeTargetUsable() {
+        let usable = feeTargets.contains(feeTarget) || (customFee && feeTarget == "custom") || (feeTarget == "private" && privateAllowed)
+        if !usable, let hour = feeTargets.min(by: { abs(Int($0)! - 6) < abs(Int($1)! - 6) }) { feeTarget = hour }
+    }
+
+    // Step 3: how to pay. A private payment first, as the default; then regular transactions by rough wait time, because
+    // that is what people choose by. Two pickers on one selection, so each section keeps its own header.
     private var feeStep: some View {
         List {
+            if privateAllowed {
+                Section {
+                    Picker("Private payment", selection: $feeTarget) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Private payment")
+                            Text("With one of the next privacy rounds, usually within hours").font(.caption).foregroundStyle(.secondary)
+                        }
+                        .tag("private")
+                    }
+                    .pickerStyle(.inline)
+                    .labelsHidden()
+                } footer: {
+                    Text("No separate mining fee, and the receiver cannot tell which of the round's coins paid them.")
+                }
+                .wasabiRows()
+            }
             Section {
-                Picker("Confirm within", selection: $feeTarget) {
+                Picker("Regular transaction", selection: $feeTarget) {
                     ForEach(feeTargets, id: \.self) { target in
                         HStack {
                             Text(Self.wait(blocks: Int(target) ?? 0))
@@ -348,21 +336,26 @@ struct SendView: View {
                         }
                         .tag(target)
                     }
-                    Text("Custom rate").tag("custom")
+                    if customFee { Text("Custom rate").tag("custom") }
                 }
                 .pickerStyle(.inline)
                 .labelsHidden()
-                if feeTarget == "custom" { Stepper("\(customRate) sat/vB", value: $customRate, in: 1...500) }
+                if customFee, feeTarget == "custom" { Stepper("\(customRate) sat/vB", value: $customRate, in: 1...500) }
+                if !inCoinjoin, !amountValid { overBalance }
             } header: {
-                Text("Confirm within")
+                Text("Regular transaction")
             } footer: {
-                Text("The exact mining fee is shown on the next screen before anything is sent.")
+                if mirror.info?.deviceSigns == true {
+                    Text("A device signs this wallet's rounds, so a private payment is not possible here. The exact mining fee is shown on the next screen.")
+                } else {
+                    Text("Confirms sooner, as its own transaction. The exact mining fee is shown on the next screen before anything is sent.")
+                }
             }
             .wasabiRows()
         }
-        .flowScreen("Fee") { dismiss() }
+        .flowScreen("How to pay") { dismiss() }
         .safeAreaInset(edge: .bottom) {
-            PrimaryAction(title: "Review transaction", icon: .send, disabled: mirror.busy) { prepare() }
+            PrimaryAction(title: inCoinjoin ? "Review payment" : "Review transaction", icon: .send, disabled: !amountValid || mirror.busy) { prepare() }
         }
     }
 
@@ -417,10 +410,19 @@ struct SendView: View {
         guard let sats else { return }
         let address = address, label = label, inCoinjoin = inCoinjoin, onlyPrivate = onlyPrivate, subtractFee = subtractFee
         if inCoinjoin {
-            // Wasabi PayInCoinJoin(address, amount, password); the passphrase is re-checked at the call.
+            // Wasabi PayInCoinJoin(address, amount, password); the passphrase is re-checked at the call. A queued payment
+            // only goes out while the wallet is in coinjoin and Wasabi does not start one for it, so this does, like the
+            // desktop's Play; stopWhenAllMixed follows the privacy setting and PlebStop is overridden for the payment's sake.
             review = Review(address: address, sats: sats, fee: nil, inputs: 0, toxic: false, inCoinjoin: true, onlyPrivate: false, password: "") { pw in
                 let id: String = try await mirror.rpc.call("payincoinjoin", params: [address, sats, pw] as [any Sendable], wallet: mirror.wallet)
                 sent = id
+                guard mirror.info?.coinjoining != true else { return nil }
+                do {
+                    try await mirror.rpc.call("startcoinjoin", params: [pw, mirror.privacyStop != .private, true] as [any Sendable], wallet: mirror.wallet)
+                    if mirror.privacyStop == .cheap { mirror.stopAfterPayments = true }
+                } catch {
+                    return "The payment is queued, but coinjoin did not start (\(error.localizedDescription)). Start it from the Privacy screen."
+                }
                 return nil
             }
             return
@@ -466,17 +468,16 @@ struct SendView: View {
 struct ReviewView: View {
     let mirror: Mirror
     let review: SendView.Review
-    let done: () -> Void
     @State private var authError: String?
 
     var body: some View {
         List {
-            Section(review.inCoinjoin ? "Low-fee payment" : "Transaction") {
+            Section(review.inCoinjoin ? "Private payment" : "Transaction") {
                 LabeledContent("To") { Text(mirror.mask(review.address)).font(.footnote.monospaced()).multilineTextAlignment(.trailing).frosted(mirror.discreet) }
                 LabeledContent("Amount") { Amount(sats: review.sats, mirror: mirror) }
                 if let usd = mirror.usd(review.sats) { LabeledContent("Value") { Text(usd).frosted(mirror.discreet) } }
                 if review.inCoinjoin {
-                    LabeledContent("Fee", value: "None on top; paid from a privacy round")
+                    LabeledContent("Mining fee", value: "None separately; paid within the round")
                 } else {
                     LabeledContent("Mining fee") { if let fee = review.fee { Amount(sats: fee, mirror: mirror) } else { Text("Unknown") } }
                     LabeledContent("Coins spent", value: review.onlyPrivate ? "\(review.inputs), all private" : "\(review.inputs)")
@@ -484,7 +485,7 @@ struct ReviewView: View {
             }
             .wasabiRows()
             if review.toxic {
-                Label { Text("This spend combines private and non-private coins, which undoes their privacy. Choose More private to avoid it.") } icon: { Icon(.warning) }
+                Label { Text("This spend combines private and non-private coins, which undoes their privacy. Choose More private on the Privacy screen to avoid it.") } icon: { Icon(.warning) }
                     .foregroundStyle(Wasabi.warning)
                     .wasabiRows()
             }
@@ -508,8 +509,7 @@ struct ReviewView: View {
                 authError = error.localizedDescription
                 return
             }
-            let sent = await mirror.perform(review.inCoinjoin ? "Pay in coinjoin" : "Send", password: review.password, review.send)
-            if sent { done() }
+            await mirror.perform(review.inCoinjoin ? "Private payment" : "Send", password: review.password, review.send)
         }
     }
 }

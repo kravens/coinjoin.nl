@@ -22,7 +22,7 @@ final class GestureTests: XCTestCase {
         try app.screenshot().pngRepresentation.write(to: Self.shots.appendingPathComponent(name + ".png"))
     }
 
-    private var menu: XCUIElement { app.buttons["Retry now"] }
+    private var menu: XCUIElement { app.buttons["menu.connection"] }
     private var scanner: XCUIElement { app.navigationBars["Scan to pay"] }
 
     func testLeftEdgeSwipeOpensMenu() throws {
@@ -59,14 +59,14 @@ final class GestureTests: XCTestCase {
     }
 
     func testPastedPaymentLandsInSend() throws {
-        // The simulator shares one pasteboard; a BIP 321 link with an amount should skip straight to the fee step.
+        // The simulator shares one pasteboard; a BIP 321 link with an amount should skip straight to the how-to-pay step.
         UIPasteboard.general.string = "bitcoin:?bc=bc1zw508d6qejxtdg4y5r3zarvaryvaxxpcs&bc=bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4&amount=0.0012&label=Luke-Jr&lightning=lnbc1bogus"
         app.buttons["Scan to pay"].tap()
         XCTAssertTrue(scanner.waitForExistence(timeout: 3))
         app.buttons["Paste"].tap()
-        XCTAssertTrue(app.navigationBars["Fee"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.navigationBars["How to pay"].waitForExistence(timeout: 5))
         try shot("scanner-to-send")
-        app.navigationBars["Fee"].buttons.firstMatch.tap() // Back
+        app.navigationBars["How to pay"].buttons.firstMatch.tap() // Back
         XCTAssertTrue(app.navigationBars["Amount"].waitForExistence(timeout: 3))
         XCTAssertTrue(app.textFields["0"].waitForExistence(timeout: 3))
         XCTAssertEqual(app.textFields["0"].value as? String, "0.00120000")

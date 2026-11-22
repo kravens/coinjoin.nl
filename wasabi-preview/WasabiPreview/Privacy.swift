@@ -13,47 +13,6 @@ enum PrivacyStop: String, CaseIterable {
         case .private: "More private"
         }
     }
-
-    // The Privacy screen shows the stop as one toggle: off is Lower fees, on is Balanced, and a More private stop chosen in
-    // Receive or Send stays as it is (shown as on) rather than being quietly downgraded.
-    var automatic: Bool { self != .cheap }
-    func setting(automatic on: Bool) -> PrivacyStop { on ? (self == .cheap ? .balanced : self) : .cheap }
-
-    #if DEBUG
-    static func selfCheck() {
-        assert(PrivacyStop.cheap.setting(automatic: true) == .balanced && PrivacyStop.private.setting(automatic: true) == .private)
-        assert(PrivacyStop.balanced.setting(automatic: false) == .cheap && PrivacyStop.private.setting(automatic: false) == .cheap)
-        assert(!PrivacyStop.cheap.automatic && PrivacyStop.balanced.automatic && PrivacyStop.private.automatic)
-    }
-    #endif
-}
-
-struct PrivacySlider: View {
-    let mirror: Mirror
-    let explanation: String
-
-    var body: some View {
-        let stop = Binding { mirror.privacyStop } set: { mirror.privacyStop = $0 }
-        VStack(alignment: .leading, spacing: 6) {
-            Slider(value: Binding { Double(PrivacyStop.allCases.firstIndex(of: stop.wrappedValue)!) } set: { stop.wrappedValue = PrivacyStop.allCases[Int($0.rounded())] }, in: 0...2, step: 1)
-                .tint(Wasabi.accent)
-                .accessibilityLabel("Privacy")
-                .accessibilityValue(stop.wrappedValue.name)
-            HStack {
-                ForEach(PrivacyStop.allCases, id: \.self) { s in
-                    Text(s.name)
-                        .font(.caption.weight(s == stop.wrappedValue ? .semibold : .regular))
-                        .foregroundStyle(s == stop.wrappedValue ? .primary : .secondary)
-                        .frame(maxWidth: .infinity, alignment: s == .cheap ? .leading : s == .private ? .trailing : .center)
-                        .onTapGesture { stop.wrappedValue = s }
-                        .accessibilityHidden(true)
-                }
-            }
-            Text(explanation).font(.footnote).foregroundStyle(.secondary).padding(.top, 4)
-        }
-        .padding(.vertical, 4)
-        .sensoryFeedback(.selection, trigger: stop.wrappedValue)
-    }
 }
 
 // Exclude a coin from coinjoins, or let it back in (excludefromcoinjoin). Short titles fit a swipe action.
@@ -71,8 +30,8 @@ struct ExcludeButton: View {
     }
 }
 
-// The Privacy screen, pushed from the home tile: the music box with its controls, the wallet's slider stop, the facts
-// (target, who signs, the desktop's own auto-start), sweep, and low-fee payments waiting in a round. Technical terms are
+// The Privacy screen, pushed from the home tile: the music box with its controls, the facts
+// (target, who signs, the desktop's own auto-start), sweep, and private payments waiting in a round. Technical terms are
 // fine here; this is where power users come.
 struct PrivacyView: View {
     let mirror: Mirror
@@ -83,12 +42,12 @@ struct PrivacyView: View {
             Section { musicBox.glassRow() }.walletGate(mirror)
             if mirror.walletError == nil {
                 Section {
-                    Toggle("Make received coins private automatically", isOn: Binding { mirror.privacyStop.automatic } set: { mirror.privacyStop = mirror.privacyStop.setting(automatic: $0) })
-                        .tint(Wasabi.accent)
-                } header: {
-                    Text(mirror.wallet ?? "This wallet")
+                    Picker("Privacy", selection: Binding { mirror.privacyStop } set: { mirror.privacyStop = $0 }) {
+                        ForEach(PrivacyStop.allCases, id: \.self) { Text($0.name).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
                 } footer: {
-                    Text(toggleFooter)
+                    Text(privacyFooter)
                 }
                 .wasabiRows()
                 Section {
@@ -139,7 +98,7 @@ struct PrivacyView: View {
                             }
                         }
                     } header: {
-                        Label { Text("Low-fee payments waiting for a round") } icon: { Icon(.embeddedPayment, size: 14) }
+                        Label { Text("Private payments waiting for a round") } icon: { Icon(.embeddedPayment, size: 14) }
                     } footer: {
                         Text("Swipe left to cancel a payment that has not been paid yet.")
                     }
@@ -151,15 +110,6 @@ struct PrivacyView: View {
         .background { Backdrop() }
         .navigationTitle("Privacy")
         .navigationBarTitleDisplayMode(.inline)
-    }
-
-    // Fees versus privacy in plain words. Receive and Send still show the same stop as a 3-stop slider.
-    private var toggleFooter: String {
-        switch mirror.privacyStop {
-        case .cheap: "Off: coins stay as they arrive and no coinjoin fees are paid. You can still start a coinjoin by hand above."
-        case .balanced: "On: when a payment arrives while this app is open, Wasabi runs it through coinjoins until it reaches the privacy target (\(mirror.target)). Each round costs a share of its mining fee. With the app closed this needs \"Automatically start coinjoin\" in Wasabi on your computer."
-        case .private: "On, set to More private from Receive or Send: coinjoin stays on for whatever arrives, now and later. Each round costs a share of its mining fee."
-        }
     }
 
     // Desktop Wasabi's "music box": logo, status line and progress strip on glass, with the play or stop control beside it.
@@ -184,7 +134,7 @@ struct PrivacyView: View {
 
             if coinjoining {
                 Button(role: .destructive) {
-                    Task { await mirror.perform("Stop coinjoin") { _ in try await mirror.rpc.call("stopcoinjoin", wallet: mirror.wallet); return nil } }
+                    Task { await mirror.perform("Stop coinjoin") { _ in mirror.stopAfterPayments = false; try await mirror.rpc.call("stopcoinjoin", wallet: mirror.wallet); return nil } }
                 } label: {
                     Label { Text("Stop coinjoin") } icon: { Icon(.stop, size: 22) }.labelStyle(.iconOnly).frame(width: 44, height: 44)
                 }
@@ -202,11 +152,30 @@ struct PrivacyView: View {
         .padding(.vertical, 4)
     }
 
+    // What the choice does for receiving and for paying, in the words of what the RPC can really do. Applies right away.
+    private var privacyFooter: String {
+        let target = mirror.target, info = mirror.info
+        let byHand = info?.canAutoCoinjoin == false ? " This wallet's keys are on a device, so coinjoins are started by hand from the Privacy screen." : ""
+        switch mirror.privacyStop {
+        case .cheap:
+            return "Received coins stay as they arrive and no coinjoin fees are paid. A private payment starts coinjoin and this app stops it again once the payment is out. Regular transactions spend your most private coins first and warn before combining private and non-private coins."
+        case .balanced:
+            return "Regular transactions spend your most private coins first and warn before combining private and non-private coins. "
+                + (info?.isAutoCoinjoin == true
+                    ? "Wasabi on your computer already makes received coins private, up to the privacy target (\(target))."
+                    : "Received coins are made private while this app is open, until they reach the privacy target (\(target)); each round costs a share of its mining fee.")
+                + byHand
+        case .private:
+            return "Regular transactions spend only coins that reached the privacy target (\(target)). Coinjoin stays on for everything that arrives, now and later." + byHand
+        }
+    }
+
     // Wasabi's startcoinjoin [password, stopWhenAllMixed, overridePlebStop]. An explicit tap overrides the stop threshold, as
     // the desktop's second click on "click to continue" does; the automatic start in Mirror.autoCoinjoin never does.
     private func start(stopWhenAllPrivate: Bool) {
         Task {
             await mirror.perform("Start coinjoin") { pw in
+                mirror.stopAfterPayments = false // started by hand: runs as asked, not just for a payment
                 try await mirror.rpc.call("startcoinjoin", params: [pw, stopWhenAllPrivate, true] as [any Sendable], wallet: mirror.wallet)
                 return nil
             }
@@ -348,6 +317,7 @@ extension Mirror {
     // listcoins: every coin the wallet ever had, with what spent it. Read-only; only the coin screen needs it.
     func loadAllCoins() async {
         guard let wallet, allCoins.isEmpty else { return }
-        do { allCoins = try await rpc.call("listcoins", wallet: wallet) } catch { allCoins = [] }
+        let all: [Coin] = (try? await rpc.call("listcoins", wallet: wallet)) ?? []
+        if self.wallet == wallet { allCoins = all }
     }
 }

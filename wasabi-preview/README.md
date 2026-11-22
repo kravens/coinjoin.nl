@@ -27,7 +27,10 @@ Set your own `DEVELOPMENT_TEAM` in `project.yml` to sign for your device.
 
 ## Desktop side
 
-In `~/.walletwasabi/client/Config.json`: `JsonRpcServerEnabled: true`, a `JsonRpcUser`/`JsonRpcPassword`, and
+`desktop/wasabi-remote.sh` does all of this on macOS (Homebrew tor) or Arch/Omarchy (pacman tor): quit Wasabi, run it,
+and enter the values it writes to `~/.config/wasabi-remote/phone.txt` in the app. It can be run again safely.
+
+By hand: in `~/.walletwasabi/client/Config.json`: `JsonRpcServerEnabled: true`, a `JsonRpcUser`/`JsonRpcPassword`, and
 `JsonRpcServerPrefixes` with `http://127.0.0.1:37128/` plus the computer's Tailscale IP. For Tor, run a separate tor
 with `HiddenServicePort 80 127.0.0.1:37128` and client authorization; the phone gets the x25519 private key.
 

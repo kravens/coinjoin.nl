@@ -594,9 +594,6 @@ struct LinkStatus: View {
             if let updated = mirror.updated {
                 Text("Last update \(updated, style: .relative) ago").font(.caption).foregroundStyle(.secondary)
             }
-            Button("Retry now") { Task { await mirror.refresh() } }
-                .buttonStyle(.glass)
-                .disabled(mirror.refreshing)
         }
     }
 }
