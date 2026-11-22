@@ -1,0 +1,120 @@
+diff --git a/frontend/generate-themes.js b/frontend/generate-themes.js
+index da7f06c20..fe2f1b7e9 100644
+--- a/frontend/generate-themes.js
++++ b/frontend/generate-themes.js
+@@ -3,7 +3,7 @@ const fs = require('fs');
+ const path = require('path');
+ const crypto = require('crypto');
+ 
+-const THEMES = ['contrast', 'softsimon', 'bukele'];
++const THEMES = ['contrast', 'softsimon', 'bukele', 'coinjoin'];
+ const STAGING_DIR = path.join(__dirname, '.theme-build');
+ const DIST_DIR = path.join(__dirname, 'dist/mempool/browser');
+ const MANIFEST_FILE = path.join(__dirname, 'theme-manifest.json');
+diff --git a/frontend/src/app/components/theme-selector/theme-selector.component.html b/frontend/src/app/components/theme-selector/theme-selector.component.html
+index c74e0c2c6..5c717c030 100644
+--- a/frontend/src/app/components/theme-selector/theme-selector.component.html
++++ b/frontend/src/app/components/theme-selector/theme-selector.component.html
+@@ -3,5 +3,6 @@
+         <option value="default">wiz</option>
+         <option value="contrast">BlueMatt</option>
+         <option value="softsimon">softsimon</option>
++        <option value="coinjoin">coinjoin</option>
+     </select>
+ </div>
+diff --git a/frontend/src/app/services/state.service.ts b/frontend/src/app/services/state.service.ts
+index 592825fdc..0b390173a 100644
+--- a/frontend/src/app/services/state.service.ts
++++ b/frontend/src/app/services/state.service.ts
+@@ -221,7 +221,7 @@ export class StateService {
+   searchFocus$: Subject<boolean> = new Subject<boolean>();
+   menuOpen$: BehaviorSubject<boolean> = new BehaviorSubject(false);
+ 
+-  activeGoggles$: BehaviorSubject<ActiveFilter> = new BehaviorSubject({ mode: 'and', filters: [], gradient: 'age' });
++  activeGoggles$: BehaviorSubject<ActiveFilter> = new BehaviorSubject({ mode: 'and', filters: ['coinjoin'], gradient: 'fee' }); // coinjoin.nl: Goggles start on Coinjoin
+ 
+   constructor(
+     @Inject(PLATFORM_ID) private platformId: any,
+diff --git a/frontend/src/app/services/theme.service.ts b/frontend/src/app/services/theme.service.ts
+index 0f184e9d2..8caf8a62c 100644
+--- a/frontend/src/app/services/theme.service.ts
++++ b/frontend/src/app/services/theme.service.ts
+@@ -18,9 +18,9 @@ export class ThemeService {
+     private storageService: StorageService,
+     private stateService: StateService,
+   ) {
+-    let theme = this.stateService.env.customize?.theme || this.storageService.getValue('theme-preference') || 'default';
++    let theme = this.stateService.env.customize?.theme || this.storageService.getValue('theme-preference') || 'coinjoin';
+     // theme preference must be a valid known public theme
+-    if (!this.stateService.env.customize?.theme && !['default', 'contrast', 'softsimon'].includes(theme)) {
++    if (!this.stateService.env.customize?.theme && !['default', 'contrast', 'softsimon', 'coinjoin'].includes(theme)) {
+       theme = 'default';
+       this.storageService.setValue('theme-preference', 'default');
+     }
+diff --git a/frontend/src/theme-coinjoin.scss b/frontend/src/theme-coinjoin.scss
+new file mode 100644
+index 000000000..dd90d827f
+--- /dev/null
++++ b/frontend/src/theme-coinjoin.scss
+@@ -0,0 +1,61 @@
++/* coinjoin.nl theme (local mod, see ~/coinjoin.nl/mempool-theme-coinjoin.patch) */
++
++@font-face{font-family:'Anonymous Pro';font-weight:400;font-display:swap;src:url('/cj-theme/fonts/AnonymousPro.woff2') format('woff2')}
++@font-face{font-family:'Objectivity';font-weight:400;font-display:swap;src:url('/cj-theme/fonts/Objectivity-Regular.woff2') format('woff2')}
++@font-face{font-family:'Objectivity';font-weight:500;font-display:swap;src:url('/cj-theme/fonts/Objectivity-Medium.woff2') format('woff2')}
++
++:root {
++  --bg: #0a0c10;
++  --active-bg: #000;
++  --hover-bg: #14171c;
++  --fg: #f5f5f5;
++  --nav-bg: #0a0c10;
++  --navbar-bg: #0a0c10;
++  --title-fg: #1dbc93;
++
++  --primary: #1dbc93;
++  --secondary: #2e3138;
++  --tertiary: #15876a;
++  --success: #1dbc93;
++  --info: #1dbc93;
++  --link-color: #1dbc93;
++  --link-hover-color: #17997a;
++
++  --box-bg: #23252b;
++  --stat-box-bg: #1a1c21;
++  --alert-bg: #26282a;
++  --skeleton-bg: #26282a;
++  --skeleton-bg-light: #3a3d44;
++  --fade-out-box-bg-start: rgba(35, 37, 43, 0);
++  --fade-out-box-bg-end: rgba(35, 37, 43, 1);
++
++  --mainnet-alt: #15876a;
++  --search-button: #15876a;
++  --search-button-border: #127a60;
++  --search-button-focus: #1dbc93;
++  --search-button-shadow: #1dbc9380;
++}
++
++body { background-color: #0a0c10; color: #f5f5f5; font-family: 'Anonymous Pro', monospace; }
++h1, h2, h3, h4, h5, .navbar, .nav-link, .btn, .card-title { font-family: 'Objectivity', 'Anonymous Pro', sans-serif; font-weight: 500; }
++
++a { color: #1dbc93; }
++a:hover { color: #17997a; }
++
++/* Bootstrap bakes the default blue/purple into these as literals */
++.btn-primary, .btn-primary.disabled, .btn-primary:disabled,
++.btn-outline-primary:hover,
++.btn-outline-primary:not(:disabled):not(.disabled):active,
++.badge-primary, .bg-primary, .progress-bar,
++.page-item.active .page-link,
++.custom-control-input:checked ~ .custom-control-label:before {
++  background-color: #1dbc93; border-color: #1dbc93; color: #0a0c10;
++}
++.btn-primary:hover, .btn-primary:focus { background-color: #17997a; border-color: #17997a; color: #0a0c10; }
++.btn-outline-primary { color: #1dbc93; border-color: #1dbc93; }
++.text-primary, .text-info { color: #1dbc93 !important; }
++.border-primary { border-color: #1dbc93 !important; }
++.form-control:focus, .btn:focus, .btn.focus { box-shadow: 0 0 0 .2rem rgba(29, 188, 147, .25); }
++
++.btn-secondary, .badge-secondary, .bg-secondary { background-color: #2e3138; border-color: #2e3138; }
++.dropdown-menu, .table-dark, .table .thead-dark th { background-color: #1a1c21; }
