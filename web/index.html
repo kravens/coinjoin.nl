@@ -625,17 +625,19 @@
                         </thead>
                         <tbody>
                 `;
+                // Kruw/OpenCoordinator JSON is third-party: escape everything that goes into innerHTML
+                const esc = v => String(v).replace(/[&<>"']/g, c => '&#' + c.charCodeAt(0) + ';');
                 data.RoundStates.forEach(state => {
-                    const rid = state.RoundId || state.roundId || '';
-                    const inputCount = state.InputCount ?? state.inputCount ?? '—';
+                    const rid = esc(state.RoundId || state.roundId || '');
+                    const inputCount = esc(state.InputCount ?? state.inputCount ?? '—');
                     const remaining = state.InputRegistrationRemaining ?? state.inputRegistrationRemaining ?? '';
-                    const phase = state.Phase ?? state.phase ?? '—';
+                    const phase = esc(state.Phase ?? state.phase ?? '—');
                     const fr = feeRates[rid.toLowerCase()];
                     const frCell = fr != null ? fr.toFixed(1) : '—';
                     const raw = String(remaining);
                     const secs = parseRemaining(raw);
                     const cell = secs == null
-                        ? `<td>${raw}</td>`
+                        ? `<td>${esc(raw)}</td>`
                         : `<td class="remaining" data-secs="${secs}">${formatRemaining(secs)}</td>`;
                     tableHTML += `
                         <tr>
