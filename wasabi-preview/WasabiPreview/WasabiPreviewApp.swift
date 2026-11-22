@@ -482,8 +482,11 @@ struct ContentView: View {
         .wasabiAlerts(mirror, active: flow == nil && sheet == nil)
         .overlay { if mirror.busy, flow == nil { ProgressView().padding().glassEffect() } }
         .onAppear {
-            if mirror.server.user.isEmpty || Screen.current == .connection { sheet = .connection }
+            if mirror.server.user.isEmpty { sheet = .connection }
+            #if DEBUG
+            if Screen.current == .connection { sheet = .connection }
             if Screen.current == .settings { sheet = .settings }
+            #endif
         }
         // Polls while the app is in front. Coming back to the app or a network change (Tailscale's tunnel coming up, Wi-Fi
         // to cellular) restarts it at once instead of waiting out a request's timeout on the old path.

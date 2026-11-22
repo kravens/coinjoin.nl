@@ -17,6 +17,15 @@
   ],
   "versions": [
     {
+      "version": "1.1",
+      "buildVersion": "2",
+      "date": "2026-11-22",
+      "localizedDescription": "Private payments (paid inside a coinjoin round) are the default way to pay. The menu is grouped by scope, with the privacy choice on the Privacy screen. The app reconnects as soon as it is back in front or the network changes. Tor: a payment is never sent twice and timed-out streams are dropped.",
+      "downloadURL": "https://github.com/kravens/coinjoin.nl/releases/download/wasabi-preview-mobile-1.1/WasabiPreviewMobile-1.1.ipa",
+      "size": 4721267,
+      "minOSVersion": "26.0"
+    },
+    {
       "version": "1.0",
       "buildVersion": "1",
       "date": "2026-10-26",
