@@ -28,11 +28,7 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.RadioButton
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
@@ -77,11 +73,7 @@ fun Field(value: String, onChange: (String) -> Unit, placeholder: String, modifi
 
 @Composable
 fun UnitPicker(unit: String, onChange: (String) -> Unit) {
-    SingleChoiceSegmentedButtonRow {
-        listOf("BTC", "sats").forEachIndexed { i, u ->
-            SegmentedButton(unit == u, { onChange(u) }, SegmentedButtonDefaults.itemShape(i, 2), icon = {}) { Text(u) }
-        }
-    }
+    Segmented(listOf("BTC" to "BTC", "sats" to "sats"), unit, Modifier.width(140.dp), onChange)
 }
 
 // Converts the typed amount between units, like the iOS app; keeping the digits would turn 1 BTC into 1 sat.
@@ -163,7 +155,7 @@ fun ReceiveScreen(mirror: Mirror, nav: Nav) {
                         SelectionContainer { Text(mirror.mask(shown), Modifier.frosted(mirror.discreet), fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center) }
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             CopyButton(uri)
-                            OutlinedButton({ share(context, uri) }) { Icon(WasabiIcon.share, 16.dp, LocalPalette.current.accent); Spacer(Modifier.width(6.dp)); Text("Share", color = LocalPalette.current.accent) }
+                            TintedButton({ share(context, uri) }) { Icon(WasabiIcon.share, 16.dp, LocalPalette.current.accent); Spacer(Modifier.width(6.dp)); Text("Share", color = LocalPalette.current.accent) }
                         }
                     }
                 }
@@ -338,7 +330,7 @@ private fun SendTo(mirror: Mirror, nav: Nav, model: SendModel) {
                                 Button({ scanning = true }, Modifier.weight(1f).height(48.dp), colors = ButtonDefaults.buttonColors(containerColor = LocalPalette.current.accent)) {
                                     Icon(WasabiIcon.qr, 18.dp, Color.White); Spacer(Modifier.width(8.dp)); Text("Scan QR", color = Color.White)
                                 }
-                                OutlinedButton({
+                                TintedButton({
                                     val clip = (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).primaryClip
                                     model.paste(clip?.getItemAt(0)?.coerceToText(context)?.toString() ?: "")
                                 }, Modifier.weight(1f).height(48.dp)) {
@@ -530,7 +522,7 @@ private fun SendSuccess(mirror: Mirror, nav: Nav, model: SendModel) {
                             SelectionContainer { Text(sent, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center) }
                             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 CopyButton(sent)
-                                OutlinedButton({ share(context, sent) }) { Icon(WasabiIcon.share, 16.dp, LocalPalette.current.accent); Spacer(Modifier.width(6.dp)); Text("Share", color = LocalPalette.current.accent) }
+                                TintedButton({ share(context, sent) }) { Icon(WasabiIcon.share, 16.dp, LocalPalette.current.accent); Spacer(Modifier.width(6.dp)); Text("Share", color = LocalPalette.current.accent) }
                             }
                         }
                     }

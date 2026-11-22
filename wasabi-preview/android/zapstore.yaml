@@ -26,3 +26,4 @@ images:
   - ./zapstore/sendReview.png
   - ./zapstore/transaction.png
   - ./zapstore/coin.png
+metadata_sources: [github]

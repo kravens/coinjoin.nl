@@ -13,8 +13,8 @@ android {
         applicationId = "nl.kravens.wasabipreview"
         minSdk = 30 // platform BiometricPrompt with a device-credential fallback; every GrapheneOS phone is far newer
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "1.1"
         ndk { abiFilters += "arm64-v8a" } // libwasabitor.so (Arti) is built for arm64 only: phones, Waydroid, the Apple-silicon emulator
     }
 

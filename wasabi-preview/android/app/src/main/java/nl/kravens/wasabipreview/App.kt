@@ -1,5 +1,9 @@
 package nl.kravens.wasabipreview
 
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.foundation.shape.CircleShape
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
@@ -266,12 +270,19 @@ fun Screen(title: String, onBack: (() -> Unit)?, onClose: (() -> Unit)? = null, 
         containerColor = Color.Transparent,
         contentColor = MaterialTheme.colorScheme.onBackground,
         topBar = {
-            TopAppBar(
-                title = { Text(title, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                navigationIcon = { if (onBack != null) IconButton(onBack, Modifier.semantics { contentDescription = "Back" }) { Text("‹", style = MaterialTheme.typography.headlineMedium) } },
+            CenterAlignedTopAppBar(
+                title = { Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                navigationIcon = {
+                    if (onBack != null) Box(
+                        Modifier.padding(start = 12.dp).size(44.dp).glass(LocalPalette.current, CircleShape).clickable(onClick = onBack).semantics { contentDescription = "Back" },
+                        contentAlignment = Alignment.Center,
+                    ) { Glyph(Glyph.BACK, 16.dp, LocalContentColor.current) }
+                },
                 actions = {
                     actions()
-                    if (onClose != null) IconButton(onClose, Modifier.semantics { contentDescription = "Close" }) { Text("✕", style = MaterialTheme.typography.titleMedium) }
+                    if (onClose != null) IconButton(onClose, Modifier.semantics { contentDescription = "Close" }) {
+                        Box(Modifier.size(44.dp).glass(LocalPalette.current, CircleShape).background(LocalPalette.current.accent.copy(alpha = 0.2f)), contentAlignment = Alignment.Center) { Glyph(Glyph.CLOSE, 14.dp, LocalPalette.current.accent) }
+                    }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
             )
@@ -296,7 +307,7 @@ fun Section(header: String? = null, footer: String? = null, card: Boolean = true
     val p = LocalPalette.current
     Column {
         if (header != null) Text(header, Modifier.padding(start = 16.dp, bottom = 6.dp, top = 6.dp), style = MaterialTheme.typography.titleSmall, color = p.secondary)
-        if (card) Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(15.dp)).background(p.card).padding(horizontal = 16.dp, vertical = 4.dp)) { content() } else content()
+        if (card) Column(Modifier.fillMaxWidth().glass(p, RoundedCornerShape(15.dp)).padding(horizontal = 16.dp, vertical = 4.dp)) { content() } else content()
         if (footer != null) Secondary(footer, Modifier.padding(start = 16.dp, end = 16.dp, top = 6.dp))
     }
 }
@@ -347,6 +358,7 @@ private fun Home(mirror: Mirror, nav: Nav, onMenu: () -> Unit, onReceive: () -> 
     val scope = rememberCoroutineScope()
     var showCoins by remember { mutableStateOf(mirror.screen == "coins" || mirror.screen == "coin") }
     var refreshing by remember { mutableStateOf(false) }
+    val list = rememberGlassSource()
     Scaffold(
         containerColor = Color.Transparent,
         contentColor = MaterialTheme.colorScheme.onBackground,
@@ -354,28 +366,33 @@ private fun Home(mirror: Mirror, nav: Nav, onMenu: () -> Unit, onReceive: () -> 
             TopAppBar(
                 title = { WalletMenu(mirror) },
                 navigationIcon = {
-                    IconButton(onMenu, Modifier.semantics { contentDescription = if (mirror.link == Link.FAILED) "Menu, link timed out" else "Menu" }) {
-                        Box {
-                            Text("≡", style = MaterialTheme.typography.headlineSmall, color = p.accent)
-                            if (mirror.link == Link.FAILED) Box(Modifier.align(Alignment.TopEnd).size(8.dp).clip(RoundedCornerShape(4.dp)).background(Color.Gray))
-                        }
+                    Box(
+                        Modifier.padding(start = 12.dp).size(44.dp).glass(p, CircleShape).clickable(onClick = onMenu)
+                            .semantics { contentDescription = if (mirror.link == Link.FAILED) "Menu, link timed out" else "Menu" },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Glyph(Glyph.MENU, 20.dp, p.accent)
+                        if (mirror.link == Link.FAILED) Box(Modifier.align(Alignment.TopEnd).padding(9.dp).size(8.dp).clip(CircleShape).background(Color.Gray))
                     }
                 },
                 actions = {
+                    androidx.compose.foundation.layout.Row(Modifier.padding(end = 12.dp).glass(p, RoundedCornerShape(22.dp))) {
                     IconButton(onScan, Modifier.semantics { contentDescription = "Scan to pay" }) { Icon(WasabiIcon.qr, 22.dp, p.accent) }
                     IconButton({ mirror.toggleDiscreet() }, Modifier.semantics { contentDescription = if (mirror.discreet) "Show amounts" else "Discreet mode" }) {
                         Icon(if (mirror.discreet) WasabiIcon.eyeHide else WasabiIcon.eyeShow, 22.dp, p.accent)
+                    }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
             )
         },
-        bottomBar = { ActionBar(mirror.ready, onReceive, onSend) },
+        // Receive and Send float over the list, so their glass shows it blurred as well as the backdrop.
+        bottomBar = { CompositionLocalProvider(LocalGlassSources provides LocalGlassSources.current + list) { ActionBar(mirror.ready, onReceive, onSend) } },
     ) { padding ->
         PullToRefreshBox(refreshing, { scope.launch { refreshing = true; mirror.refresh(); refreshing = false } }, Modifier.padding(top = padding.calculateTopPadding())) {
-            LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 6.dp, bottom = padding.calculateBottomPadding() + 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            LazyColumn(Modifier.fillMaxSize().glassSource(list), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 6.dp, bottom = padding.calculateBottomPadding() + 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 item {
-                    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(15.dp)).background(p.card).padding(horizontal = 16.dp)) {
+                    Column(Modifier.fillMaxWidth().glass(p, RoundedCornerShape(15.dp)).padding(horizontal = 16.dp)) {
                         Balance(mirror, showCoins) { showCoins = !showCoins }
                         if (mirror.ready) {
                             if (showCoins) CoinList(mirror, nav)
@@ -385,7 +402,7 @@ private fun Home(mirror: Mirror, nav: Nav, onMenu: () -> Unit, onReceive: () -> 
                     }
                 }
                 if (mirror.ready) item {
-                    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(15.dp)).background(p.card).padding(horizontal = 16.dp)) {
+                    Column(Modifier.fillMaxWidth().glass(p, RoundedCornerShape(15.dp)).padding(horizontal = 16.dp)) {
                         Caption("Transactions", Modifier.fillMaxWidth().padding(top = 14.dp, bottom = 6.dp))
                         if (mirror.history.isEmpty()) Secondary("No transactions yet", Modifier.padding(vertical = 12.dp), MaterialTheme.typography.bodyLarge)
                         HistoryItem.chains(mirror.history).forEachIndexed { i, chain ->
@@ -412,7 +429,8 @@ private fun WalletMenu(mirror: Mirror) {
             WasabiLogo(Modifier.height(17.dp))
             Spacer(Modifier.width(7.dp))
             Text(mirror.wallet ?: "Wasabi", fontWeight = FontWeight.SemiBold)
-            Text("  ⌄", color = LocalPalette.current.secondary)
+            Spacer(Modifier.width(6.dp))
+            Glyph(Glyph.DOWN, 11.dp, LocalPalette.current.secondary)
         }
         DropdownMenu(open, { open = false }) {
             mirror.wallets.forEach { name ->
@@ -436,7 +454,10 @@ private fun Balance(mirror: Mirror, showCoins: Boolean, toggle: () -> Unit) {
                 mirror.usd(mirror.balance)?.let { Secondary(it, Modifier.frosted(mirror.discreet), MaterialTheme.typography.bodyLarge) }
             }
         }
-        if (mirror.ready) Secondary("${mirror.coins.size} coins " + if (showCoins) "⌃" else "⌄", style = MaterialTheme.typography.labelLarge)
+        if (mirror.ready) androidx.compose.foundation.layout.Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+            Secondary("${mirror.coins.size} coins", style = MaterialTheme.typography.labelLarge)
+            Glyph(if (showCoins) Glyph.UP else Glyph.DOWN, 9.dp, LocalPalette.current.secondary, 1.5.dp)
+        }
     }
 }
 
@@ -469,7 +490,7 @@ fun CoinRow(mirror: Mirror, coin: Coin, onClick: () -> Unit) {
         Icon(if (tier == Mirror.Tier.PRIVATE) WasabiIcon.shieldTick else WasabiIcon.shield, 16.dp, tierColor(tier))
         Spacer(Modifier.width(4.dp))
         Text(score, color = tierColor(tier), modifier = Modifier.semantics { contentDescription = "Anonymity score $score, ${tier.label}" })
-        Text("  ›", color = p.tertiary)
+        Spacer(Modifier.width(8.dp)); Glyph(Glyph.FORWARD, 11.dp, p.tertiary)
     }
 }
 
@@ -511,7 +532,7 @@ private fun PrivacyTile(mirror: Mirror, open: () -> Unit) {
     Column(Modifier.fillMaxWidth().clickable(onClick = open).padding(vertical = 14.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Box(Modifier.fillMaxWidth()) {
             Caption("Privacy", Modifier.align(Alignment.Center))
-            Text("›", Modifier.align(Alignment.CenterEnd), color = p.tertiary)
+            Box(Modifier.align(Alignment.CenterEnd)) { Glyph(Glyph.FORWARD, 12.dp, p.tertiary) }
         }
         androidx.compose.foundation.layout.Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.semantics { contentDescription = "$percentage percent private, $text" }) {
             Icon(WasabiIcon.shieldTick, 34.dp, shield)
@@ -553,7 +574,7 @@ fun HistoryRow(mirror: Mirror, items: List<HistoryItem>, onClick: () -> Unit) {
         Spacer(Modifier.width(8.dp))
         Amount(items.sumOf { it.amount }, mirror, Modifier.frosted(mirror.discreet), signed = true)
         if (items.any { it.pending }) Icon(WasabiIcon.clock, 15.dp, p.secondary, Modifier.padding(start = 6.dp).semantics { contentDescription = "Pending" })
-        Text("  ›", color = p.tertiary)
+        Spacer(Modifier.width(8.dp)); Glyph(Glyph.FORWARD, 11.dp, p.tertiary)
     }
 }
 
@@ -586,7 +607,7 @@ private fun ActionBar(enabled: Boolean, onReceive: () -> Unit, onSend: () -> Uni
     ) {
         for ((title, icon, action) in listOf(Triple("Receive", WasabiIcon.receive, onReceive), Triple("Send", WasabiIcon.send, onSend))) {
             Column(
-                Modifier.weight(1f).clip(RoundedCornerShape(30.dp)).background(p.card).clickable(enabled, onClick = action).padding(vertical = 10.dp),
+                Modifier.weight(1f).glass(p, RoundedCornerShape(30.dp)).clickable(enabled, onClick = action).padding(vertical = 10.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Icon(icon, 22.dp, if (enabled) p.accent else p.tertiary)
@@ -614,7 +635,7 @@ private fun RoundsScreen(mirror: Mirror, nav: Nav, rounds: List<HistoryItem>) {
 
 @Composable
 fun HeroTile(content: @Composable () -> Unit) {
-    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(15.dp)).background(LocalPalette.current.card).padding(vertical = 18.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) { content() }
+    Column(Modifier.fillMaxWidth().glass(LocalPalette.current, RoundedCornerShape(15.dp)).padding(vertical = 18.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) { content() }
 }
 
 // Transaction details: the amount, then the facts, the txid last (bitcoin.design keeps technical details reachable but out of the way).
@@ -658,7 +679,7 @@ private fun SideMenu(mirror: Mirror, open: (Route) -> Unit) {
     Column(Modifier.verticalScroll(rememberScrollState()).statusBarsPadding().padding(horizontal = 20.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
         androidx.compose.foundation.layout.Row(Modifier.fillMaxWidth().clickable { open(Route.Connection) }, verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.weight(1f)) { LinkStatus(mirror) }
-            Text("›", color = p.tertiary)
+            Glyph(Glyph.FORWARD, 12.dp, p.tertiary)
         }
         if (mirror.link == Link.FAILED) TextButton({ scope.launch { mirror.refresh() } }, enabled = !mirror.refreshing) { Text("Retry now") }
         Divider()

@@ -1,5 +1,26 @@
 package nl.kravens.wasabipreview
 
+import android.os.Build
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.graphics.layer.GraphicsLayer
+import androidx.compose.ui.graphics.layer.drawLayer
+import androidx.compose.ui.graphics.rememberGraphicsLayer
+import androidx.compose.ui.graphics.BlurEffect
+import androidx.compose.ui.graphics.TileMode
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.ui.semantics.Role
+import androidx.compose.foundation.border
+import androidx.compose.ui.draw.BlurredEdgeTreatment
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.Shape
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -20,6 +41,7 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
@@ -36,7 +58,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
@@ -205,14 +226,104 @@ fun WasabiLogo(modifier: Modifier = Modifier) {
 @Composable
 fun Backdrop(content: @Composable BoxScope.() -> Unit) {
     val p = LocalPalette.current
-    Box(Modifier.fillMaxSize().background(p.window)) {
+    val source = rememberGlassSource()
+    Box(Modifier.fillMaxSize()) {
+        Box(Modifier.fillMaxSize().glassSource(source).background(p.window)) {
         if (p.theme == AppTheme.WASABI) {
             val logo = Geometry.of(WasabiIcon.logo)
-            Canvas(Modifier.align(Alignment.TopEnd).offset(x = 120.dp, y = (-80).dp).size(440.dp, 340.dp).blur(70.dp).alpha(if (p.dark) 0.32f else 0.22f)) {
+            // iOS blurs with radius 70; Android turns a blur radius into a sigma of about 0.58x, so 120 here looks the same.
+            // Unbounded: the default edge treatment clips the blur to the canvas and leaves a hard-edged rectangle.
+            Canvas(Modifier.align(Alignment.TopEnd).offset(x = 120.dp, y = (-80).dp).size(440.dp, 340.dp).blur(120.dp, BlurredEdgeTreatment.Unbounded).alpha(if (p.dark) 0.32f else 0.22f)) {
                 drawPath(logo.fitted(size), p.accent)
             }
         }
-        content()
+        }
+        CompositionLocalProvider(LocalGlassSources provides listOf(source)) { content() }
+    }
+}
+
+// Stand-ins for the SF Symbols the iOS app uses: stroked chevrons, the menu bars and the close cross, so they have the
+// same weight instead of whatever the font draws for ‹ › ⌄ ≡ ✕.
+enum class Glyph { BACK, FORWARD, DOWN, UP, MENU, CLOSE }
+
+@Composable
+fun Glyph(glyph: Glyph, size: Dp, color: Color, weight: Dp = 2.dp) {
+    Canvas(Modifier.size(size)) {
+        val stroke = Stroke(weight.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
+        fun line(vararg points: Pair<Float, Float>) = drawPath(
+            Path().apply { points.forEachIndexed { i, (x, y) -> if (i == 0) moveTo(x * this@Canvas.size.width, y * this@Canvas.size.height) else lineTo(x * this@Canvas.size.width, y * this@Canvas.size.height) } },
+            color, style = stroke,
+        )
+        when (glyph) {
+            Glyph.BACK -> line(0.65f to 0.1f, 0.3f to 0.5f, 0.65f to 0.9f)
+            Glyph.FORWARD -> line(0.35f to 0.1f, 0.7f to 0.5f, 0.35f to 0.9f)
+            Glyph.DOWN -> line(0.1f to 0.35f, 0.5f to 0.7f, 0.9f to 0.35f)
+            Glyph.UP -> line(0.1f to 0.65f, 0.5f to 0.3f, 0.9f to 0.65f)
+            Glyph.MENU -> for (y in listOf(0.25f, 0.5f, 0.75f)) line(0.1f to y, 0.9f to y)
+            Glyph.CLOSE -> { line(0.15f to 0.15f, 0.85f to 0.85f); line(0.85f to 0.15f, 0.15f to 0.85f) }
+        }
+    }
+}
+
+// Frosted glass, the closest Android gets to iOS Liquid Glass without a shader library: what is behind (the sources
+// below: the backdrop, and on Home the transaction list) drawn again inside the shape, blurred, under a translucent tint
+// and a rim that is brighter at the top. Blur needs Android 12; older versions get the tint over the glow only.
+class GlassSource(val layer: GraphicsLayer) {
+    var origin by mutableStateOf(Offset.Zero)
+}
+
+val LocalGlassSources = staticCompositionLocalOf<List<GlassSource>> { emptyList() }
+
+@Composable
+fun rememberGlassSource(): GlassSource {
+    val layer = rememberGraphicsLayer()
+    return remember(layer) { GlassSource(layer) }
+}
+
+// Draws as usual and also records itself, so glass elsewhere can show it. A source must not contain glass that reads it.
+fun Modifier.glassSource(source: GlassSource): Modifier =
+    onGloballyPositioned { source.origin = it.positionInRoot() }.drawWithContent {
+        source.layer.record { this@drawWithContent.drawContent() }
+        drawLayer(source.layer)
+    }
+
+@Composable
+fun Modifier.glass(p: Palette, shape: Shape, sources: List<GlassSource> = LocalGlassSources.current): Modifier {
+    val frosted = rememberGraphicsLayer()
+    var origin by remember { mutableStateOf(Offset.Zero) }
+    val blur = with(LocalDensity.current) { 24.dp.toPx() }
+    val rim = Brush.verticalGradient(listOf(p.primary.copy(alpha = if (p.dark) 0.22f else 0.5f), p.primary.copy(alpha = 0.05f)))
+    val tint = if (p.theme == AppTheme.BLACK) p.card else p.tile.copy(alpha = if (p.dark) 0.5f else 0.6f)
+    return onGloballyPositioned { origin = it.positionInRoot() }
+        .clip(shape)
+        .then(
+            if (Build.VERSION.SDK_INT < 31 || sources.isEmpty() || tint.alpha == 1f) Modifier
+            else Modifier.drawBehind {
+                frosted.renderEffect = BlurEffect(blur, blur, TileMode.Clamp)
+                frosted.record { for (s in sources) translate(s.origin.x - origin.x, s.origin.y - origin.y) { drawLayer(s.layer) } }
+                drawLayer(frosted)
+            },
+        )
+        .background(tint)
+        .border(0.75.dp, rim, shape)
+}
+
+// The iOS segmented picker: a pill track with the chosen option on a lighter thumb (Material's outlined segmented
+// buttons look nothing like it).
+@Composable
+fun <T> Segmented(options: List<Pair<T, String>>, selected: T, modifier: Modifier = Modifier, onSelect: (T) -> Unit) {
+    val p = LocalPalette.current
+    Row(modifier.height(36.dp).glass(p, RoundedCornerShape(18.dp)).padding(3.dp).selectableGroup()) {
+        for ((value, label) in options) {
+            val chosen = value == selected
+            Box(
+                Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(15.dp)).background(if (chosen) p.primary.copy(alpha = if (p.dark) 0.16f else 0.9f) else Color.Transparent)
+                    .selectable(chosen, role = Role.Tab) { onSelect(value) }.padding(horizontal = 10.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(label, style = MaterialTheme.typography.labelLarge, fontWeight = if (chosen) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1, color = if (chosen && !p.dark) Color.Black else p.primary)
+            }
+        }
     }
 }
 
@@ -221,7 +332,7 @@ fun Backdrop(content: @Composable BoxScope.() -> Unit) {
 fun Tile(title: String? = null, modifier: Modifier = Modifier, centered: Boolean = false, content: @Composable ColumnScope.() -> Unit) {
     val p = LocalPalette.current
     Column(
-        modifier.fillMaxWidth().clip(RoundedCornerShape(15.dp)).background(p.card).padding(14.dp),
+        modifier.fillMaxWidth().glass(p, RoundedCornerShape(15.dp)).padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
         horizontalAlignment = if (centered) Alignment.CenterHorizontally else Alignment.Start,
     ) {
@@ -265,7 +376,7 @@ fun PrimaryAction(title: String, icon: WasabiIcon? = null, enabled: Boolean = tr
         colors = ButtonDefaults.buttonColors(containerColor = LocalPalette.current.accent, contentColor = Color.White),
     ) {
         if (icon != null) { Icon(icon, 18.dp, if (enabled) Color.White else LocalPalette.current.tertiary); Spacer(Modifier.width(8.dp)) }
-        Text(title, fontWeight = FontWeight.SemiBold)
+        Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
     }
 }
 
@@ -276,13 +387,20 @@ fun copy(context: Context, text: String, sensitive: Boolean = false) {
 }
 
 // Copy with proof: the icon and label flip to a check for 1.5 s with a confirm haptic.
+// The iOS tinted capsule (.bordered with a tint): accent label on a faint accent fill, no outline.
+@Composable
+fun TintedButton(onClick: () -> Unit, modifier: Modifier = Modifier, content: @Composable RowScope.() -> Unit) {
+    val accent = LocalPalette.current.accent
+    Button(onClick, modifier, shape = CircleShape, colors = ButtonDefaults.buttonColors(containerColor = accent.copy(alpha = 0.16f), contentColor = accent), content = content)
+}
+
 @Composable
 fun CopyButton(text: String, title: String = "Copy") {
     val context = LocalContext.current
     val view = LocalView.current
     var copied by remember { mutableStateOf(false) }
     LaunchedEffect(copied) { if (copied) { delay(1500); copied = false } }
-    OutlinedButton({ copy(context, text); copied = true; view.performHapticFeedback(HapticFeedbackConstants.CONFIRM) }) {
+    TintedButton({ copy(context, text); copied = true; view.performHapticFeedback(HapticFeedbackConstants.CONFIRM) }) {
         Icon(if (copied) WasabiIcon.check else WasabiIcon.copy, 16.dp, LocalPalette.current.accent)
         Spacer(Modifier.width(6.dp))
         Text(if (copied) "Copied" else title, color = LocalPalette.current.accent)

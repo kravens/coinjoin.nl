@@ -21,9 +21,6 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -57,11 +54,7 @@ fun PrivacyScreen(mirror: Mirror, nav: Nav) {
             if (mirror.walletError == null) {
                 item {
                     Section(footer = privacyFooter(mirror), card = false) {
-                        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                            PrivacyStop.entries.forEachIndexed { i, stop ->
-                                SegmentedButton(mirror.privacyStop == stop, { mirror.choosePrivacy(stop) }, SegmentedButtonDefaults.itemShape(i, PrivacyStop.entries.size), icon = {}) { Text(stop.label, maxLines = 1) }
-                            }
-                        }
+                        Segmented(PrivacyStop.entries.map { it to it.label }, mirror.privacyStop, Modifier.fillMaxWidth()) { mirror.choosePrivacy(it) }
                     }
                 }
                 item {
@@ -81,7 +74,10 @@ fun PrivacyScreen(mirror: Mirror, nav: Nav) {
                     var open by remember { mutableStateOf(false) }
                     Section(footer = "Coinjoins every coin and sends the outputs to another wallet on your computer.") {
                         Box {
-                            LabeledRow("Sweep into") { Text(sweepTo.ifEmpty { "Choose wallet" } + " ⌄", Modifier.clickable { open = true }, color = LocalPalette.current.accent) }
+                            LabeledRow("Sweep into") { androidx.compose.foundation.layout.Row(Modifier.clickable { open = true }, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                                Text(sweepTo.ifEmpty { "Choose wallet" }, color = LocalPalette.current.accent)
+                                Glyph(Glyph.DOWN, 10.dp, LocalPalette.current.accent)
+                            } }
                             DropdownMenu(open, { open = false }) {
                                 mirror.wallets.filter { it != mirror.wallet }.forEach { w -> DropdownMenuItem({ Text(w) }, { sweepTo = w; open = false }) }
                             }
@@ -136,7 +132,7 @@ private fun MusicBox(mirror: Mirror) {
     val coinjoining = mirror.info?.coinjoining == true
     Row(verticalAlignment = Alignment.CenterVertically) {
         Row(
-            Modifier.weight(1f).clip(RoundedCornerShape(15.dp)).background(p.card).padding(14.dp).semantics { contentDescription = "Coinjoin status: ${mirror.coinjoinState.first}" },
+            Modifier.weight(1f).glass(p, RoundedCornerShape(15.dp)).padding(14.dp).semantics { contentDescription = "Coinjoin status: ${mirror.coinjoinState.first}" },
             verticalAlignment = Alignment.CenterVertically,
         ) {
             WasabiLogo(Modifier.size(36.dp))
@@ -297,11 +293,7 @@ fun ConnectionScreen(mirror: Mirror, nav: Nav) {
     }) { padding ->
         Sections(padding) {
             item {
-                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                    listOf(Transport.TAILSCALE to "Tailscale", Transport.ONION to "Tor onion").forEachIndexed { i, (t, label) ->
-                        SegmentedButton(server.transport == t, { server = server.copy(transport = t) }, SegmentedButtonDefaults.itemShape(i, 2), icon = {}) { Text(label) }
-                    }
-                }
+                Segmented(listOf(Transport.TAILSCALE to "Tailscale", Transport.ONION to "Tor onion"), server.transport, Modifier.fillMaxWidth()) { server = server.copy(transport = it) }
             }
             if (server.transport == Transport.ONION) item {
                 Section("Onion service", "The onion from the computer's HiddenServiceDir/hostname and the x25519 private key from tor-client.auth_private (the part after x25519:, or the whole line). Both stay encrypted in the Android Keystore; Tor runs inside this app.") {
@@ -356,11 +348,7 @@ fun SettingsScreen(nav: Nav) {
             }
             item {
                 Section("Appearance", "Black keeps most of the screen pure black, so OLED pixels stay off and use less energy.", card = false) {
-                    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                        listOf("wasabi" to "Wasabi", "black" to "Black").forEachIndexed { i, (key, label) ->
-                            SegmentedButton(theme == key, { theme = key; prefs.edit().putString("theme", key).apply() }, SegmentedButtonDefaults.itemShape(i, 2), icon = {}) { Text(label) }
-                        }
-                    }
+                    Segmented(listOf("wasabi" to "Wasabi", "black" to "Black"), theme, Modifier.fillMaxWidth()) { theme = it; prefs.edit().putString("theme", it).apply() }
                 }
             }
         }

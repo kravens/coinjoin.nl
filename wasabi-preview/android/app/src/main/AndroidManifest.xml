@@ -9,7 +9,7 @@
     <uses-feature android:name="android.hardware.camera.any" android:required="false" />
 
     <application
-        android:label="Wasabi Mobile"
+        android:label="Wasabi Preview Mobile"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher"
         android:allowBackup="false"
@@ -19,6 +19,7 @@
         android:enableOnBackInvokedCallback="true">
         <activity
             android:name=".MainActivity"
+            android:label="Wasabi Mobile"
             android:exported="true"
             android:windowSoftInputMode="adjustResize"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode|density">

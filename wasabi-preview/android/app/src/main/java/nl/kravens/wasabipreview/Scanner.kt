@@ -80,7 +80,7 @@ fun ScannerScreen(network: Bitcoin.Network?, onClose: () -> Unit, found: (Bitcoi
     Screen("Scan to pay", onBack = null, onClose = onClose, bottom = {
         Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) {
             problem?.let {
-                Row(Modifier.clip(RoundedCornerShape(14.dp)).background(LocalPalette.current.card).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.glass(LocalPalette.current, RoundedCornerShape(14.dp), sources = emptyList()).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(WasabiIcon.warning, 14.dp, Wasabi.error); Spacer(Modifier.width(8.dp)); Text(it, color = Wasabi.error)
                 }
             }
