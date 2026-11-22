@@ -261,6 +261,28 @@
         user-select: all;
     }
     /* clip a few % off the edges: the screenshot's grey window border clashed with the card bg */
+    /* ---------- mobile tab ---------- */
+    .routes { display: grid; grid-template-columns: repeat(auto-fit, minmax(16em, 1fr)); gap: 12px; margin: 0.6em 0; }
+    .routes > div { text-align: left; padding: 12px 16px; background: #0a0c10; border: 1px solid #2e3138; border-radius: 8px; }
+    .routes h4 { margin: 0 0 0.3em; color: #1dbc93; font-family: 'Objectivity', sans-serif; font-weight: 500; }
+    .routes p { margin: 0.3em 0; font-size: 0.95em; }
+    .flip { margin-top: 12px; text-align: center; }
+    .flip img { display: block; width: 210px; max-width: 100%; height: auto; margin: 0 auto 8px; border-radius: 18px; border: 1px solid #2e3138; cursor: pointer; }
+    .flipnav { display: flex; align-items: center; justify-content: center; gap: 12px; }
+    .flipnav span { min-width: 3.5em; font-size: 0.9em; opacity: 0.8; }
+    #mobile .steps p, #mobile .steps li { text-align: left; line-height: 1.5; }
+    #mobile .steps ul { margin: 0.3em 0; padding-left: 1.3em; }
+    #mobile code { background: #0a0c10; border: 1px solid #2e3138; border-radius: 4px; padding: 0 4px; overflow-wrap: anywhere; }
+    #mobile pre {
+        text-align: left; margin: 0.5em 0; padding: 10px 12px; overflow-x: auto;
+        background: #0a0c10; border: 1px solid #3c618b; border-radius: 8px;
+        font-family: 'Anonymous Pro', monospace; font-size: 0.95em; user-select: all;
+    }
+    .warn { text-align: left; margin: 1em 0; padding: 12px 16px; background: #2a2010; border: 1px solid #e8b04b; border-radius: 8px; }
+    .warn b { color: #e8b04b; }
+    #mobile details { text-align: left; margin: 0.6em 0; }
+    #mobile summary { cursor: pointer; font-family: 'Objectivity', sans-serif; font-weight: 500; }
+
     .shot { width: 40em; max-inline-size: 90%; margin-top: 0.6em; clip-path: inset(2.5% round 21px); }
     .video {
         width: 100%; max-width: 1022px; aspect-ratio: 16 / 9; height: auto;
@@ -498,6 +520,7 @@
 <!-- sticky tab bar: stays reachable however deep a section scrolls -->
 <nav class="sections" aria-label="Sections">
     <a href="#get-started">🚀 Get started</a>
+    <a href="#mobile">📱 Mobile</a>
     <a href="#live"><span id="liveDot">🟠</span> Live rounds</a>
     <a href="#history">📜 History</a>
     <a href="#learn">🎓 Learn more</a>
@@ -803,6 +826,112 @@
 
         <h3><span class="n">5</span> Receive bitcoin &amp; press play</h3>
         <p>Open your wallet, receive the funds you'd like to CoinJoin and press the play button to start!</p>
+    </div>
+</div>
+
+<!-- ============ mobile ============ -->
+<div class="card" id="mobile">
+    <h2 class="section">Wasabi on your phone</h2>
+    <p class="sub"><b>Wasabi Preview Mobile</b> shows and controls the Wasabi Wallet running on your own
+    computer: balance, privacy progress, receive, send and coinjoin. The wallet and its keys stay on the
+    computer. The phone only talks to Wasabi's JSON-RPC, over Tailscale or a Tor onion service that
+    nobody else can reach.</p>
+
+    <div class="steps">
+        <h3><span class="n">1</span> Install the app</h3>
+        <div class="routes">
+            <div>
+                <h4>iPhone</h4>
+                <p>iOS 26 or newer. Not on TestFlight yet: for now, sideload the
+                <a href="https://github.com/kravens/coinjoin.nl/releases/tag/wasabi-preview-mobile-1.1" target="_blank" rel="noopener">.ipa from GitHub</a>
+                or build it from
+                <a href="https://github.com/kravens/coinjoin.nl/tree/main/wasabi-preview" target="_blank" rel="noopener">source</a>
+                in Xcode.</p>
+                <div class="flip" data-prefix="/images/mobile-ios-" data-shots="home,coins,privacy,receiveAddress,sendReview,menu">
+                    <img src="/images/mobile-ios-home.webp" width="400" height="870" loading="lazy" alt="iPhone screenshot: Home" title="Next screenshot">
+                    <div class="flipnav"><button type="button" class="copybtn" aria-label="Previous screenshot">&lsaquo;</button><span>1 / 6</span><button type="button" class="copybtn" aria-label="Next screenshot">&rsaquo;</button></div>
+                </div>
+            </div>
+            <div>
+                <h4>Android / GrapheneOS</h4>
+                <p>Get it on
+                <a href="https://zapstore.dev/apps/nl.kravens.wasabipreview" target="_blank" rel="noopener">Zapstore</a>,
+                or download the
+                <a href="https://github.com/kravens/coinjoin.nl/releases/tag/wasabi-preview-mobile-android-1.1" target="_blank" rel="noopener">APK from GitHub</a>.
+                No Google Play services needed.</p>
+                <div class="flip" data-prefix="/images/mobile-android-" data-shots="home,coin,privacy,receiveAddress,sendReview,transaction">
+                    <img src="/images/mobile-android-home.webp" width="400" height="889" loading="lazy" alt="Android screenshot: Home" title="Next screenshot">
+                    <div class="flipnav"><button type="button" class="copybtn" aria-label="Previous screenshot">&lsaquo;</button><span>1 / 6</span><button type="button" class="copybtn" aria-label="Next screenshot">&rsaquo;</button></div>
+                </div>
+            </div>
+        </div>
+
+        <h3><span class="n">2</span> Pick how the phone reaches your computer</h3>
+        <div class="routes">
+            <div>
+                <h4>Tailscale</h4>
+                <p>A private WireGuard network between your own devices. Fast, and the easiest to set up.</p>
+                <p>Needs a Tailscale account and the Tailscale app on both the computer and the phone.</p>
+            </div>
+            <div>
+                <h4>Tor onion service</h4>
+                <p>No account and no extra app: Tor is built into Wasabi Preview Mobile. Works from any network, a bit slower.</p>
+                <p>The onion is client-authorized: without the key on your phone it cannot even be found.</p>
+            </div>
+        </div>
+        <p>You can set up both and switch in the app.</p>
+
+        <h3><span class="n">3</span> Open Wasabi's RPC on the computer</h3>
+        <p>On macOS (Homebrew) or Arch / Omarchy, the setup script does it all. Install <code>tor</code> first
+        (<code>brew install tor</code> or <code>sudo pacman -S tor</code>), <b>quit Wasabi</b>, then:</p>
+        <pre>curl -fsSLO https://raw.githubusercontent.com/kravens/coinjoin.nl/main/wasabi-preview/desktop/wasabi-remote.sh
+less wasabi-remote.sh    # read it before you run it
+bash wasabi-remote.sh</pre>
+        <p>It turns on the RPC with a random password, makes it listen only on this computer and its
+        Tailscale address, puts a client-authorized onion service in front of it, and writes what the
+        phone needs to <code>~/.config/wasabi-remote/phone.txt</code>. It is safe to run again.</p>
+        <details>
+            <summary>Or do it by hand</summary>
+            <p>In <code>~/.walletwasabi/client/Config.json</code> (with Wasabi closed):</p>
+            <ul>
+                <li><code>JsonRpcServerEnabled</code>: <code>true</code></li>
+                <li><code>JsonRpcUser</code> and a long random <code>JsonRpcPassword</code></li>
+                <li><code>JsonRpcServerPrefixes</code>: <code>http://127.0.0.1:37128/</code>, plus
+                    <code>http://&lt;your Tailscale IP&gt;:37128/</code> for Tailscale</li>
+            </ul>
+            <p>For Tor, run a tor with <code>HiddenServicePort 80 127.0.0.1:37128</code> and
+            <a href="https://community.torproject.org/onion-services/advanced/client-auth/" target="_blank" rel="noopener">client authorization</a>:
+            tor gets the x25519 public key, the phone gets the private key.</p>
+        </details>
+
+        <h3><span class="n">4</span> Enter the values in the app</h3>
+        <p>Start Wasabi again, open <b>Settings</b> in the app and type in what
+        <code>phone.txt</code> lists:</p>
+        <ul>
+            <li><b>Tailscale:</b> host (your computer's <code>100.x.y.z</code> address) and port <code>37128</code></li>
+            <li><b>Tor onion:</b> the <code>.onion</code> address and the client auth key; the RPC port stays <code>37128</code></li>
+            <li><b>JSON-RPC login:</b> the user and password</li>
+        </ul>
+        <p>Then <b>delete <code>phone.txt</code></b>. The app keeps the settings in the phone's secure storage
+        (Android Keystore, iOS Keychain).</p>
+
+        <div class="warn">
+            <p><b>The RPC login can spend your bitcoin.</b> Treat it like a key to the wallet.</p>
+            <ul>
+                <li>Never let the RPC listen on <code>0.0.0.0</code>, your LAN address or a public address, and never
+                    port-forward <code>37128</code>. Only <code>127.0.0.1</code> and the Tailscale address.</li>
+                <li>The RPC is plain HTTP. It is only safe because Tailscale or Tor encrypts the connection, so
+                    use nothing else to reach it.</li>
+                <li>Do not run the onion service without client authorization: an onion address alone is not a secret.</li>
+                <li>With Tailscale, every device in your tailnet can reach the port. Keep the tailnet to your own
+                    devices, or limit the port to your phone with an ACL.</li>
+                <li>Do not paste the password, the client key or <code>phone.txt</code> into chats, notes or screenshots.</li>
+                <li>Phone lost? On the computer: change <code>JsonRpcPassword</code>, delete the phone's file in the onion
+                    service's <code>authorized_clients</code> folder and restart tor, and remove the phone from your tailnet.</li>
+            </ul>
+            <p>The app helps: it only accepts a Tailscale address or an onion, only calls the RPC methods it needs,
+            and asks for your fingerprint, face or PIN before every payment.</p>
+        </div>
     </div>
 </div>
 
@@ -1119,7 +1248,7 @@
 <script>
     // tab navigation: only the active section is on screen; deep links and
     // back/forward work via the hash. Default view: Get started.
-    var TABS = ['get-started', 'live', 'history', 'learn', 'explore', 'latest', 'hardware'];
+    var TABS = ['get-started', 'mobile', 'live', 'history', 'learn', 'explore', 'latest', 'hardware'];
     if (location.hash === '#faq') location.hash = '#learn';  // FAQ lives in Learn more now
     function showTab() {
         var id = location.hash.slice(1);
@@ -1148,6 +1277,24 @@
     }
     addEventListener('hashchange', showTab);
     showTab();
+
+    // screenshot flipbooks on the Mobile tab
+    var SHOT_NAMES = { coin: 'Coin details', coins: 'Coins', receiveAddress: 'Receive', sendReview: 'Send review' };
+    document.querySelectorAll('.flip').forEach(function (flip) {
+        var shots = flip.dataset.shots.split(','), i = 0;
+        var img = flip.querySelector('img'), count = flip.querySelector('span'), btns = flip.querySelectorAll('button');
+        var base = img.alt.split(':')[0];
+        function go(step) {
+            i = (i + step + shots.length) % shots.length;
+            var name = SHOT_NAMES[shots[i]] || shots[i].charAt(0).toUpperCase() + shots[i].slice(1);
+            img.src = flip.dataset.prefix + shots[i] + '.webp';
+            img.alt = base + ': ' + name;
+            count.textContent = (i + 1) + ' / ' + shots.length;
+        }
+        btns[0].onclick = function () { go(-1); };
+        btns[1].onclick = function () { go(1); };
+        img.onclick = function () { go(1); };
+    });
 </script>
 </body>
 </html>
