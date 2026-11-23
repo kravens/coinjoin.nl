@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Opens desktop Wasabi's JSON-RPC to the Wasabi Mobile app, over Tailscale and over a client-authorized Tor onion
+# Opens desktop Wasabi's JSON-RPC to the Wasabi Preview Mobile app, over Tailscale and over a client-authorized Tor onion
 # service. Runs on macOS (Homebrew tor) and Arch/Omarchy (pacman tor, systemd). Safe to run again: it only adds what is
 # missing and never replaces an existing onion, client key or RPC password.
 #
@@ -73,7 +73,7 @@ fi
 # 2. Tor: an onion service in front of the RPC, reachable only with a client key.
 HS=$TOR_DATA/wasabi-rpc
 if ! $SUDO grep -q "^HiddenServiceDir $HS\$" "$TORRC" 2>/dev/null; then
-  printf '\n# Wasabi Mobile (wasabi-remote.sh)\nHiddenServiceDir %s\nHiddenServicePort 80 127.0.0.1:%s\n' "$HS" "$PORT" | $SUDO tee -a "$TORRC" >/dev/null
+  printf '\n# Wasabi Preview Mobile (wasabi-remote.sh)\nHiddenServiceDir %s\nHiddenServicePort 80 127.0.0.1:%s\n' "$HS" "$PORT" | $SUDO tee -a "$TORRC" >/dev/null
   say "added the onion service to $TORRC"
 fi
 if [ "$(uname -s)" = Linux ]; then OWNER=$(stat -c %U "$TOR_DATA"); else OWNER=$(id -un); fi
@@ -109,7 +109,7 @@ import json, os, sys
 config_path, port, ts_ip, onion, key_file = sys.argv[1:]
 config = json.loads(open(config_path, encoding="utf-8-sig").read())
 key = open(key_file).read().strip().rsplit(":", 1)[-1] if os.path.exists(key_file) else "(the phone you set up before has it)"
-print("Wasabi Mobile > Settings")
+print("Wasabi Preview Mobile > Settings")
 if ts_ip:
     print(f"Tailscale  host: {ts_ip}  port: {port}")
 print(f"Tor        onion: {onion}")
