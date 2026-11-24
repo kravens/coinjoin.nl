@@ -712,7 +712,7 @@ struct HomeView: View {
         // and privacy on the right, each scrolling on its own; a phone in portrait stacks them as before.
         Group {
             if wide {
-                HStack(alignment: .top, spacing: 0) {
+                HStack(alignment: .top, spacing: 12) { // each List has its own margin; this keeps the two cards apart
                     list { if mirror.ready { transactions } }
                     list { summary }.frame(width: 400)
                 }
