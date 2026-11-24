@@ -133,6 +133,7 @@ fun App(mirror: Mirror, theme: AppTheme, link: Bitcoin.Payment?) {
     val start = remember { startRoutes(mirror, link) }
     val nav = remember { Nav(start) }
     var send by remember { mutableStateOf(if (start.any { it is Route.Send }) SendModel(mirror, link ?: demoPayment(mirror)) else null) }
+    val screen = rememberGlassSource() // the current screen, which the side menu's glass blurs
     val drawer = rememberDrawerState(if (mirror.screen == "menu") DrawerValue.Open else DrawerValue.Closed)
     val scope = rememberCoroutineScope()
 
@@ -153,9 +154,12 @@ fun App(mirror: Mirror, theme: AppTheme, link: Bitcoin.Payment?) {
             gesturesEnabled = nav.top == Route.Home,
             scrimColor = Color.Black.copy(alpha = 0.35f),
             drawerContent = {
+                // Frosted like the iPhone's side menu: the screen behind it shows through, blurred. The Black theme keeps
+                // its solid near-black panel (glass draws no blur under an opaque tint).
+                val menuShape = RoundedCornerShape(topEnd = 28.dp, bottomEnd = 28.dp)
                 ModalDrawerSheet(
-                    Modifier.width(300.dp), drawerShape = RoundedCornerShape(topEnd = 28.dp, bottomEnd = 28.dp),
-                    drawerContainerColor = if (LocalPalette.current.theme == AppTheme.BLACK) Color(0xFF0E0E0E) else MaterialTheme.colorScheme.surfaceContainer,
+                    Modifier.width(300.dp).glass(LocalPalette.current, menuShape, LocalGlassSources.current + screen), drawerShape = menuShape,
+                    drawerContainerColor = if (LocalPalette.current.theme == AppTheme.BLACK) Color(0xFF0E0E0E) else Color.Transparent,
                 ) {
                     SideMenu(mirror) { route -> scope.launch { drawer.close() }; nav.push(route) }
                 }
@@ -163,6 +167,7 @@ fun App(mirror: Mirror, theme: AppTheme, link: Bitcoin.Payment?) {
         ) {
             AnimatedContent(
                 nav.stack.toList(),
+                Modifier.glassSource(screen),
                 transitionSpec = {
                     val forward = targetState.size >= initialState.size
                     if (forward) slideInHorizontally(tween(260)) { it / 3 } + fadeIn(tween(200)) togetherWith fadeOut(tween(160))
