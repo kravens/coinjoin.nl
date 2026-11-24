@@ -283,9 +283,14 @@ private fun Legend(color: Color, text: String, outlined: Boolean) {
 // launch asks for.
 @Composable
 fun ConnectionScreen(mirror: Mirror, nav: Nav) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
     var server by remember { mutableStateOf(mirror.server) }
     Screen("Connection", onBack = { nav.pop() }, actions = {
         TextButton({
+            // The demo's own made-up login is never saved over the real one.
+            if (mirror.demo && server == mirror.server) { nav.pop(); return@TextButton }
+            if (mirror.demo) mirror.leaveDemo()
             val saved = server.copy(onion = server.onion.trim().lowercase())
             mirror.saveServer(saved)
             nav.pop()
@@ -313,6 +318,23 @@ fun ConnectionScreen(mirror: Mirror, nav: Nav) {
                     Divider(); SecretRow(server.password, { server = server.copy(password = it) }, "Password")
                 }
             }
+            item {
+                Section(footer = if (mirror.demo) "Your own wallet comes back after your fingerprint, face or screen lock."
+                        else "A sample wallet with made-up coins, to look around without a computer. Nothing is sent anywhere.") {
+                    TextButton({
+                        if (!mirror.demo) { mirror.loadDemo(); nav.pop(); return@TextButton }
+                        // The real wallet behind the demo, so a decoy handed over stays a decoy. No saved login: nothing to protect.
+                        scope.launch {
+                            // A phone without a screen lock has nothing to ask; it would otherwise stay in the demo for good.
+                            val locked = context.getSystemService(android.app.KeyguardManager::class.java).isDeviceSecure
+                            if (SecureStore.load(context) != null && locked && authenticate(context, "Show your own wallet") != null) return@launch
+                            mirror.leaveDemo(); nav.pop()
+                        }
+                    }, Modifier.fillMaxWidth()) {
+                        Text(if (mirror.demo) "Leave the demo wallet" else "Try the demo wallet", Modifier.fillMaxWidth(), color = LocalPalette.current.accent)
+                    }
+                }
+            }
         }
     }
 }
@@ -337,6 +359,7 @@ fun SettingsScreen(nav: Nav) {
     var taproot by remember { mutableStateOf(prefs.getBoolean("taproot", true)) }
     var customFee by remember { mutableStateOf(prefs.getBoolean("customFee", false)) }
     var theme by remember { mutableStateOf(prefs.getString("theme", "wasabi")) }
+    var decoy by remember { mutableStateOf(prefs.getBoolean("decoy", false)) }
     Screen("Settings", onBack = { nav.pop() }) { padding ->
         Sections(padding) {
             item {
@@ -349,6 +372,11 @@ fun SettingsScreen(nav: Nav) {
             item {
                 Section("Appearance", "Black keeps most of the screen pure black, so OLED pixels stay off and use less energy.", card = false) {
                     Segmented(listOf("wasabi" to "Wasabi", "black" to "Black"), theme, Modifier.fillMaxWidth()) { theme = it; prefs.edit().putString("theme", it).apply() }
+                }
+            }
+            item {
+                Section("Decoy", "The app opens, and returns from the background, showing the demo wallet's made-up coins, so whoever holds your phone does not see your own. The app switcher shows no preview of the app. Your wallet comes back under Connection, after your fingerprint, face or screen lock.") {
+                    LabeledRow("Open with the demo wallet") { androidx.compose.material3.Switch(decoy, { decoy = it; prefs.edit().putBoolean("decoy", it).apply() }) }
                 }
             }
         }

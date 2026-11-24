@@ -35,10 +35,14 @@ class PassphraseRequest(val title: String, val action: suspend (String) -> Strin
 
 // The phone's mirror of desktop Wasabi: what getstatus, the wallet calls and the user's choices say right now. Compose
 // state, changed on the main thread only; RPC calls hop to IO inside WasabiRpc.
-class Mirror(private val context: Context, demoScreen: String? = null, demo: Boolean = false) {
+class Mirror(private val context: Context, demoScreen: String? = null, startDemo: Boolean = false) {
     private val prefs = context.getSharedPreferences("app", Context.MODE_PRIVATE)
-    val demo = demo
+    // The demo wallet is on screen: made-up data, no link, nothing written to the Keystore or the real wallet's settings.
+    var demo by mutableStateOf(false)
+        private set
     val screen = demoScreen
+    var relocks by mutableStateOf(0) // counts decoy relocks, so the screens close back to home
+        private set
 
     var server by mutableStateOf(SecureStore.load(context) ?: Server())
         private set
@@ -56,7 +60,7 @@ class Mirror(private val context: Context, demoScreen: String? = null, demo: Boo
     fun selectWallet(name: String?) {
         if (name == wallet) return
         wallet = name
-        prefs.edit().putString("wallet", name).apply()
+        if (!demo) prefs.edit().putString("wallet", name).apply()
         loadPrivacyStop(); seenIncoming = null; coinjoinHint = null; allCoins = emptyList()
         // Never the old wallet's numbers under the new wallet's name.
         info = null; coins = emptyList(); history = emptyList(); payments = emptyList(); walletError = null; walletLoaded = false
@@ -68,7 +72,7 @@ class Mirror(private val context: Context, demoScreen: String? = null, demo: Boo
 
     fun choosePrivacy(stop: PrivacyStop) {
         privacyStop = stop
-        if (screen == null) wallet?.let { prefs.edit().putString("privacy.$it", stop.key).apply() }
+        if (screen == null && !demo) wallet?.let { prefs.edit().putString("privacy.$it", stop.key).apply() }
     }
 
     private fun loadPrivacyStop() {
@@ -147,12 +151,14 @@ class Mirror(private val context: Context, demoScreen: String? = null, demo: Boo
         }
 
     init {
-        if (demo) loadDemo()
+        if (startDemo || prefs.getBoolean("decoy", false)) loadDemo()
         loadPrivacyStop()
     }
 
     suspend fun refresh() {
-        if (demo) return // screenshots and tests: the demo wallet is the whole truth, no link is ever tried
+        // The demo wallet is the whole truth, no link is ever tried. Switching wallet in the demo cleared the data; this
+        // puts that wallet's made-up data back instead of leaving it on "Connecting" for ever.
+        if (demo) { if (!walletLoaded) wallet?.let { loadDemo(it) }; return }
         refreshing = true
         try {
             if (server.transport == Transport.ONION) {
@@ -255,7 +261,7 @@ class Mirror(private val context: Context, demoScreen: String? = null, demo: Boo
 
     // Runs a mutating action. If Wasabi says the wallet is not logged in, asks for the passphrase once and retries with it.
     suspend fun perform(title: String, password: String = "", action: suspend (String) -> String?): Boolean {
-        if (demo) { notice = "Demo wallet: $title is not performed"; return false } // screenshots never reach a real Wasabi
+        if (demo) { notice = "This is the demo wallet, so ${title.lowercase()} is not done. Your own wallet is under Connection."; return false }
         busy = true
         try {
             action(password)?.let { notice = it }
@@ -304,6 +310,10 @@ class Mirror(private val context: Context, demoScreen: String? = null, demo: Boo
 
     fun mask(address: String) = if (discreet) address.take(4) + "********" else address
 
+    // A whole address to read and compare, in groups of four (bitcoin.design), as on iOS. The spaces are also where it
+    // may wrap, never mid-group. Copy and Share give the address without them.
+    fun spaced(address: String) = if (discreet) mask(address) else address.chunked(4).joinToString(" ")
+
     // Wasabi's PrivacyLevel per coin (SmartCoinExtensions.GetPrivacyLevel): private at the target, semi-private from 2.
     enum class Tier(val label: String) { PRIVATE("private"), SEMI("semi-private"), NONE("non-private") }
 
@@ -315,40 +325,71 @@ class Mirror(private val context: Context, demoScreen: String? = null, demo: Boo
         else -> null
     }
 
-    // Store screenshots and tests: made-up but believable data. Addresses are BIP173's public test vector, txids are
+    // The demo wallet: for a first look without a computer, and as a decoy (Settings) that the app opens with, so whoever
+    // holds the phone sees made-up coins. Daily is a spending wallet halfway through its coinjoins; Savings holds a few
+    // coins, all private already. Modest on purpose: a decoy worth thousands would make its holder a target (Daily is
+    // about US$ 460, Savings about US$ 1,100 at the demo rate). Addresses are BIP173's public test vector, txids are
     // hashes of a counter; nothing here belongs to a real wallet.
-    private fun loadDemo() {
-        fun txid(i: Int) = MessageDigest.getInstance("SHA-256").digest("wasabi-preview-demo-$i".toByteArray()).joinToString("") { "%02x".format(it) }
-        server = Server(host = "100.64.0.1", user = "demo", password = "demo")
-        selectWallet("Daily") // first: switching wallet clears the data below
+    fun loadDemo(name: String = "Daily") {
+        demo = true // first: the wallet and privacy choice below must not overwrite the real wallet's
+        val savings = name == "Savings"
+        fun txid(i: Int) = MessageDigest.getInstance("SHA-256").digest("wasabi-preview-demo-$name-$i".toByteArray()).joinToString("") { "%02x".format(it) }
+        if (server != DEMO_SERVER) saveServer(DEMO_SERVER, persist = false)
+        selectWallet(if (savings) "Savings" else "Daily") // first: switching wallet clears the data below
+        error = null; walletError = null // e.g. the empty login's "Only Tailscale addresses..." from before the demo
         status = Status("Running", "921337", 0, "Main", 95000.0, 8)
-        info = WalletInfo(true, 4_876_543, "In progress", 10, false, false, null, null)
         wallets = listOf("Daily", "Savings")
         fees = mapOf("2" to 3.1, "6" to 1.6, "144" to 1.0)
-        val coinSpecs = listOf(
-            Triple(1_048_576L, 34.0, null), Triple(1_048_576L, 21.0, null), Triple(524_288L, 27.0, null), Triple(524_288L, 12.0, null),
-            Triple(262_144L, 15.0, null), Triple(500_000L, 6.0, "Bitcoin meetup refund"), Triple(918_559L, 1.0, "Salary October"),
-            Triple(50_000L, 1.0, "Coffee change"),
+        val coinSpecs = if (savings) listOf(
+            Triple(524_288L, 52.0, null), Triple(262_144L, 47.0, null), Triple(262_144L, 38.0, null), Triple(131_072L, 33.0, null),
+        ) else listOf(
+            Triple(131_072L, 34.0, null), Triple(65_536L, 21.0, null), Triple(65_536L, 27.0, null), Triple(32_768L, 12.0, null),
+            Triple(32_768L, 15.0, null), Triple(50_000L, 6.0, "Bitcoin meetup refund"), Triple(91_856L, 1.0, "Sold a concert ticket"),
+            Triple(18_118L, 1.0, "Coffee change"),
         )
+        info = WalletInfo(true, coinSpecs.sumOf { it.first }, if (savings) "Idle" else "In progress", 10, false, false, null, null)
         coins = coinSpecs.mapIndexed { i, (sats, score, label) ->
             Coin(txid(i), i % 3, sats, score, i != 7, if (i == 7) 0 else 6 + 17 * i, label, DEMO_ADDRESS, false, null)
         }
-        val historySpecs = listOf(
+        val historySpecs = if (savings) listOf(
+            Triple(-200_000L, "To Daily", false), Triple(-1_312L, "", true), Triple(-1_208L, "", true), Triple(-1_544L, "", true),
+            Triple(600_000L, "Year-end bonus", false), Triple(-1_190L, "", true), Triple(781_000L, "Sold the old bike", false),
+        ) else listOf(
             Triple(-21_500L, "Groceries", false), Triple(-1_237L, "", true), Triple(-988L, "", true), Triple(-1_412L, "", true),
-            Triple(918_559L, "Salary October", false), Triple(-64_000L, "Dinner with friends", false), Triple(500_000L, "Bitcoin meetup refund", false),
-            Triple(-15_000L, "Coffee at the corner bar", false), Triple(2_000_000L, "From savings", false), Triple(-1_105L, "", true),
+            Triple(91_856L, "Sold a concert ticket", false), Triple(-64_000L, "Dinner with friends", false), Triple(50_000L, "Bitcoin meetup refund", false),
+            Triple(-15_000L, "Coffee at the corner bar", false), Triple(200_000L, "From savings", false), Triple(-1_105L, "", true),
         )
         history = historySpecs.mapIndexed { i, (sats, label, round) ->
-            HistoryItem(Instant.ofEpochSecond(1_792_000_000L - i * 61_200L), if (i == 0) "Mempool" else (921_337 - 9 * i).toString(), sats, label, txid(100 + i), round)
+            val height = if (i == 0 && !savings) "Mempool" else (921_337 - 9 * i).toString()
+            HistoryItem(Instant.ofEpochSecond(1_792_000_000L - i * if (savings) 604_800L else 61_200L), height, sats, label, txid(100 + i), round)
         }
+        allCoins = coins
         updated = Instant.now()
         walletLoaded = true
+    }
+
+    // Decoy: leaving the app puts the demo wallet back; the screens close to home (App watches `relocks`).
+    fun relock() {
+        if (demo) return
+        loadDemo()
+        relocks++
+    }
+
+    // Back to the computer's wallet; the refresh loop picks up the restored server at once.
+    fun leaveDemo() {
+        demo = false
+        wallets = emptyList(); fees = emptyMap(); error = null; notice = null
+        wallet = prefs.getString("wallet", null)
+        info = null; coins = emptyList(); history = emptyList(); payments = emptyList(); allCoins = emptyList()
+        saveServer(SecureStore.load(context) ?: Server(), persist = false)
+        loadPrivacyStop()
     }
 
     companion object {
         const val DEMO_ADDRESS = "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4" // BIP173 test vector
         const val DEMO_TAPROOT = "bc1p0xlxvlhemja6c4dqv22uapctqupfhlxm9h8z3k2e72q4k9hcz7vqzk5jj0" // BIP350 test vector
         const val DEMO_TXID = "4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b"
+        val DEMO_SERVER = Server(host = "100.64.0.1", user = "demo", password = "demo")
 
         // Same weighting as Wallet.GetPrivacyPercentage() in Wasabi, so the number matches the desktop: semi-private coins count partly.
         fun privacyPercentage(coins: List<Coin>, target: Int): Int {

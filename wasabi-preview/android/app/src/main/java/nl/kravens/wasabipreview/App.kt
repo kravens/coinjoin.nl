@@ -1,6 +1,12 @@
 package nl.kravens.wasabipreview
 
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.foundation.shape.CircleShape
@@ -127,6 +133,7 @@ fun App(mirror: Mirror, theme: AppTheme, link: Bitcoin.Payment?) {
     val start = remember { startRoutes(mirror, link) }
     val nav = remember { Nav(start) }
     var send by remember { mutableStateOf(if (start.any { it is Route.Send }) SendModel(mirror, link ?: demoPayment(mirror)) else null) }
+    val screen = rememberGlassSource() // the current screen, which the side menu's glass blurs
     val drawer = rememberDrawerState(if (mirror.screen == "menu") DrawerValue.Open else DrawerValue.Closed)
     val scope = rememberCoroutineScope()
 
@@ -138,6 +145,8 @@ fun App(mirror: Mirror, theme: AppTheme, link: Bitcoin.Payment?) {
     RefreshLoop(mirror)
     BackHandler(nav.stack.size > 1 || drawer.isOpen) { if (drawer.isOpen) scope.launch { drawer.close() } else nav.pop() }
     LaunchedEffect(Unit) { if (mirror.server.user.isEmpty() && !mirror.demo || mirror.screen == "connection") nav.push(Route.Connection) }
+    // Decoy relock (the app went to the background): nothing of the real wallet stays open behind the demo.
+    LaunchedEffect(mirror.relocks) { if (mirror.relocks > 0) { nav.home(); send = null; drawer.snapTo(DrawerValue.Closed) } }
 
     Backdrop {
         ModalNavigationDrawer(
@@ -145,9 +154,14 @@ fun App(mirror: Mirror, theme: AppTheme, link: Bitcoin.Payment?) {
             gesturesEnabled = nav.top == Route.Home,
             scrimColor = Color.Black.copy(alpha = 0.35f),
             drawerContent = {
+                // Frosted like the iPhone's side menu: the screen behind it shows through, blurred. The Black theme keeps
+                // its solid near-black panel (glass draws no blur under an opaque tint).
+                val menuShape = RoundedCornerShape(topEnd = 28.dp, bottomEnd = 28.dp)
                 ModalDrawerSheet(
-                    Modifier.width(300.dp), drawerShape = RoundedCornerShape(topEnd = 28.dp, bottomEnd = 28.dp),
-                    drawerContainerColor = if (LocalPalette.current.theme == AppTheme.BLACK) Color(0xFF0E0E0E) else MaterialTheme.colorScheme.surfaceContainer,
+                    Modifier.width(300.dp).glass(LocalPalette.current, menuShape, LocalGlassSources.current + screen), drawerShape = menuShape,
+                    drawerContainerColor = if (LocalPalette.current.theme == AppTheme.BLACK) Color(0xFF0E0E0E) else Color.Transparent,
+                    // Stated, not derived: contentColorFor(Transparent) falls back to black, which made the menu's titles black.
+                    drawerContentColor = MaterialTheme.colorScheme.onBackground,
                 ) {
                     SideMenu(mirror) { route -> scope.launch { drawer.close() }; nav.push(route) }
                 }
@@ -155,6 +169,7 @@ fun App(mirror: Mirror, theme: AppTheme, link: Bitcoin.Payment?) {
         ) {
             AnimatedContent(
                 nav.stack.toList(),
+                Modifier.glassSource(screen),
                 transitionSpec = {
                     val forward = targetState.size >= initialState.size
                     if (forward) slideInHorizontally(tween(260)) { it / 3 } + fadeIn(tween(200)) togetherWith fadeOut(tween(160))
@@ -292,13 +307,17 @@ fun Screen(title: String, onBack: (() -> Unit)?, onClose: (() -> Unit)? = null, 
     )
 }
 
-// A list of grouped rows (the iOS inset-grouped List).
+// A list of grouped rows (the iOS inset-grouped List). On a wide screen (a foldable opened, a tablet, a phone on its
+// side) the rows stay at most 600 dp wide, centred, while the backdrop still fills the screen.
 @Composable
 fun Sections(padding: PaddingValues, content: LazyListScope.() -> Unit) {
-    LazyColumn(
-        Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = padding.calculateTopPadding() + 4.dp, bottom = padding.calculateBottomPadding() + 24.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp), content = content,
-    )
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val side = maxOf(16.dp, (maxWidth - 600.dp) / 2)
+        LazyColumn(
+            Modifier.fillMaxSize(), contentPadding = PaddingValues(start = side, end = side, top = padding.calculateTopPadding() + 4.dp, bottom = padding.calculateBottomPadding() + 24.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp), content = content,
+        )
+    }
 }
 
 // One inset-grouped section: optional header above the card, footer below it.
@@ -359,6 +378,10 @@ private fun Home(mirror: Mirror, nav: Nav, onMenu: () -> Unit, onReceive: () -> 
     var showCoins by remember { mutableStateOf(mirror.screen == "coins" || mirror.screen == "coin") }
     var refreshing by remember { mutableStateOf(false) }
     val list = rememberGlassSource()
+    val side = rememberGlassSource()
+    // A foldable opened (or a phone on its side): transactions on the left, balance and privacy on the right, each
+    // scrolling on its own, as on the iPhone Duo. Below 640 dp the single stacked list stays.
+    val wide = LocalConfiguration.current.screenWidthDp >= 640
     Scaffold(
         containerColor = Color.Transparent,
         contentColor = MaterialTheme.colorScheme.onBackground,
@@ -387,31 +410,46 @@ private fun Home(mirror: Mirror, nav: Nav, onMenu: () -> Unit, onReceive: () -> 
             )
         },
         // Receive and Send float over the list, so their glass shows it blurred as well as the backdrop.
-        bottomBar = { CompositionLocalProvider(LocalGlassSources provides LocalGlassSources.current + list) { ActionBar(mirror.ready, onReceive, onSend) } },
+        bottomBar = {
+            val sources = LocalGlassSources.current + list + if (wide) listOf(side) else emptyList()
+            CompositionLocalProvider(LocalGlassSources provides sources) { ActionBar(mirror.ready, onReceive, onSend) }
+        },
     ) { padding ->
-        PullToRefreshBox(refreshing, { scope.launch { refreshing = true; mirror.refresh(); refreshing = false } }, Modifier.padding(top = padding.calculateTopPadding())) {
-            LazyColumn(Modifier.fillMaxSize().glassSource(list), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 6.dp, bottom = padding.calculateBottomPadding() + 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                item {
-                    Column(Modifier.fillMaxWidth().glass(p, RoundedCornerShape(15.dp)).padding(horizontal = 16.dp)) {
-                        Balance(mirror, showCoins) { showCoins = !showCoins }
-                        if (mirror.ready) {
-                            if (showCoins) CoinList(mirror, nav)
-                            Divider()
-                            PrivacyTile(mirror) { nav.push(Route.Privacy) }
-                        }
-                    }
-                }
-                if (mirror.ready) item {
-                    Column(Modifier.fillMaxWidth().glass(p, RoundedCornerShape(15.dp)).padding(horizontal = 16.dp)) {
-                        Caption("Transactions", Modifier.fillMaxWidth().padding(top = 14.dp, bottom = 6.dp))
-                        if (mirror.history.isEmpty()) Secondary("No transactions yet", Modifier.padding(vertical = 12.dp), MaterialTheme.typography.bodyLarge)
-                        HistoryItem.chains(mirror.history).forEachIndexed { i, chain ->
-                            if (i > 0) Divider()
-                            HistoryRow(mirror, chain) { if (chain.size > 1) nav.push(Route.Rounds(chain)) else nav.push(Route.Transaction(chain[0])) }
-                        }
+        val summary: LazyListScope.() -> Unit = {
+            item {
+                Column(Modifier.fillMaxWidth().glass(p, RoundedCornerShape(15.dp)).padding(horizontal = 16.dp)) {
+                    Balance(mirror, showCoins) { showCoins = !showCoins }
+                    if (mirror.ready) {
+                        if (showCoins) CoinList(mirror, nav)
+                        Divider()
+                        PrivacyTile(mirror) { nav.push(Route.Privacy) }
                     }
                 }
             }
+        }
+        val transactions: LazyListScope.() -> Unit = {
+            if (mirror.ready) item {
+                Column(Modifier.fillMaxWidth().glass(p, RoundedCornerShape(15.dp)).padding(horizontal = 16.dp)) {
+                    Caption("Transactions", Modifier.fillMaxWidth().padding(top = 14.dp, bottom = 6.dp))
+                    if (mirror.history.isEmpty()) Secondary("No transactions yet", Modifier.padding(vertical = 12.dp), MaterialTheme.typography.bodyLarge)
+                    HistoryItem.chains(mirror.history).forEachIndexed { i, chain ->
+                        if (i > 0) Divider()
+                        HistoryRow(mirror, chain) { if (chain.size > 1) nav.push(Route.Rounds(chain)) else nav.push(Route.Transaction(chain[0])) }
+                    }
+                }
+            }
+        }
+        @Composable
+        fun column(source: GlassSource, modifier: Modifier, start: Dp, end: Dp, content: LazyListScope.() -> Unit) = LazyColumn(
+            modifier.fillMaxHeight().glassSource(source),
+            contentPadding = PaddingValues(start = start, end = end, top = 6.dp, bottom = padding.calculateBottomPadding() + 16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp), content = content,
+        )
+        PullToRefreshBox(refreshing, { scope.launch { refreshing = true; mirror.refresh(); refreshing = false } }, Modifier.padding(top = padding.calculateTopPadding())) {
+            if (wide) Row(Modifier.fillMaxSize()) {
+                column(list, Modifier.weight(1f), 16.dp, 6.dp, transactions)
+                column(side, Modifier.width(416.dp), 6.dp, 16.dp, summary)
+            } else column(list, Modifier.fillMaxWidth(), 16.dp, 16.dp) { summary(); transactions() }
         }
     }
 }
@@ -561,20 +599,46 @@ private fun PrivacyTile(mirror: Mirror, open: () -> Unit) {
 fun HistoryRow(mirror: Mirror, items: List<HistoryItem>, onClick: () -> Unit) {
     val p = LocalPalette.current
     val item = items[0]
-    androidx.compose.foundation.layout.Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.width(22.dp)) {
-            if (items.size > 1) ShieldStack(16.dp, p.secondary)
-            else Icon(if (item.islikelycoinjoin) WasabiIcon.shield else if (item.amount > 0) WasabiIcon.receive else WasabiIcon.send, 16.dp, p.secondary)
+    val title = if (items.size > 1) "Privacy rounds" else item.title
+    val sats = items.sumOf { it.amount }
+    val pending = items.any { it.pending }
+    val amount = @Composable {
+        Amount(sats, mirror, Modifier.frosted(mirror.discreet), signed = true)
+        if (pending) Icon(WasabiIcon.clock, 15.dp, p.secondary, Modifier.padding(start = 6.dp).semantics { contentDescription = "Pending" })
+    }
+    val date = @Composable {
+        Text(if (items.size > 1) "${items.size} rounds, ${dayMonth.format(item.datetime)}" else dateTime.format(item.datetime),
+            style = MaterialTheme.typography.bodySmall, color = p.secondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+    val measurer = rememberTextMeasurer()
+    val body = MaterialTheme.typography.bodyLarge
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        // Side by side where title and amount both fit; on a narrow screen (a foldable's cover display) the amount moves
+        // under the title instead of cutting "Groceries" down to "Groce...". 22 + 12 + 8 + 8 + 11 dp of icon, gaps, chevron.
+        val need = with(LocalDensity.current) {
+            (measurer.measure(title, body).size.width + measurer.measure((if (sats < 0) "-" else "+") + mirror.btc(Math.abs(sats)), body.copy(fontWeight = FontWeight.Bold)).size.width).toDp()
+        } + 61.dp + if (pending) 21.dp else 0.dp
+        val fits = need <= maxWidth
+        androidx.compose.foundation.layout.Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.width(22.dp)) {
+                if (items.size > 1) ShieldStack(16.dp, p.secondary)
+                else Icon(if (item.islikelycoinjoin) WasabiIcon.shield else if (item.amount > 0) WasabiIcon.receive else WasabiIcon.send, 16.dp, p.secondary)
+            }
+            Spacer(Modifier.width(12.dp))
+            if (fits) {
+                Column(Modifier.weight(1f)) { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis); date() }
+                Spacer(Modifier.width(8.dp))
+                amount()
+            } else Column(Modifier.weight(1f)) {
+                Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                androidx.compose.foundation.layout.Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.weight(1f)) { date() }
+                    Spacer(Modifier.width(8.dp))
+                    amount()
+                }
+            }
+            Spacer(Modifier.width(8.dp)); Glyph(Glyph.FORWARD, 11.dp, p.tertiary)
         }
-        Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f)) {
-            Text(if (items.size > 1) "Privacy rounds" else item.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Secondary(if (items.size > 1) "${items.size} rounds, ${dayMonth.format(item.datetime)}" else dateTime.format(item.datetime))
-        }
-        Spacer(Modifier.width(8.dp))
-        Amount(items.sumOf { it.amount }, mirror, Modifier.frosted(mirror.discreet), signed = true)
-        if (items.any { it.pending }) Icon(WasabiIcon.clock, 15.dp, p.secondary, Modifier.padding(start = 6.dp).semantics { contentDescription = "Pending" })
-        Spacer(Modifier.width(8.dp)); Glyph(Glyph.FORWARD, 11.dp, p.tertiary)
     }
 }
 
