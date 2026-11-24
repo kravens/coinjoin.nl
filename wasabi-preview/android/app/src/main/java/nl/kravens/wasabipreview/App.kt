@@ -160,6 +160,8 @@ fun App(mirror: Mirror, theme: AppTheme, link: Bitcoin.Payment?) {
                 ModalDrawerSheet(
                     Modifier.width(300.dp).glass(LocalPalette.current, menuShape, LocalGlassSources.current + screen), drawerShape = menuShape,
                     drawerContainerColor = if (LocalPalette.current.theme == AppTheme.BLACK) Color(0xFF0E0E0E) else Color.Transparent,
+                    // Stated, not derived: contentColorFor(Transparent) falls back to black, which made the menu's titles black.
+                    drawerContentColor = MaterialTheme.colorScheme.onBackground,
                 ) {
                     SideMenu(mirror) { route -> scope.launch { drawer.close() }; nav.push(route) }
                 }
