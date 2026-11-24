@@ -175,7 +175,16 @@
         backdrop-filter: blur(6px);
         border-radius: 15px;
     }
-    nav.sections a { white-space: nowrap; }
+    nav.sections a { white-space: nowrap; display: inline-flex; align-items: center; gap: 0.45em; }
+    nav.sections svg.ni {
+        width: 1.05em; height: 1.05em; flex: none; fill: none; stroke: currentColor;
+        stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    }
+    /* status dot: colour set by setLiveDot(); dark ring keeps it visible on the active (green) tab */
+    #liveDot {
+        width: 0.7em; height: 0.7em; flex: none; border-radius: 50%;
+        background: orange; box-shadow: 0 0 0 1.5px rgba(10, 12, 16, 0.55);
+    }
     /* GitHub icon: no tab chrome, divider on the left, sits at the row's end */
     nav.sections a.ghnav, nav.sections a.ghnav:link, nav.sections a.ghnav:visited {
         background: none; border: 0; border-left: 1px solid rgba(255, 255, 255, 0.14);
@@ -519,14 +528,15 @@
 
 <!-- sticky tab bar: stays reachable however deep a section scrolls -->
 <nav class="sections" aria-label="Sections">
-    <a href="#get-started">🚀 Get started</a>
-    <a href="#mobile">📱 Mobile</a>
-    <a href="#live"><span id="liveDot">🟠</span> Live rounds</a>
-    <a href="#history">📜 History</a>
-    <a href="#learn">🎓 Learn more</a>
-    <a href="#explore">🔍 Explore</a>
-    <a href="#latest">🌀 Latest round</a>
-    <a href="#hardware">🔐 Hardware wallet</a>
+    <!-- inline SVG icons, not emoji: emoji depend on the visitor's system font and render blank in some browsers -->
+    <a href="#get-started"><svg class="ni" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2c3 2.5 4.5 6 4.5 9.5V16h-9v-4.5C7.5 8 9 4.5 12 2z"/><circle cx="12" cy="9.5" r="1.5"/><path d="M7.5 13 4 16.5V19l3.5-1.5M16.5 13l3.5 3.5V19l-3.5-1.5M10 19.5l2 2.5 2-2.5"/></svg> Get started</a>
+    <a href="#mobile"><svg class="ni" viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></svg> Mobile</a>
+    <a href="#live"><span id="liveDot"></span> Live rounds</a>
+    <a href="#history"><svg class="ni" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg> History</a>
+    <a href="#learn"><svg class="ni" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 9l10-5 10 5-10 5z"/><path d="M6 11.5V16c0 1.5 3 3 6 3s6-1.5 6-3v-4.5M22 9v6"/></svg> Learn more</a>
+    <a href="#explore"><svg class="ni" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20.5 20.5 16 16"/></svg> Explore</a>
+    <a href="#latest"><svg class="ni" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 0 1 14-5.3L20 8M20 4v4h-4M20 12a8 8 0 0 1-14 5.3L4 16M4 20v-4h4"/></svg> Latest round</a>
+    <a href="#hardware"><svg class="ni" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7.5a4 4 0 0 1 8 0V11"/></svg> Hardware wallet</a>
     <!-- icon-only GitHub link at the far end, tailwindcss-style -->
     <a class="ghnav" href="https://github.com/kravens/coinjoin.nl" aria-label="CoinJoin.nl on GitHub" title="CoinJoin.nl on GitHub" target="_blank" rel="noopener">
         <svg viewBox="0 0 16 16" width="20" height="20" fill="currentColor" aria-hidden="true">
@@ -619,13 +629,13 @@
                 const contentDiv = document.getElementById('content');
                 contentDiv.innerHTML = '<p class="error">Coordinator unreachable — retrying every 30 seconds.</p>';
                 document.getElementById('roundsStatus').textContent = 'coordinator unreachable';
-                setLiveDot('⚪', 'coordinator unreachable');
+                setLiveDot('#9aa0a6', 'coordinator unreachable');
             }
         }
 
         function setLiveDot(dot, why) {
             const el = document.getElementById('liveDot');
-            el.textContent = dot;
+            el.style.background = dot;
             el.title = why;
         }
 
@@ -681,11 +691,11 @@
                 // (actively mixing), orange while registration is open
                 const mixing = data.RoundStates.some(s =>
                     (s.Phase ?? s.phase ?? '') !== 'InputRegistration');
-                setLiveDot(mixing ? '🟢' : '🟠', mixing ? 'round in progress' : 'input registration open');
+                setLiveDot(mixing ? '#1dbc93' : 'orange', mixing ? 'round in progress' : 'input registration open');
             } else {
                 contentDiv.innerHTML = '<p class="sub">No active rounds right now — new rounds open as inputs register.</p>';
                 document.getElementById('roundsStatus').textContent = 'no active rounds';
-                setLiveDot('⚪', 'no active rounds');
+                setLiveDot('#9aa0a6', 'no active rounds');
             }
         }
 
@@ -939,7 +949,9 @@ bash wasabi-remote.sh</pre>
 <div class="card" id="learn">
     <h2 class="section">Learn more</h2>
     <p class="sub">Watch the 3-minute explainer.</p>
-    <iframe class="video" loading="lazy" src="https://www.youtube-nocookie.com/embed/dGATztn5Ql8" title="WabiSabi Coinjoin Explained in 3 Minutes" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+    <!-- self-hosted: no third-party requests; nothing but the poster loads until play -->
+    <video class="video" controls preload="none" poster="images/explainer.webp" src="images/explainer.mp4" title="WabiSabi Coinjoin Explained in 3 Minutes"></video>
+    <p class="sub">Video: “WabiSabi Coinjoin Explained in 3 Minutes” by Wasabi Wallet, <a href="https://creativecommons.org/licenses/by/3.0/" target="_blank" rel="noopener">CC BY 3.0</a>.</p>
         <div id="faq">
         <h3>FAQ</h3>
         <p class="sub">Short answers — each links to the relevant chapter of the
