@@ -1,6 +1,9 @@
 import CoreImage.CIFilterBuiltins
 import SwiftUI
 
+// The design system (colours, type, spacing, glass, layout) is written down in design/DESIGN.md: change it there first,
+// then here and in the Android Theme.kt.
+
 // Desktop Wasabi's palette, WalletWasabi.Fluent/Styles/Themes/{Base,Dark,Light}.axaml.
 enum Wasabi {
     static let accent = Color(dark: 0x29903B, light: 0x1AB248) // SystemAccentColor

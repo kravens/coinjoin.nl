@@ -102,6 +102,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 
+// The design system (colours, type, spacing, glass, layout) is written down in design/DESIGN.md: change it there first,
+// then here and in the iOS Theme.swift.
+
 // Desktop Wasabi's palette, WalletWasabi.Fluent/Styles/Themes/{Base,Dark,Light}.axaml.
 object Wasabi {
     val accentDark = Color(0xFF29903B)
