@@ -1,4 +1,5 @@
 import CryptoKit
+import LocalAuthentication
 import Network
 import SwiftUI
 
@@ -42,7 +43,8 @@ final class Mirror {
     var wallet: String? = UserDefaults.standard.string(forKey: "wallet") {
         didSet {
             guard wallet != oldValue else { return }
-            UserDefaults.standard.set(wallet, forKey: "wallet"); loadPrivacyStop(); seenIncoming = nil; coinjoinHint = nil; allCoins = []
+            if !demo { UserDefaults.standard.set(wallet, forKey: "wallet") }
+            loadPrivacyStop(); seenIncoming = nil; coinjoinHint = nil; allCoins = []
             // Never the old wallet's numbers under the new wallet's name.
             info = nil; coins = []; history = []; payments = []; walletError = nil; walletLoaded = false
         }
@@ -53,7 +55,7 @@ final class Mirror {
             #if DEBUG
             if Screen.current != nil { return } // screenshot runs force a stop without leaving it behind in the simulator
             #endif
-            if let wallet { UserDefaults.standard.set(privacyStop.rawValue, forKey: "privacy." + wallet) }
+            if let wallet, !demo { UserDefaults.standard.set(privacyStop.rawValue, forKey: "privacy." + wallet) }
         }
     }
     // A private payment on a Lower fees wallet starts coinjoin for that payment only; Wasabi itself would keep going until
@@ -88,6 +90,8 @@ final class Mirror {
     var linkError: String? // last link failure (Tor circuit, timeout); the dashboard keeps showing the last good data
     var refreshing = false
     private var failingSince: Date?
+    // The demo wallet is on screen: made-up data, no link, nothing written to the Keychain or the real wallet's settings.
+    private(set) var demo = false
 
     enum Link { case connecting, connected, failed }
     var link: Link {
@@ -109,8 +113,9 @@ final class Mirror {
             }
         }
         if let flag = env["WASABI_DISCREET"] { discreet = flag == "1" }
-        if Self.demo { loadDemo() }
+        if env["WASABI_DEMO"] == "1" { loadDemo() }
         #endif
+        if UserDefaults.standard.bool(forKey: "decoy") { loadDemo() }
         loadPrivacyStop()
     }
 
@@ -165,9 +170,9 @@ final class Mirror {
     }
 
     func refresh() async {
-        #if DEBUG
-        if Self.demo { return } // UI tests: the demo wallet is the whole truth, no link is ever tried
-        #endif
+        // The demo wallet is the whole truth, no link is ever tried. Switching wallet in the demo cleared the data;
+        // this puts that wallet's made-up data back instead of leaving it on "Connecting" for ever.
+        if demo { if !walletLoaded, let wallet { loadDemo(wallet) }; return }
         refreshing = true
         defer { refreshing = false }
         if server.transport == .onion {
@@ -283,9 +288,7 @@ final class Mirror {
     // Runs a mutating action. If Wasabi says the wallet is not logged in, asks for the passphrase once and retries with it.
     @discardableResult
     func perform(_ title: String, password: String = "", _ action: @escaping @MainActor (String) async throws -> String?) async -> Bool {
-        #if DEBUG
-        if Self.demo { notice = "Demo wallet: \(title) is not performed"; return false } // UI tests never reach a real Wasabi
-        #endif
+        if demo { notice = "This is the demo wallet, so \(title.lowercased()) is not done. Your own wallet is under Connection."; return false }
         busy = true
         defer { busy = false }
         do {
@@ -318,6 +321,14 @@ final class Mirror {
     func mask(_ address: String) -> String {
         discreet ? address.prefix(4) + String(repeating: "*", count: 8) : address
     }
+
+    // A whole address to read and compare, in groups of four (bitcoin.design). The spaces are also where it may wrap:
+    // without them a narrow screen (iPhone Duo's outer display) hyphenated it, and a "-" is not part of an address.
+    func spaced(_ address: String) -> String {
+        guard !discreet else { return mask(address) }
+        let c = Array(address)
+        return stride(from: 0, to: c.count, by: 4).map { String(c[$0..<min($0 + 4, c.count)]) }.joined(separator: " ")
+    }
 }
 
 #if DEBUG
@@ -329,7 +340,7 @@ enum Screen: String {
     case send, sendLow, sendHigh, sendAmount, sendAmountHigh, sendFee, sendReview, sendSuccess
 
     static let current = ProcessInfo.processInfo.environment["WASABI_SCREEN"].flatMap(Screen.init)
-    static let demoAddress = "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4" // BIP173 test vector
+    static let demoAddress = Mirror.demoAddress
     static let demoTaprootAddress = "bc1p0xlxvlhemja6c4dqv22uapctqupfhlxm9h8z3k2e72q4k9hcz7vqzk5jj0" // BIP350 test vector
     static let demoTxid = "4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b"
 
@@ -354,42 +365,67 @@ enum Screen: String {
     }
 }
 
-// UI tests: `WASABI_DEMO=1` puts a mainnet wallet on screen without any link. The JSON is in Wasabi's own response shapes.
-extension Mirror {
-    static let demo = ProcessInfo.processInfo.environment["WASABI_DEMO"] == "1"
+#endif
 
-    // Store screenshots and UI tests: made-up but believable data. Addresses are BIP173's public test vector, txids are
+// The demo wallet: for App Review and first looks without a computer, and as a decoy (Settings) that the app opens with,
+// so whoever holds the phone sees made-up coins. UI tests and screenshots use it too (`WASABI_DEMO=1`).
+extension Mirror {
+    nonisolated static let demoAddress = "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4" // BIP173 test vector
+    static let demoServer = Server(host: "100.64.0.1", user: "demo", password: "demo")
+
+    // Made-up but believable data in Wasabi's own response shapes. Addresses are BIP173's public test vector, txids are
     // hashes of a counter; nothing here belongs to a real wallet.
-    func loadDemo() {
+    // Daily is a spending wallet halfway through its coinjoins; Savings holds a few large coins, all private already.
+    func loadDemo(_ name: String = "Daily") {
+        demo = true // first: the wallet and privacy choice below must not overwrite the real wallet's
+        let savings = name == "Savings"
         func decode<T: Decodable>(_ json: String) -> T { try! JSONDecoder().decode(T.self, from: Data(json.utf8)) }
-        func txid(_ i: Int) -> String { SHA256.hash(data: Data("wasabi-preview-demo-\(i)".utf8)).map { String(format: "%02x", $0) }.joined() }
-        server = Server(host: "100.64.0.1", user: "demo", password: "demo")
-        wallet = "Daily" // first: switching wallet clears the data below
+        func txid(_ i: Int) -> String { SHA256.hash(data: Data("wasabi-preview-demo-\(name)-\(i)".utf8)).map { String(format: "%02x", $0) }.joined() }
+        if server != Self.demoServer { server = Self.demoServer }
+        wallet = savings ? "Savings" : "Daily" // first: switching wallet clears the data below
         status = decode(#"{"torStatus":"Running","bestBlockchainHeight":"921337","filtersLeft":0,"network":"Main","exchangeRate":95000,"peers":[{"isConnected":true},{"isConnected":true},{"isConnected":true},{"isConnected":true},{"isConnected":true},{"isConnected":true},{"isConnected":true},{"isConnected":true}]}"#)
-        info = decode(#"{"loaded":true,"balance":4876543,"coinjoinStatus":"In progress","anonScoreTarget":10,"isWatchOnly":false,"isHardwareWallet":false}"#)
         wallets = ["Daily", "Savings"]
         fees = ["2": 3.1, "6": 1.6, "144": 1.0]
-        let coinSpecs: [(Int, Double, String?)] = [
-            (1_048_576, 34, nil), (1_048_576, 21, nil), (524_288, 27, nil), (524_288, 12, nil), (262_144, 15, nil),
-            (500_000, 6, "Bitcoin meetup refund"), (918_559, 1, "Salary October"), (50_000, 1, "Coffee change"),
+        // Modest on purpose: a decoy is shown to whoever holds the phone, and a big balance would make the holder a
+        // target. Daily is about US$ 460 and Savings about US$ 1,100 at the demo's rate.
+        let coinSpecs: [(Int, Double, String?)] = savings ? [
+            (524_288, 52, nil), (262_144, 47, nil), (262_144, 38, nil), (131_072, 33, nil),
+        ] : [
+            (131_072, 34, nil), (65_536, 21, nil), (65_536, 27, nil), (32_768, 12, nil), (32_768, 15, nil),
+            (50_000, 6, "Bitcoin meetup refund"), (91_856, 1, "Sold a concert ticket"), (18_118, 1, "Coffee change"),
         ]
+        let balance = coinSpecs.reduce(0) { $0 + $1.0 }
+        info = decode(#"{"loaded":true,"balance":\#(balance),"coinjoinStatus":"\#(savings ? "Idle" : "In progress")","anonScoreTarget":10,"isWatchOnly":false,"isHardwareWallet":false}"#)
         coins = coinSpecs.enumerated().map { i, spec in
             Coin(txid: txid(i), index: i % 3, amount: spec.0, anonymityScore: spec.1, confirmed: i != 7, confirmations: i == 7 ? 0 : 6 + 17 * i,
-                 label: spec.2, address: Screen.demoAddress, excludedFromCoinjoin: false, spentBy: nil)
+                 label: spec.2, address: Self.demoAddress, excludedFromCoinjoin: false, spentBy: nil)
         }
-        let historySpecs: [(Int, String, Bool)] = [
-            (-21_500, "Groceries", false), (-1_237, "", true), (-988, "", true), (-1_412, "", true), (918_559, "Salary October", false),
-            (-64_000, "Dinner with friends", false), (500_000, "Bitcoin meetup refund", false),
-            (-15_000, "Coffee at the corner bar", false), (2_000_000, "From savings", false), (-1_105, "", true),
+        let historySpecs: [(Int, String, Bool)] = savings ? [
+            (-200_000, "To Daily", false), (-1_312, "", true), (-1_208, "", true), (-1_544, "", true),
+            (600_000, "Year-end bonus", false), (-1_190, "", true), (781_000, "Sold the old bike", false),
+        ] : [
+            (-21_500, "Groceries", false), (-1_237, "", true), (-988, "", true), (-1_412, "", true), (91_856, "Sold a concert ticket", false),
+            (-64_000, "Dinner with friends", false), (50_000, "Bitcoin meetup refund", false),
+            (-15_000, "Coffee at the corner bar", false), (200_000, "From savings", false), (-1_105, "", true),
         ]
         history = decode("[" + historySpecs.enumerated().map { i, spec in
-            #"{"datetime":\#(1_792_000_000 - i * 61_200),"height":"\#(i == 0 ? "Mempool" : String(921_337 - 9 * i))","amount":\#(spec.0),"label":"\#(spec.1)","tx":"\#(txid(100 + i))","islikelycoinjoin":\#(spec.2)}"#
+            #"{"datetime":\#(1_792_000_000 - i * (savings ? 604_800 : 61_200)),"height":"\#(i == 0 && !savings ? "Mempool" : String(921_337 - 9 * i))","amount":\#(spec.0),"label":"\#(spec.1)","tx":"\#(txid(100 + i))","islikelycoinjoin":\#(spec.2)}"#
         }.joined(separator: ",") + "]")
+        allCoins = coins
         updated = .now
         walletLoaded = true
     }
+
+    // Back to the computer's wallet; the refresh loop picks up the restored server at once.
+    func leaveDemo() {
+        demo = false
+        wallets = []; fees = [:]; error = nil; notice = nil
+        wallet = UserDefaults.standard.string(forKey: "wallet")
+        server = Keychain.load() ?? Server()
+        info = nil; coins = []; history = []; payments = []; allCoins = []; walletLoaded = false
+        loadPrivacyStop()
+    }
 }
-#endif
 
 // One home screen under a NavigationStack; Receive and Send open as sheets, so pulling down always lands back home.
 // Details (a transaction, a coin, the Privacy screen) push onto the stack. Everything that is not the wallet itself
@@ -404,6 +440,7 @@ struct ContentView: View {
     @State private var scanDrag: CGFloat = 0 // the right-edge pan in progress; a camera glyph follows it
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
+    @AppStorage("decoy") private var decoy = false
     @State private var networkChanges = 0
 
     // The refresh loop restarts, dropping a request stuck on a dead link, when any of these change.
@@ -481,6 +518,12 @@ struct ContentView: View {
         }
         .wasabiAlerts(mirror, active: flow == nil && sheet == nil)
         .overlay { if mirror.busy, flow == nil { ProgressView().padding().glassEffect() } }
+        // Decoy: leaving the app puts the demo wallet back, with nothing of the real one left open behind it.
+        .onChange(of: scenePhase) {
+            guard scenePhase == .background, decoy, !mirror.demo else { return }
+            flow = nil; sheet = nil; menu = false; path = NavigationPath()
+            mirror.loadDemo()
+        }
         .onAppear {
             if mirror.server.user.isEmpty { sheet = .connection }
             #if DEBUG
@@ -666,6 +709,7 @@ struct HomeView: View {
     let mirror: Mirror
     let open: (ContentView.Route) -> Void
     @State private var showCoins = false
+    @State private var wide = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(mirror: Mirror, open: @escaping (ContentView.Route) -> Void) {
@@ -677,22 +721,42 @@ struct HomeView: View {
     }
 
     var body: some View {
-        List {
-            Section {
-                balance
-                if mirror.ready {
-                    if showCoins { coins }
-                    privacy
+        // A wide screen (iPhone Duo unfolded, a phone on its side) puts the transactions on the left and keeps balance
+        // and privacy on the right, each scrolling on its own; a phone in portrait stacks them as before.
+        Group {
+            if wide {
+                HStack(alignment: .top, spacing: 12) { // each List has its own margin; this keeps the two cards apart
+                    list { if mirror.ready { transactions } }
+                    list { summary }.frame(width: 400)
+                }
+            } else {
+                list {
+                    summary
+                    if mirror.ready { transactions }
                 }
             }
-            .wasabiRows(card: true)
-            if mirror.ready { transactions }
         }
-        .listSectionSpacing(10)
-        .contentMargins(.top, 6, for: .scrollContent)
-        .scrollContentBackground(.hidden)
+        .onGeometryChange(for: Bool.self) { $0.size.width >= 640 } action: { wide = $0 }
         .background { Backdrop() }
-        .refreshable { await mirror.refresh() }
+    }
+
+    private func list(@ViewBuilder _ content: () -> some View) -> some View {
+        List { content() }
+            .listSectionSpacing(10)
+            .contentMargins(.top, 6, for: .scrollContent)
+            .scrollContentBackground(.hidden)
+            .refreshable { await mirror.refresh() }
+    }
+
+    private var summary: some View {
+        Section {
+            balance
+            if mirror.ready {
+                if showCoins { coins }
+                privacy
+            }
+        }
+        .wasabiRows(card: true)
     }
 
     private func caption(_ text: String) -> some View {
@@ -881,6 +945,14 @@ struct HistoryRow: View {
 
     private var content: some View {
         let item = items[0]
+        let title = Text(items.count > 1 ? "Privacy rounds" : item.title).lineLimit(1)
+        let date = Text(items.count > 1 ? "\(items.count) rounds, \(item.datetime.formatted(.dateTime.day().month()))" : item.datetime.formatted(date: .abbreviated, time: .shortened))
+            .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+        // One line always: a pending clock next to a long amount used to wrap "BTC" onto a second line.
+        let amount = HStack(spacing: 8) {
+            Amount(sats: items.reduce(0) { $0 + $1.amount }, mirror: mirror, signed: true).lineLimit(1).minimumScaleFactor(0.7)
+            if items.contains(where: \.pending) { Icon(.clock, size: 15).foregroundStyle(.secondary).accessibilityLabel("Pending") }
+        }
         return HStack(spacing: 12) {
             Group {
                 if items.count > 1 {
@@ -890,16 +962,19 @@ struct HistoryRow: View {
                 }
             }
             .foregroundStyle(.secondary)
-            VStack(alignment: .leading) {
-                Text(items.count > 1 ? "Privacy rounds" : item.title).lineLimit(1)
-                Text(items.count > 1 ? "\(items.count) rounds, \(item.datetime.formatted(.dateTime.day().month()))" : item.datetime.formatted(date: .abbreviated, time: .shortened))
-                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            // Side by side where it fits; on a narrow screen (iPhone Duo's outer display) the amount moves under the
+            // title instead of cutting "Groceries" down to "Groce...".
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) {
+                    VStack(alignment: .leading) { title; date }
+                    Spacer(minLength: 8)
+                    amount
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    title
+                    HStack(spacing: 8) { date; Spacer(minLength: 8); amount.layoutPriority(1) }
+                }
             }
-            .layoutPriority(item.islikelycoinjoin ? 2 : 0) // these titles are short and fixed, so they fit; the amount shrinks a little instead
-            Spacer(minLength: 8)
-            // One line always: a pending clock next to a long amount used to wrap "BTC" onto a second line.
-            Amount(sats: items.reduce(0) { $0 + $1.amount }, mirror: mirror, signed: true).lineLimit(1).minimumScaleFactor(0.7).layoutPriority(1)
-            if items.contains(where: \.pending) { Icon(.clock, size: 15).foregroundStyle(.secondary).accessibilityLabel("Pending") }
         }
     }
 }
@@ -928,6 +1003,7 @@ struct PrivacyRoundsView: View {
             }
             .wasabiRows()
         }
+        .readableWidth()
         .scrollContentBackground(.hidden)
         .background { Backdrop() }
         .navigationTitle("Privacy rounds")
@@ -1037,6 +1113,7 @@ struct TransactionView: View {
             }
             .wasabiRows()
         }
+        .readableWidth()
         .scrollContentBackground(.hidden)
         .background { Backdrop() }
         .navigationTitle(item.title)
@@ -1091,6 +1168,18 @@ struct ConnectionView: View {
                     Text("desktop/wasabi-remote.sh sets all of this up on the computer and writes these values to ~/.config/wasabi-remote/phone.txt.")
                 }
                 .wasabiRows()
+                Section {
+                    if mirror.demo {
+                        Button("Leave the demo wallet") { Task { await leaveDemo() } }.tint(Wasabi.accent)
+                    } else {
+                        Button("Try the demo wallet") { mirror.loadDemo(); dismiss() }.tint(Wasabi.accent)
+                    }
+                } footer: {
+                    Text(mirror.demo
+                         ? "Your own wallet comes back after Face ID or your passcode."
+                         : "A sample wallet with made-up coins, to look around without a computer. Nothing is sent anywhere.")
+                }
+                .wasabiRows()
             }
             .scrollContentBackground(.hidden)
             .background { Backdrop() }
@@ -1100,14 +1189,26 @@ struct ConnectionView: View {
             .navigationTitle("Connection")
             .toolbar {
                 Button("Save") {
+                    // The demo's own made-up login is never saved over the real one.
+                    if mirror.demo, server == mirror.server { dismiss(); return }
                     server.onion = server.onion.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
                     Keychain.save(server)
+                    if mirror.demo { mirror.leaveDemo() }
                     mirror.server = server
                     dismiss()
                 }
             }
             .onAppear { server = mirror.server }
         }
+    }
+
+    // The real wallet behind the demo, so a decoy handed over stays a decoy. No saved login: nothing to protect.
+    private func leaveDemo() async {
+        if Keychain.load() != nil {
+            guard (try? await LAContext().evaluatePolicy(.deviceOwnerAuthentication, localizedReason: "Show your own wallet")) == true else { return }
+        }
+        mirror.leaveDemo()
+        dismiss()
     }
 }
 
@@ -1117,6 +1218,7 @@ struct SettingsView: View {
     @AppStorage("theme") private var theme = AppTheme.wasabi
     @AppStorage("taproot") private var taproot = true
     @AppStorage("customFee") private var customFee = false
+    @AppStorage("decoy") private var decoy = false
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -1141,6 +1243,14 @@ struct SettingsView: View {
                     Text("Appearance")
                 } footer: {
                     Text("Black keeps most of the screen pure black, so OLED pixels stay off and use less energy.")
+                }
+                .wasabiRows()
+                Section {
+                    Toggle("Open with the demo wallet", isOn: $decoy)
+                } header: {
+                    Text("Decoy")
+                } footer: {
+                    Text("The app opens, and returns from the background, showing the demo wallet's made-up coins, so whoever holds your phone does not see your own. Your wallet comes back under Connection, after Face ID or your passcode.")
                 }
                 .wasabiRows()
             }
