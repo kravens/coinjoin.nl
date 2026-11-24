@@ -152,7 +152,7 @@ fun ReceiveScreen(mirror: Mirror, nav: Nav) {
                         val qr = remember(uri) { Bitcoin.qr(uri).asImageBitmap() }
                         // Wasabi draws the QR on a white card; keep it scannable in dark mode and under discreet frosting.
                         Image(qr, "QR code of the payment request", Modifier.widthIn(max = 260.dp).fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Color.White).padding(12.dp).frosted(mirror.discreet), filterQuality = FilterQuality.None)
-                        SelectionContainer { Text(mirror.mask(shown), Modifier.frosted(mirror.discreet), fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center) }
+                        Text(mirror.spaced(shown), Modifier.frosted(mirror.discreet), fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center) // Copy and Share give it whole
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             CopyButton(uri)
                             TintedButton({ share(context, uri) }) { Icon(WasabiIcon.share, 16.dp, LocalPalette.current.accent); Spacer(Modifier.width(6.dp)); Text("Share", color = LocalPalette.current.accent) }
@@ -457,7 +457,7 @@ private fun ReviewStep(mirror: Mirror, nav: Nav, review: Review) {
         Sections(padding) {
             item {
                 Section(if (review.inCoinjoin) "Private payment" else "Transaction") {
-                    LabeledRow("To") { Text(mirror.mask(review.address), Modifier.weight(1.5f, false).frosted(mirror.discreet), fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.End) }
+                    LabeledRow("To") { Text(mirror.spaced(review.address), Modifier.weight(1.5f, false).frosted(mirror.discreet), fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.End) }
                     Divider(); LabeledRow("Amount") { Amount(review.sats, mirror, Modifier.frosted(mirror.discreet)) }
                     mirror.usd(review.sats)?.let { Divider(); LabeledRow("Value") { Text(it, Modifier.frosted(mirror.discreet)) } }
                     Divider()
@@ -515,7 +515,7 @@ private fun SendSuccess(mirror: Mirror, nav: Nav, model: SendModel) {
                     Text(if (queued) "Queued" else "Sent", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
                     if (review != null) {
                         Amount(review.sats, mirror, Modifier.frosted(mirror.discreet), style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Light))
-                        Text(mirror.mask(review.address), Modifier.frosted(mirror.discreet), fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center)
+                        Text(mirror.spaced(review.address), Modifier.frosted(mirror.discreet), fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center)
                     }
                     model.sent?.let { sent ->
                         Tile(if (queued) "Payment ID" else "Transaction ID", centered = true) {

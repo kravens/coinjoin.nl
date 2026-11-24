@@ -310,6 +310,10 @@ class Mirror(private val context: Context, demoScreen: String? = null, startDemo
 
     fun mask(address: String) = if (discreet) address.take(4) + "********" else address
 
+    // A whole address to read and compare, in groups of four (bitcoin.design), as on iOS. The spaces are also where it
+    // may wrap, never mid-group. Copy and Share give the address without them.
+    fun spaced(address: String) = if (discreet) mask(address) else address.chunked(4).joinToString(" ")
+
     // Wasabi's PrivacyLevel per coin (SmartCoinExtensions.GetPrivacyLevel): private at the target, semi-private from 2.
     enum class Tier(val label: String) { PRIVATE("private"), SEMI("semi-private"), NONE("non-private") }
 

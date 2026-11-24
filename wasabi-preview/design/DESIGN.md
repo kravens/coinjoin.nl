@@ -65,7 +65,7 @@ The system font on each platform (SF Pro, Roboto), at the platform's text styles
 | Row title / value | `body` | `bodyLarge` | One line, tail ellipsis |
 | Row detail (date, label) | `caption` / `footnote`, secondary | `bodySmall`, secondary | One line |
 | Footers and explanations | `footnote`, secondary | `bodySmall`, secondary | |
-| Addresses, txids, keys | `footnote`, monospaced | monospace | Receive and Send review show addresses in groups of four (iOS; Android to follow) |
+| Addresses, txids, keys | `footnote`, monospaced | monospace | Receive, Send review and Sent show addresses in groups of four; Copy and Share give them whole |
 | Primary action | semibold | `titleMedium`, semibold | |
 
 ### Amounts
