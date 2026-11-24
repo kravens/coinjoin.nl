@@ -34,6 +34,21 @@ final class DemoTests: XCTestCase {
         try XCUIScreen.main.screenshot().pngRepresentation.write(to: shots.appendingPathComponent("wide-home.png"))
     }
 
+    // Switching wallet inside the demo shows that wallet's own made-up data, and switching back restores Daily's.
+    func testDemoWalletSwitch() {
+        let app = XCUIApplication()
+        app.launchEnvironment = ["WASABI_SCREEN": "home", "WASABI_DEMO": "1"]
+        app.launch()
+        XCTAssertTrue(app.staticTexts["Balance Daily"].waitForExistence(timeout: 5))
+        app.buttons["Wallet Daily, switch wallet"].tap()
+        app.buttons["Savings"].firstMatch.tap()
+        XCTAssertTrue(app.staticTexts["Balance Savings"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Year-end bonus"].waitForExistence(timeout: 5))
+        app.buttons["Wallet Savings, switch wallet"].tap()
+        app.buttons["Daily"].firstMatch.tap()
+        XCTAssertTrue(app.staticTexts["Groceries"].waitForExistence(timeout: 5))
+    }
+
     func testDecoyOpensWithDemoWallet() {
         let app = XCUIApplication()
         app.launchArguments = ["-decoy", "YES"]

@@ -170,7 +170,9 @@ final class Mirror {
     }
 
     func refresh() async {
-        if demo { return } // the demo wallet is the whole truth, no link is ever tried
+        // The demo wallet is the whole truth, no link is ever tried. Switching wallet in the demo cleared the data;
+        // this puts that wallet's made-up data back instead of leaving it on "Connecting" for ever.
+        if demo { if !walletLoaded, let wallet { loadDemo(wallet) }; return }
         refreshing = true
         defer { refreshing = false }
         if server.transport == .onion {
@@ -369,20 +371,27 @@ enum Screen: String {
 // so whoever holds the phone sees made-up coins. UI tests and screenshots use it too (`WASABI_DEMO=1`).
 extension Mirror {
     nonisolated static let demoAddress = "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4" // BIP173 test vector
+    static let demoServer = Server(host: "100.64.0.1", user: "demo", password: "demo")
 
     // Made-up but believable data in Wasabi's own response shapes. Addresses are BIP173's public test vector, txids are
     // hashes of a counter; nothing here belongs to a real wallet.
-    func loadDemo() {
+    // Daily is a spending wallet halfway through its coinjoins; Savings holds a few large coins, all private already.
+    func loadDemo(_ name: String = "Daily") {
         demo = true // first: the wallet and privacy choice below must not overwrite the real wallet's
+        let savings = name == "Savings"
         func decode<T: Decodable>(_ json: String) -> T { try! JSONDecoder().decode(T.self, from: Data(json.utf8)) }
-        func txid(_ i: Int) -> String { SHA256.hash(data: Data("wasabi-preview-demo-\(i)".utf8)).map { String(format: "%02x", $0) }.joined() }
-        server = Server(host: "100.64.0.1", user: "demo", password: "demo")
-        wallet = "Daily" // first: switching wallet clears the data below
+        func txid(_ i: Int) -> String { SHA256.hash(data: Data("wasabi-preview-demo-\(name)-\(i)".utf8)).map { String(format: "%02x", $0) }.joined() }
+        if server != Self.demoServer { server = Self.demoServer }
+        wallet = savings ? "Savings" : "Daily" // first: switching wallet clears the data below
         status = decode(#"{"torStatus":"Running","bestBlockchainHeight":"921337","filtersLeft":0,"network":"Main","exchangeRate":95000,"peers":[{"isConnected":true},{"isConnected":true},{"isConnected":true},{"isConnected":true},{"isConnected":true},{"isConnected":true},{"isConnected":true},{"isConnected":true}]}"#)
-        info = decode(#"{"loaded":true,"balance":4876543,"coinjoinStatus":"In progress","anonScoreTarget":10,"isWatchOnly":false,"isHardwareWallet":false}"#)
+        info = decode(savings
+            ? #"{"loaded":true,"balance":18874368,"coinjoinStatus":"Idle","anonScoreTarget":10,"isWatchOnly":false,"isHardwareWallet":false}"#
+            : #"{"loaded":true,"balance":4876543,"coinjoinStatus":"In progress","anonScoreTarget":10,"isWatchOnly":false,"isHardwareWallet":false}"#)
         wallets = ["Daily", "Savings"]
         fees = ["2": 3.1, "6": 1.6, "144": 1.0]
-        let coinSpecs: [(Int, Double, String?)] = [
+        let coinSpecs: [(Int, Double, String?)] = savings ? [
+            (8_388_608, 52, nil), (4_194_304, 47, nil), (4_194_304, 38, nil), (2_097_152, 33, nil),
+        ] : [
             (1_048_576, 34, nil), (1_048_576, 21, nil), (524_288, 27, nil), (524_288, 12, nil), (262_144, 15, nil),
             (500_000, 6, "Bitcoin meetup refund"), (918_559, 1, "Salary October"), (50_000, 1, "Coffee change"),
         ]
@@ -390,13 +399,16 @@ extension Mirror {
             Coin(txid: txid(i), index: i % 3, amount: spec.0, anonymityScore: spec.1, confirmed: i != 7, confirmations: i == 7 ? 0 : 6 + 17 * i,
                  label: spec.2, address: Self.demoAddress, excludedFromCoinjoin: false, spentBy: nil)
         }
-        let historySpecs: [(Int, String, Bool)] = [
+        let historySpecs: [(Int, String, Bool)] = savings ? [
+            (-2_000_000, "To Daily", false), (-1_312, "", true), (-1_208, "", true), (-1_544, "", true),
+            (10_000_000, "Year-end bonus", false), (-1_190, "", true), (10_876_000, "Sold the old bike", false),
+        ] : [
             (-21_500, "Groceries", false), (-1_237, "", true), (-988, "", true), (-1_412, "", true), (918_559, "Salary October", false),
             (-64_000, "Dinner with friends", false), (500_000, "Bitcoin meetup refund", false),
             (-15_000, "Coffee at the corner bar", false), (2_000_000, "From savings", false), (-1_105, "", true),
         ]
         history = decode("[" + historySpecs.enumerated().map { i, spec in
-            #"{"datetime":\#(1_792_000_000 - i * 61_200),"height":"\#(i == 0 ? "Mempool" : String(921_337 - 9 * i))","amount":\#(spec.0),"label":"\#(spec.1)","tx":"\#(txid(100 + i))","islikelycoinjoin":\#(spec.2)}"#
+            #"{"datetime":\#(1_792_000_000 - i * (savings ? 604_800 : 61_200)),"height":"\#(i == 0 && !savings ? "Mempool" : String(921_337 - 9 * i))","amount":\#(spec.0),"label":"\#(spec.1)","tx":"\#(txid(100 + i))","islikelycoinjoin":\#(spec.2)}"#
         }.joined(separator: ",") + "]")
         allCoins = coins
         updated = .now
