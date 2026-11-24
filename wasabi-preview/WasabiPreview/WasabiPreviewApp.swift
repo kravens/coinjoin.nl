@@ -696,6 +696,7 @@ struct HomeView: View {
     let mirror: Mirror
     let open: (ContentView.Route) -> Void
     @State private var showCoins = false
+    @State private var wide = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(mirror: Mirror, open: @escaping (ContentView.Route) -> Void) {
@@ -707,22 +708,42 @@ struct HomeView: View {
     }
 
     var body: some View {
-        List {
-            Section {
-                balance
-                if mirror.ready {
-                    if showCoins { coins }
-                    privacy
+        // A wide screen (iPhone Duo unfolded, a phone on its side) puts the transactions on the left and keeps balance
+        // and privacy on the right, each scrolling on its own; a phone in portrait stacks them as before.
+        Group {
+            if wide {
+                HStack(alignment: .top, spacing: 0) {
+                    list { if mirror.ready { transactions } }
+                    list { summary }.frame(width: 400)
+                }
+            } else {
+                list {
+                    summary
+                    if mirror.ready { transactions }
                 }
             }
-            .wasabiRows(card: true)
-            if mirror.ready { transactions }
         }
-        .listSectionSpacing(10)
-        .contentMargins(.top, 6, for: .scrollContent)
-        .scrollContentBackground(.hidden)
+        .onGeometryChange(for: Bool.self) { $0.size.width >= 640 } action: { wide = $0 }
         .background { Backdrop() }
-        .refreshable { await mirror.refresh() }
+    }
+
+    private func list(@ViewBuilder _ content: () -> some View) -> some View {
+        List { content() }
+            .listSectionSpacing(10)
+            .contentMargins(.top, 6, for: .scrollContent)
+            .scrollContentBackground(.hidden)
+            .refreshable { await mirror.refresh() }
+    }
+
+    private var summary: some View {
+        Section {
+            balance
+            if mirror.ready {
+                if showCoins { coins }
+                privacy
+            }
+        }
+        .wasabiRows(card: true)
     }
 
     private func caption(_ text: String) -> some View {
