@@ -384,28 +384,29 @@ extension Mirror {
         if server != Self.demoServer { server = Self.demoServer }
         wallet = savings ? "Savings" : "Daily" // first: switching wallet clears the data below
         status = decode(#"{"torStatus":"Running","bestBlockchainHeight":"921337","filtersLeft":0,"network":"Main","exchangeRate":95000,"peers":[{"isConnected":true},{"isConnected":true},{"isConnected":true},{"isConnected":true},{"isConnected":true},{"isConnected":true},{"isConnected":true},{"isConnected":true}]}"#)
-        info = decode(savings
-            ? #"{"loaded":true,"balance":18874368,"coinjoinStatus":"Idle","anonScoreTarget":10,"isWatchOnly":false,"isHardwareWallet":false}"#
-            : #"{"loaded":true,"balance":4876543,"coinjoinStatus":"In progress","anonScoreTarget":10,"isWatchOnly":false,"isHardwareWallet":false}"#)
         wallets = ["Daily", "Savings"]
         fees = ["2": 3.1, "6": 1.6, "144": 1.0]
+        // Modest on purpose: a decoy is shown to whoever holds the phone, and a big balance would make the holder a
+        // target. Daily is about US$ 460 and Savings about US$ 1,100 at the demo's rate.
         let coinSpecs: [(Int, Double, String?)] = savings ? [
-            (8_388_608, 52, nil), (4_194_304, 47, nil), (4_194_304, 38, nil), (2_097_152, 33, nil),
+            (524_288, 52, nil), (262_144, 47, nil), (262_144, 38, nil), (131_072, 33, nil),
         ] : [
-            (1_048_576, 34, nil), (1_048_576, 21, nil), (524_288, 27, nil), (524_288, 12, nil), (262_144, 15, nil),
-            (500_000, 6, "Bitcoin meetup refund"), (918_559, 1, "Salary October"), (50_000, 1, "Coffee change"),
+            (131_072, 34, nil), (65_536, 21, nil), (65_536, 27, nil), (32_768, 12, nil), (32_768, 15, nil),
+            (50_000, 6, "Bitcoin meetup refund"), (91_856, 1, "Sold a concert ticket"), (18_118, 1, "Coffee change"),
         ]
+        let balance = coinSpecs.reduce(0) { $0 + $1.0 }
+        info = decode(#"{"loaded":true,"balance":\#(balance),"coinjoinStatus":"\#(savings ? "Idle" : "In progress")","anonScoreTarget":10,"isWatchOnly":false,"isHardwareWallet":false}"#)
         coins = coinSpecs.enumerated().map { i, spec in
             Coin(txid: txid(i), index: i % 3, amount: spec.0, anonymityScore: spec.1, confirmed: i != 7, confirmations: i == 7 ? 0 : 6 + 17 * i,
                  label: spec.2, address: Self.demoAddress, excludedFromCoinjoin: false, spentBy: nil)
         }
         let historySpecs: [(Int, String, Bool)] = savings ? [
-            (-2_000_000, "To Daily", false), (-1_312, "", true), (-1_208, "", true), (-1_544, "", true),
-            (10_000_000, "Year-end bonus", false), (-1_190, "", true), (10_876_000, "Sold the old bike", false),
+            (-200_000, "To Daily", false), (-1_312, "", true), (-1_208, "", true), (-1_544, "", true),
+            (600_000, "Year-end bonus", false), (-1_190, "", true), (781_000, "Sold the old bike", false),
         ] : [
-            (-21_500, "Groceries", false), (-1_237, "", true), (-988, "", true), (-1_412, "", true), (918_559, "Salary October", false),
-            (-64_000, "Dinner with friends", false), (500_000, "Bitcoin meetup refund", false),
-            (-15_000, "Coffee at the corner bar", false), (2_000_000, "From savings", false), (-1_105, "", true),
+            (-21_500, "Groceries", false), (-1_237, "", true), (-988, "", true), (-1_412, "", true), (91_856, "Sold a concert ticket", false),
+            (-64_000, "Dinner with friends", false), (50_000, "Bitcoin meetup refund", false),
+            (-15_000, "Coffee at the corner bar", false), (200_000, "From savings", false), (-1_105, "", true),
         ]
         history = decode("[" + historySpecs.enumerated().map { i, spec in
             #"{"datetime":\#(1_792_000_000 - i * (savings ? 604_800 : 61_200)),"height":"\#(i == 0 && !savings ? "Mempool" : String(921_337 - 9 * i))","amount":\#(spec.0),"label":"\#(spec.1)","tx":"\#(txid(100 + i))","islikelycoinjoin":\#(spec.2)}"#
