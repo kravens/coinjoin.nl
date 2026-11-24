@@ -383,6 +383,7 @@ extension Mirror {
         func txid(_ i: Int) -> String { SHA256.hash(data: Data("wasabi-preview-demo-\(name)-\(i)".utf8)).map { String(format: "%02x", $0) }.joined() }
         if server != Self.demoServer { server = Self.demoServer }
         wallet = savings ? "Savings" : "Daily" // first: switching wallet clears the data below
+        error = nil; walletError = nil // e.g. an unreachable login's error from before the demo
         status = decode(#"{"torStatus":"Running","bestBlockchainHeight":"921337","filtersLeft":0,"network":"Main","exchangeRate":95000,"peers":[{"isConnected":true},{"isConnected":true},{"isConnected":true},{"isConnected":true},{"isConnected":true},{"isConnected":true},{"isConnected":true},{"isConnected":true}]}"#)
         wallets = ["Daily", "Savings"]
         fees = ["2": 3.1, "6": 1.6, "144": 1.0]
@@ -1204,8 +1205,10 @@ struct ConnectionView: View {
 
     // The real wallet behind the demo, so a decoy handed over stays a decoy. No saved login: nothing to protect.
     private func leaveDemo() async {
-        if Keychain.load() != nil {
-            guard (try? await LAContext().evaluatePolicy(.deviceOwnerAuthentication, localizedReason: "Show your own wallet")) == true else { return }
+        // A phone without a passcode has nothing to ask; it would otherwise stay in the demo for good.
+        let context = LAContext()
+        if Keychain.load() != nil, context.canEvaluatePolicy(.deviceOwnerAuthentication, error: nil) {
+            guard (try? await context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: "Show your own wallet")) == true else { return }
         }
         mirror.leaveDemo()
         dismiss()

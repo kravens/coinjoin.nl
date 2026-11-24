@@ -11,7 +11,13 @@ import androidx.compose.runtime.mutableStateOf
 class MainActivity : ComponentActivity() {
     private val theme = mutableStateOf(AppTheme.WASABI)
     private lateinit var mirror: Mirror
-    private val listener = SharedPreferences.OnSharedPreferenceChangeListener { prefs, key -> if (key == "theme") theme.value = themeOf(prefs) }
+    private val listener = SharedPreferences.OnSharedPreferenceChangeListener { prefs, key ->
+        if (key == "theme") theme.value = themeOf(prefs)
+        if (key == "decoy") hidePreview(prefs.getBoolean("decoy", false))
+    }
+
+    // Decoy: the app switcher shows no preview, so the real wallet never shows there either.
+    private fun hidePreview(hide: Boolean) { if (android.os.Build.VERSION.SDK_INT >= 33) setRecentsScreenshotEnabled(!hide) }
 
     private fun themeOf(prefs: SharedPreferences) = if (prefs.getString("theme", "wasabi") == "black") AppTheme.BLACK else AppTheme.WASABI
 
@@ -21,6 +27,7 @@ class MainActivity : ComponentActivity() {
         val prefs = getSharedPreferences("app", Context.MODE_PRIVATE)
         theme.value = themeOf(prefs)
         prefs.registerOnSharedPreferenceChangeListener(listener)
+        hidePreview(prefs.getBoolean("decoy", false))
         // Debug runs: `adb shell am start -n nl.kravens.wasabipreview/.MainActivity --ez demo true --es screen sendReview`
         // opens that screen on the demo wallet, the same hooks as the iOS simulator's WASABI_DEMO and WASABI_SCREEN.
         val demo = BuildConfig.DEBUG && intent.getBooleanExtra("demo", false)
@@ -40,6 +47,12 @@ class MainActivity : ComponentActivity() {
         // A bitcoin: link from another app opens Send, pre-filled; anything unpayable just opens the app.
         val link = intent.data?.toString()?.let { runCatching { Bitcoin.parse(it) }.getOrNull() }
         setContent { WasabiTheme(theme.value) { App(mirror, theme.value, link) } }
+    }
+
+    // Decoy: the demo wallet is back before anyone sees the app again.
+    override fun onStop() {
+        super.onStop()
+        if (getSharedPreferences("app", Context.MODE_PRIVATE).getBoolean("decoy", false)) mirror.relock()
     }
 
     override fun onDestroy() {

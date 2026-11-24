@@ -144,6 +144,8 @@ fun App(mirror: Mirror, theme: AppTheme, link: Bitcoin.Payment?) {
     RefreshLoop(mirror)
     BackHandler(nav.stack.size > 1 || drawer.isOpen) { if (drawer.isOpen) scope.launch { drawer.close() } else nav.pop() }
     LaunchedEffect(Unit) { if (mirror.server.user.isEmpty() && !mirror.demo || mirror.screen == "connection") nav.push(Route.Connection) }
+    // Decoy relock (the app went to the background): nothing of the real wallet stays open behind the demo.
+    LaunchedEffect(mirror.relocks) { if (mirror.relocks > 0) { nav.home(); send = null; drawer.snapTo(DrawerValue.Closed) } }
 
     Backdrop {
         ModalNavigationDrawer(
