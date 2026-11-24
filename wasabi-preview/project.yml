@@ -34,6 +34,9 @@ targets:
       properties:
         NSCameraUsageDescription: Scans bitcoin QR codes to fill in the address and amount.
         NSFaceIDUsageDescription: Confirms sending bitcoin.
+        # Export compliance, answered in App Store Connect (standard algorithms in the embedded Tor client, no documentation
+        # required), so TestFlight and App Store builds stop asking per build.
+        ITSAppUsesNonExemptEncryption: false
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true # plain HTTP to the Tailscale IP; WireGuard already encrypts it
   # Edge gestures against demo data on the simulator: xcodebuild test -scheme WasabiPreview -destination 'id=<sim>'
