@@ -79,7 +79,7 @@ struct ReceiveView: View {
                             .frosted(mirror.discreet)
                             .accessibilityLabel("QR code of the payment request")
                     }
-                    Text(mirror.mask(address)).font(.footnote.monospaced()).textSelection(.enabled).multilineTextAlignment(.center)
+                    Text(mirror.spaced(address)).font(.footnote.monospaced()).multilineTextAlignment(.center) // Copy and Share give it whole
                         .frosted(mirror.discreet)
                     HStack(spacing: 12) {
                         CopyButton(text: uri)
@@ -372,7 +372,7 @@ struct SendView: View {
                 Text(review?.inCoinjoin == true ? "Queued" : "Sent").font(.title2.weight(.semibold))
                 if let review {
                     Amount(sats: review.sats, mirror: mirror, font: .title.weight(.light))
-                    Text(mirror.mask(review.address)).font(.footnote.monospaced()).multilineTextAlignment(.center).frosted(mirror.discreet)
+                    Text(mirror.spaced(review.address)).font(.footnote.monospaced()).multilineTextAlignment(.center).frosted(mirror.discreet)
                 }
                 if let sent {
                     Tile(review?.inCoinjoin == true ? "PAYMENT ID" : "TRANSACTION ID", alignment: .center) {
@@ -473,7 +473,7 @@ struct ReviewView: View {
     var body: some View {
         List {
             Section(review.inCoinjoin ? "Private payment" : "Transaction") {
-                LabeledContent("To") { Text(mirror.mask(review.address)).font(.footnote.monospaced()).multilineTextAlignment(.trailing).frosted(mirror.discreet) }
+                LabeledContent("To") { Text(mirror.spaced(review.address)).font(.footnote.monospaced()).multilineTextAlignment(.trailing).frosted(mirror.discreet) }
                 LabeledContent("Amount") { Amount(sats: review.sats, mirror: mirror) }
                 if let usd = mirror.usd(review.sats) { LabeledContent("Value") { Text(usd).frosted(mirror.discreet) } }
                 if review.inCoinjoin {

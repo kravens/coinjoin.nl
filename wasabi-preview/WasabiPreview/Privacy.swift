@@ -316,7 +316,7 @@ struct AnonymitySetGrid: View {
 extension Mirror {
     // listcoins: every coin the wallet ever had, with what spent it. Read-only; only the coin screen needs it.
     func loadAllCoins() async {
-        guard let wallet, allCoins.isEmpty else { return }
+        guard let wallet, allCoins.isEmpty, !demo else { return }
         let all: [Coin] = (try? await rpc.call("listcoins", wallet: wallet)) ?? []
         if self.wallet == wallet { allCoins = all }
     }
