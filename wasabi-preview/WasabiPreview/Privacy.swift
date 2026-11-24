@@ -106,6 +106,7 @@ struct PrivacyView: View {
                 }
             }
         }
+        .readableWidth()
         .scrollContentBackground(.hidden)
         .background { Backdrop() }
         .navigationTitle("Privacy")
@@ -267,6 +268,7 @@ struct CoinView: View {
             }
             .wasabiRows()
         }
+        .readableWidth()
         .scrollContentBackground(.hidden)
         .background { Backdrop() }
         .navigationTitle("Coin")

@@ -990,6 +990,7 @@ struct PrivacyRoundsView: View {
             }
             .wasabiRows()
         }
+        .readableWidth()
         .scrollContentBackground(.hidden)
         .background { Backdrop() }
         .navigationTitle("Privacy rounds")
@@ -1099,6 +1100,7 @@ struct TransactionView: View {
             }
             .wasabiRows()
         }
+        .readableWidth()
         .scrollContentBackground(.hidden)
         .background { Backdrop() }
         .navigationTitle(item.title)

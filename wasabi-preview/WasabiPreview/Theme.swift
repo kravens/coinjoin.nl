@@ -354,6 +354,10 @@ extension View {
             }
     }
 
+    // A detail List on a wide screen (iPhone Duo unfolded) keeps its rows at a readable width, centred, with the backdrop
+    // still edge to edge; on a phone the List's own margins stay.
+    func readableWidth(_ max: CGFloat = 600) -> some View { modifier(ReadableWidth(max: max)) }
+
     // One screen of a flow sheet: backdrop, inline title, and the iOS 26 Close circle at the top trailing. Pushed steps keep
     // their Back button; Close leaves the whole flow. `close` must come from the sheet root, a pushed view's dismiss only pops.
     func flowScreen(_ title: String, close: @escaping () -> Void) -> some View {
@@ -497,6 +501,17 @@ struct CopyButton: View {
             try? await Task.sleep(for: .seconds(1.5))
             copied = false
         }
+    }
+}
+
+struct ReadableWidth: ViewModifier {
+    let max: CGFloat
+    @State private var margin: CGFloat?
+
+    func body(content: Content) -> some View {
+        content
+            .contentMargins(.horizontal, margin, for: .scrollContent)
+            .onGeometryChange(for: CGFloat?.self) { $0.size.width > max + 40 ? ($0.size.width - max) / 2 : nil } action: { margin = $0 }
     }
 }
 
