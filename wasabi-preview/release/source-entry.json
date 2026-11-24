@@ -17,6 +17,15 @@
   ],
   "versions": [
     {
+      "version": "1.2",
+      "buildVersion": "3",
+      "date": "2026-11-25",
+      "localizedDescription": "A demo wallet to look around without a computer, and a decoy: the app can open with the demo wallet and return to it whenever you leave, with your own wallet behind Face ID. iPhone Duo and landscape show transactions next to balance and privacy. Addresses appear in groups of four.",
+      "downloadURL": "https://github.com/kravens/coinjoin.nl/releases/download/wasabi-preview-mobile-1.2/WasabiPreviewMobile-1.2.ipa",
+      "size": 4781482,
+      "minOSVersion": "26.0"
+    },
+    {
       "version": "1.1",
       "buildVersion": "2",
       "date": "2026-11-22",
