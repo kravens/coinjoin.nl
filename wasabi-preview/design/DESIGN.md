@@ -92,7 +92,7 @@ Wasabi's AmountControl, on both platforms:
 | Primary action | Full width minus 16 each side, 8 above the home indicator; Android 52 high, radius 26 | One per screen |
 | Receive / Send buttons | Two equal glass buttons, 12 apart; Android radius 30, icon 22 | Over the bottom of the home list |
 | Side menu | 300 wide, radius 28 on the open edge | Both platforms |
-| Column gap (wide home) | 12 | Between transactions and balance |
+| Column gap (wide home) | 12 | Between transactions and balance, and between Receive and Send, so they line up |
 
 Units are points on iOS and dp on Android.
 
@@ -135,7 +135,7 @@ Units are points on iOS and dp on Android.
 | Width | Home | Detail screens |
 |---|---|---|
 | Phone (under 640) | One list: balance and privacy card, then transactions | Full width with 16 margins |
-| Wide, 640 and up (iPhone Duo unfolded, foldables, tablets, phone on its side) | Two columns: transactions on the left, balance, coins and privacy on the right (400 iOS, 416 Android), each scrolling on its own | Rows at most 600 wide, centred; the backdrop stays edge to edge |
+| Wide, 640 and up (iPhone Duo unfolded, foldables, tablets, phone on its side) | Two columns: transactions on the left, balance, coins and privacy on the right (card 378 iOS, 394 Android), each scrolling on its own. Receive sits exactly under the transactions card and Send under the balance card: same outer margin (16 inside the safe area), same 12 gap | Rows at most 600 wide, centred; the backdrop stays edge to edge |
 
 Narrow screens (a foldable's cover display) use the phone layout; transaction rows reflow as described above.
 

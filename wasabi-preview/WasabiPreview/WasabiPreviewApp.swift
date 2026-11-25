@@ -706,6 +706,15 @@ extension View {
 // The home is the wallet: one card that carries its name in the caption, the balance, the coins folded behind it and
 // the privacy state, then a Transactions card right under it. Both are List sections so coin rows keep their swipe
 // action; the wallet card's rows share one surface so they read as a single card (bitcoin.design: balance first).
+// The two-column home on wide screens (design/DESIGN.md, Layout): the balance card has a fixed width on the right, the
+// transactions card takes the rest, and Receive and Send sit exactly under them.
+enum WideHome {
+    static let minWidth: CGFloat = 640
+    static let margin: CGFloat = 16 // screen edge to card
+    static let gap: CGFloat = 12 // between the two cards, and between Receive and Send
+    static let sideCard: CGFloat = 378 // the balance and privacy card
+}
+
 struct HomeView: View {
     let mirror: Mirror
     let open: (ContentView.Route) -> Void
@@ -724,12 +733,20 @@ struct HomeView: View {
     var body: some View {
         // A wide screen (iPhone Duo unfolded, a phone on its side) puts the transactions on the left and keeps balance
         // and privacy on the right, each scrolling on its own; a phone in portrait stacks them as before.
+        // The Lists get no side margins of their own and sit inside the safe area with WideHome's margin, the same edges
+        // the Receive and Send bar uses, so the buttons line up with the two cards (a List's own margin would grow into
+        // the landscape notch and the Duo's side rail, the bar's would not).
         Group {
             if wide {
-                HStack(alignment: .top, spacing: 12) { // each List has its own margin; this keeps the two cards apart
+                // 1 pt of List margin, not 0: at 0 the inset-grouped cards lose their rounded corners.
+                HStack(alignment: .top, spacing: WideHome.gap - 2) {
                     list { if mirror.ready { transactions } }
-                    list { summary }.frame(width: 400)
+                        .contentMargins(.horizontal, 1, for: .scrollContent)
+                    list { summary }
+                        .contentMargins(.horizontal, 1, for: .scrollContent)
+                        .frame(width: WideHome.sideCard + 2)
                 }
+                .padding(.horizontal, WideHome.margin - 1)
             } else {
                 list {
                     summary
@@ -737,7 +754,7 @@ struct HomeView: View {
                 }
             }
         }
-        .onGeometryChange(for: Bool.self) { $0.size.width >= 640 } action: { wide = $0 }
+        .onGeometryChange(for: Bool.self) { $0.size.width >= WideHome.minWidth } action: { wide = $0 }
         .background { Backdrop() }
     }
 
@@ -1018,15 +1035,18 @@ struct ActionBar: View {
     let mirror: Mirror
     let open: (ContentView.Flow) -> Void
     @Environment(\.appTheme) private var theme
+    @State private var wide = false
 
     var body: some View {
-        GlassEffectContainer(spacing: 12) {
-            HStack(spacing: 12) {
+        GlassEffectContainer(spacing: WideHome.gap) {
+            HStack(spacing: WideHome.gap) {
                 action("Receive", .receive) { open(.receive) }
                 action("Send", .send) { open(.send(nil)) }
+                    .frame(width: wide ? WideHome.sideCard : nil) // under the balance card, as Receive is under the transactions
             }
         }
-        .padding(.horizontal)
+        .padding(.horizontal, WideHome.margin)
+        .onGeometryChange(for: Bool.self) { $0.size.width >= WideHome.minWidth } action: { wide = $0 }
         .padding(.top, 4)
         .padding(.bottom, 2)
         .background {

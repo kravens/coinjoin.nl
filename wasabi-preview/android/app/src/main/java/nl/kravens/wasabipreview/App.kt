@@ -412,7 +412,7 @@ private fun Home(mirror: Mirror, nav: Nav, onMenu: () -> Unit, onReceive: () -> 
         // Receive and Send float over the list, so their glass shows it blurred as well as the backdrop.
         bottomBar = {
             val sources = LocalGlassSources.current + list + if (wide) listOf(side) else emptyList()
-            CompositionLocalProvider(LocalGlassSources provides sources) { ActionBar(mirror.ready, onReceive, onSend) }
+            CompositionLocalProvider(LocalGlassSources provides sources) { ActionBar(mirror.ready, if (wide) WIDE_SIDE_CARD else null, onReceive, onSend) }
         },
     ) { padding ->
         val summary: LazyListScope.() -> Unit = {
@@ -448,7 +448,7 @@ private fun Home(mirror: Mirror, nav: Nav, onMenu: () -> Unit, onReceive: () -> 
         PullToRefreshBox(refreshing, { scope.launch { refreshing = true; mirror.refresh(); refreshing = false } }, Modifier.padding(top = padding.calculateTopPadding())) {
             if (wide) Row(Modifier.fillMaxSize()) {
                 column(list, Modifier.weight(1f), 16.dp, 6.dp, transactions)
-                column(side, Modifier.width(416.dp), 6.dp, 16.dp, summary)
+                column(side, Modifier.width(WIDE_SIDE_CARD + 22.dp), 6.dp, 16.dp, summary)
             } else column(list, Modifier.fillMaxWidth(), 16.dp, 16.dp) { summary(); transactions() }
         }
     }
@@ -661,17 +661,22 @@ fun ShieldStack(size: androidx.compose.ui.unit.Dp, color: Color) {
     }
 }
 
+// The balance card's width on the wide home (design/DESIGN.md, Layout); Send takes the same width so the two buttons sit
+// exactly under the transactions card and the balance card.
+private val WIDE_SIDE_CARD = 394.dp
+
 // Receive | Send, pinned under the home: the two things a wallet is for.
 @Composable
-private fun ActionBar(enabled: Boolean, onReceive: () -> Unit, onSend: () -> Unit) {
+private fun ActionBar(enabled: Boolean, sideWidth: androidx.compose.ui.unit.Dp?, onReceive: () -> Unit, onSend: () -> Unit) {
     val p = LocalPalette.current
     androidx.compose.foundation.layout.Row(
         Modifier.fillMaxWidth().background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(p.window.copy(alpha = 0f), p.window.copy(alpha = 0.94f)))).navigationBarsPadding().padding(horizontal = 16.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         for ((title, icon, action) in listOf(Triple("Receive", WasabiIcon.receive, onReceive), Triple("Send", WasabiIcon.send, onSend))) {
+            val width = if (title == "Send" && sideWidth != null) Modifier.width(sideWidth) else Modifier.weight(1f)
             Column(
-                Modifier.weight(1f).glass(p, RoundedCornerShape(30.dp)).clickable(enabled, onClick = action).padding(vertical = 10.dp),
+                width.glass(p, RoundedCornerShape(30.dp)).clickable(enabled, onClick = action).padding(vertical = 10.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Icon(icon, 22.dp, if (enabled) p.accent else p.tertiary)
