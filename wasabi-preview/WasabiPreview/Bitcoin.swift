@@ -329,11 +329,11 @@ enum Bitcoin {
         return UIImage(cgImage: cg)
     }
 
-    #if DEBUG
-    // Money logic gets one runnable check; it runs once at app launch in debug builds.
     // bech32m witness v1 ("bc1p…", "tb1p…", "bcrt1p…"): Taproot; anything else Wasabi hands out is SegWit v0.
     static func isTaproot(_ address: String) -> Bool { address.lowercased().range(of: #"^(bc|tb|bcrt)1p"#, options: .regularExpression) != nil }
 
+    #if DEBUG
+    // Money logic gets one runnable check; it runs once at app launch in debug builds.
     static func selfCheck() {
         assert(isTaproot("bc1p0xlxvlhemja6c4dqv22uapctqupfhlxm9h8z3k2e72q4k9hcz7vqzk5jj0") && !isTaproot("bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4"))
         assert(sats(btc: "0.001") == 100_000)
