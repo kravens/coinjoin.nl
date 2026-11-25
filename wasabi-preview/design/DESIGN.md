@@ -103,6 +103,7 @@ Units are points on iOS and dp on Android.
 - **iOS:** system Liquid Glass, `.glassEffect(.regular)` on cards, `.buttonStyle(.glass)` and `.glassProminent` on buttons.
 - **Android:** drawn by `Modifier.glass()`: the backdrop and the content behind are redrawn into a layer, blurred 24 dp, then tinted with `tile` at 50% (dark) or 60% (light), with a 0.75 dp rim that fades from primary at 22% (dark) or 50% (light) to 5%. Android 12 and later; older versions get the tint only.
 - What may sit under glass: the backdrop always; the home list under Receive and Send; the whole screen under the side menu. A glass element never blurs a source that contains itself.
+- **Edge frost on the wide home (iOS):** the system frosts only one scroll view under a bar, so with two columns the app hides it and draws its own across the full width: `ultraThinMaterial` (black on the Black theme), solid over the navigation bar and fading out 40 below it; under Receive and Send at 60% so the list still shows faintly.
 
 ### Black theme cards
 

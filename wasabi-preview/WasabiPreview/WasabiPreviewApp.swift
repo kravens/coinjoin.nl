@@ -732,6 +732,43 @@ enum WideHome {
     static let sideCard: CGFloat = 378 // the balance and privacy card
 }
 
+private extension View {
+    // The navigation bar and the Receive and Send bar give their scroll edge effect to one scroll view only, so in two
+    // columns the right one scrolled under them unfrosted. The wide home draws one frost across both columns instead.
+    func edgeFrost() -> some View {
+        scrollEdgeEffectHidden(true, for: .vertical)
+            .overlay(alignment: .top) { EdgeFrost(top: true) }
+            .overlay(alignment: .bottom) { EdgeFrost(top: false) }
+    }
+}
+
+// Solid over the bar's safe area, then fading out over 40 below it: a blur on Wasabi, black on Black so OLED pixels stay
+// off. Under Receive and Send it stays lighter, so the list still shows faintly through the glass buttons.
+private struct EdgeFrost: View {
+    let top: Bool
+    @Environment(\.appTheme) private var theme
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if !top { fade }
+            Color.clear.frame(height: 0).background { fill.opacity(top ? 1 : 0.6).ignoresSafeArea() }
+            if top { fade }
+        }
+        .ignoresSafeArea(edges: .horizontal)
+        .allowsHitTesting(false)
+    }
+
+    private var fade: some View {
+        fill.opacity(top ? 1 : 0.6)
+            .mask(LinearGradient(colors: [.black, .clear], startPoint: top ? .top : .bottom, endPoint: top ? .bottom : .top))
+            .frame(height: 40)
+    }
+
+    @ViewBuilder private var fill: some View {
+        if theme == .black { Color.black } else { Rectangle().fill(.ultraThinMaterial) }
+    }
+}
+
 struct HomeView: View {
     let mirror: Mirror
     let open: (ContentView.Route) -> Void
@@ -764,6 +801,7 @@ struct HomeView: View {
                         .frame(width: WideHome.sideCard + 2)
                 }
                 .padding(.horizontal, WideHome.margin - 1)
+                .edgeFrost()
             } else {
                 list {
                     summary

@@ -20,15 +20,19 @@ final class DemoTests: XCTestCase {
     }
 
     // A wide screen (here a phone on its side, like iPhone Duo unfolded) shows balance and transactions side by side.
+    // The coins are open and the right column is scrolled, so the screenshot shows whether both columns get the frosted
+    // top bar.
     func testWideHomeShowsBalanceAndTransactionsTogether() throws {
         let app = XCUIApplication()
-        app.launchEnvironment = ["WASABI_SCREEN": "home", "WASABI_DEMO": "1", "WASABI_DISCREET": "0"]
+        app.launchEnvironment = ["WASABI_SCREEN": "coins", "WASABI_DEMO": "1", "WASABI_DISCREET": "0"]
         app.launch()
         XCUIDevice.shared.orientation = .landscapeLeft
         defer { XCUIDevice.shared.orientation = .portrait }
         XCTAssertTrue(app.staticTexts["Balance Daily"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["TRANSACTIONS"].isHittable)
         XCTAssertTrue(app.staticTexts["Balance Daily"].isHittable)
+        let right = app.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.7))
+        right.press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.45)))
         let shots = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("build/shots")
         try FileManager.default.createDirectory(at: shots, withIntermediateDirectories: true)
         try XCUIScreen.main.screenshot().pngRepresentation.write(to: shots.appendingPathComponent("wide-home.png"))
