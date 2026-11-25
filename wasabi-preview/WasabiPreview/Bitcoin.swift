@@ -331,8 +331,21 @@ enum Bitcoin {
 
     #if DEBUG
     // Money logic gets one runnable check; it runs once at app launch in debug builds.
+    // bech32m witness v1 ("bc1p…", "tb1p…", "bcrt1p…"): Taproot; anything else Wasabi hands out is SegWit v0.
+    static func isTaproot(_ address: String) -> Bool { address.lowercased().range(of: #"^(bc|tb|bcrt)1p"#, options: .regularExpression) != nil }
+
     static func selfCheck() {
+        assert(isTaproot("bc1p0xlxvlhemja6c4dqv22uapctqupfhlxm9h8z3k2e72q4k9hcz7vqzk5jj0") && !isTaproot("bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4"))
         assert(sats(btc: "0.001") == 100_000)
+        let keys = [
+            WalletKey(fullKeyPath: "84'/0'/0'/0/1", isInternal: false, keyState: 2, label: "Bob", address: "a"),
+            WalletKey(fullKeyPath: "84'/0'/0'/0/2", isInternal: false, keyState: 0, label: "alice, Concert tickets", address: "b"),
+            WalletKey(fullKeyPath: "84'/0'/0'/0/3", isInternal: false, keyState: 0, label: "", address: "c"),
+            WalletKey(fullKeyPath: "84'/0'/0'/1/9", isInternal: true, keyState: 2, label: "Zed", address: "d"),
+        ]
+        assert(Labels.ranked(keys) == ["alice", "Concert tickets", "Bob", "Zed"])
+        assert(Labels.suggestions(Labels.ranked(keys), typed: "c", chosen: ["Alice"]) == ["Concert tickets"])
+        assert(Labels.waiting(keys).map(\.address) == ["b"])
         func coin(_ sats: Int, _ score: Double, tx: String = "", index: Int = 0, confirmed: Bool = true) -> Coin {
             Coin(txid: tx, index: index, amount: sats, anonymityScore: score, confirmed: confirmed, confirmations: nil, label: nil, address: "", excludedFromCoinjoin: false, spentBy: nil)
         }

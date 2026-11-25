@@ -4,7 +4,9 @@ import SwiftUI
 // Receive as bitcoin.design's payment request: who is paying and an optional amount first, then one big QR with copy and share.
 struct ReceiveView: View {
     let mirror: Mirror
-    @State private var label = ""
+    @State private var label = "" // what is being typed; a comma or Return turns it into a chip
+    @State private var chips: [String] = [] // labels chosen so far; Wasabi stores them as one comma-separated set
+    @State private var keys: [WalletKey] = [] // listkeys: earlier labels and addresses awaiting payment
     @State private var amount = ""
     @State private var unit = "BTC"
     @AppStorage("taproot") private var taproot = true // Settings › Sending and receiving
@@ -15,12 +17,21 @@ struct ReceiveView: View {
     init(mirror: Mirror) {
         self.mirror = mirror
         #if DEBUG
-        if Screen.current == .receiveAddress { _label = State(initialValue: "Alice, concert tickets"); _amount = State(initialValue: "0.001"); _address = State(initialValue: Screen.demoTaprootAddress) }
+        if Screen.current == .receiveAddress { _chips = State(initialValue: ["Alice", "concert tickets"]); _amount = State(initialValue: "0.001"); _address = State(initialValue: Screen.demoTaprootAddress) }
+        // The demo coins sit on demoAddress, so its request shows the "Payment received" state.
+        if Screen.current == .receivePaid { _chips = State(initialValue: ["Bitcoin meetup refund"]); _address = State(initialValue: Screen.demoAddress) }
         #endif
     }
 
     private var sats: Int? { unit == "BTC" ? Bitcoin.sats(btc: amount) : Int(amount) }
     private var uri: String? { address.map { Bitcoin.uri(address: $0, sats: sats) } }
+    private var labels: [String] { chips + Labels.split(label) }
+    private var fullLabel: String { labels.joined(separator: ", ") }
+
+    private func commit() {
+        for part in Labels.split(label) where !chips.contains(where: { $0.caseInsensitiveCompare(part) == .orderedSame }) { chips.append(part) }
+        label = ""
+    }
     private var screen: UIScreen? { (UIApplication.shared.connectedScenes.first as? UIWindowScene)?.screen }
 
     var body: some View {
@@ -36,26 +47,77 @@ struct ReceiveView: View {
     private var form: some View {
         List {
             Section {
-                TextField("Who is paying you", text: $label)
+                if !chips.isEmpty {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 6) {
+                            ForEach(chips, id: \.self) { chip in
+                                Button { chips.removeAll { $0 == chip } } label: { Label(chip, systemImage: "xmark").labelStyle(ChipLabel()) }
+                                    .buttonStyle(.borderedProminent).tint(Wasabi.accent.opacity(0.85)).controlSize(.small)
+                                    .accessibilityLabel("\(chip), remove")
+                            }
+                        }
+                    }
+                }
+                TextField(chips.isEmpty ? "Who is paying you" : "Add another label", text: $label)
+                    .submitLabel(.next)
+                    .onSubmit { commit() }
+                    .onChange(of: label) { if label.contains(",") { commit() } }
+                let suggestions = Labels.suggestions(Labels.ranked(keys), typed: label, chosen: labels)
+                if !suggestions.isEmpty {
+                    // Earlier labels, like desktop Wasabi's suggestions: tap one to add it.
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 6) {
+                            ForEach(suggestions, id: \.self) { suggestion in
+                                Button(suggestion) { label = ""; chips.append(suggestion) }
+                                    .buttonStyle(.bordered).tint(Wasabi.accent).controlSize(.small)
+                            }
+                        }
+                    }
+                }
                 HStack {
                     TextField("Amount (optional)", text: $amount).keyboardType(.decimalPad)
                     Picker("Unit", selection: $unit) { Text("BTC").tag("BTC"); Text("sats").tag("sats") }.pickerStyle(.segmented).fixedSize()
                 }
                 if let sats, let usd = mirror.usd(sats) { Text(usd).font(.caption).foregroundStyle(.secondary).frosted(mirror.discreet) }
             } footer: {
-                Text("Only you see the label: Wasabi keeps it so you know later where the coins came from. Leave the amount empty and the sender fills it in.")
+                Text("Only you see the label: Wasabi keeps it so you know later where the coins came from. Separate people or reasons with a comma. Leave the amount empty and the sender fills it in.")
             }
             .wasabiRows()
             .walletGate(mirror)
+            let waiting = Labels.waiting(keys)
+            if !waiting.isEmpty {
+                Section {
+                    ForEach(waiting, id: \.address) { key in
+                        // Show this address again instead of handing out a new one to someone who has not paid yet.
+                        Button { chips = key.labels; label = ""; amount = ""; address = key.address } label: {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(key.labels.joined(separator: ", ")).lineLimit(1)
+                                Text(mirror.mask(key.address)).font(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                                    .frosted(mirror.discreet)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentShape(.rect)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                } header: {
+                    Text("Waiting for payment")
+                } footer: {
+                    Text("Addresses you handed out that have not been paid yet. Tap one to show it again.")
+                }
+                .wasabiRows()
+            }
         }
+        .task { keys = await mirror.loadKeys() }
         .dismissableKeyboard()
         .onChange(of: unit) { old, new in // converts, like Send; keeping the digits would turn 1 BTC into 1 sat
             guard let value = old == "BTC" ? Bitcoin.sats(btc: amount) : Int(amount) else { amount = ""; return }
             amount = new == "BTC" ? Bitcoin.btc(value) : String(value)
         }
         .safeAreaInset(edge: .bottom) {
-            PrimaryAction(title: "Create address", icon: .receive, disabled: label.trimmingCharacters(in: .whitespaces).isEmpty || mirror.busy) {
-                let (label, taproot) = (label, taproot)
+            PrimaryAction(title: "Create address", icon: .receive, disabled: labels.isEmpty || mirror.busy) {
+                commit()
+                let (label, taproot) = (fullLabel, taproot)
                 // sabi.py: getnewaddress [label, taproot]; Wasabi refuses an empty label.
                 Task {
                     await mirror.perform("New address") { _ in
@@ -68,8 +130,25 @@ struct ReceiveView: View {
     }
 
     private func request(_ address: String, _ uri: String) -> some View {
-        ScrollView {
+        // The refresh loop keeps running under this sheet, so a coin on this address shows up here within seconds.
+        let paid = mirror.coins.filter { $0.address == address }
+        return ScrollView {
             VStack(spacing: 14) {
+                if !paid.isEmpty {
+                    HStack(spacing: 12) {
+                        Icon(.check, size: 26).foregroundStyle(Wasabi.accent)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Payment received").font(.headline)
+                            Amount(sats: paid.reduce(0) { $0 + $1.amount }, mirror: mirror)
+                            Text(paid.allSatisfy(\.confirmed) ? "Confirmed" : "Pending, waiting for a block").font(.footnote).foregroundStyle(.secondary)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .padding(14)
+                    .tileSurface()
+                    .accessibilityElement(children: .combine)
+                    .transition(.scale(scale: 0.95).combined(with: .opacity))
+                }
                 VStack(spacing: 14) {
                     if let qr = Bitcoin.qr(uri) {
                         // Wasabi draws the QR on a white card; keep it scannable in dark mode and under discreet frosting.
@@ -91,9 +170,10 @@ struct ReceiveView: View {
                 .frame(maxWidth: .infinity)
                 .tileSurface()
                 Tile("REQUEST") {
-                    LabeledContent("From", value: label)
+                    LabeledContent("From", value: fullLabel)
                     if let sats, sats > 0 { LabeledContent("Amount") { Amount(sats: sats, mirror: mirror) } }
-                    LabeledContent("Address type", value: taproot ? "Taproot" : "SegWit")
+                    // From the address itself: a reopened one keeps the type it was made with, whatever Settings says now.
+                    LabeledContent("Address type", value: Bitcoin.isTaproot(address) ? "Taproot" : "SegWit")
                 }
                 .font(.subheadline)
                 Text("Each address is used once. Create a new one for the next payment.")
@@ -101,11 +181,19 @@ struct ReceiveView: View {
             }
             .padding()
         }
+        .animation(.snappy(duration: 0.3), value: paid.count)
         // Done also arms the coinjoin for Balanced and More private; autoCoinjoin is quiet and does nothing for Lower fees.
         .safeAreaInset(edge: .bottom) { PrimaryAction(title: "Done", system: "checkmark") { Task { await mirror.autoCoinjoin() }; dismiss() } }
         // bitcoin.design: brighten the screen while a QR is shown so it scans first time.
         .onAppear { brightness = screen?.brightness; screen?.brightness = 1 }
         .onDisappear { if let brightness { screen?.brightness = brightness } }
+    }
+}
+
+// A label chip: the title, then a small cross that says "tap to remove".
+struct ChipLabel: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 4) { configuration.title; configuration.icon.font(.caption2.weight(.bold)) }
     }
 }
 

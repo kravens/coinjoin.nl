@@ -206,7 +206,7 @@ private fun startRoutes(mirror: Mirror, link: Bitcoin.Payment?): List<Route> {
         "rounds" -> HistoryItem.chains(mirror.history).firstOrNull { it.size > 1 }?.let { listOf(Route.Rounds(it)) } ?: emptyList()
         "coin" -> mirror.coins.maxByOrNull { it.anonymityScore }?.let { listOf(Route.CoinDetail(it)) } ?: emptyList()
         "settings" -> listOf(Route.Settings)
-        "receive", "receiveLow", "receiveHigh", "receiveAddress" -> listOf(Route.Receive)
+        "receive", "receiveLow", "receiveHigh", "receiveAddress", "receivePaid" -> listOf(Route.Receive)
         "send", "sendLow", "sendHigh" -> listOf(Route.Send(SendStep.TO))
         "sendAmount", "sendAmountHigh" -> listOf(Route.Send(SendStep.AMOUNT))
         "sendFee" -> listOf(Route.Send(SendStep.FEE))

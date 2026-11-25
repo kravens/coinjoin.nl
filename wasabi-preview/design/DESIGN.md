@@ -124,6 +124,9 @@ Units are points on iOS and dp on Android.
 | Privacy bar | Private, semi-private, rest in the three privacy colours |
 | Transaction row | Direction icon, title and date, signed amount, pending clock, chevron. When title and amount do not fit side by side the amount moves under the title, next to the date |
 | Privacy rounds | Consecutive coinjoins collapse into one "Privacy rounds" row with stacked shields |
+| Label input (Receive) | Chosen labels are filled `accent` chips with a cross (tap to remove); earlier labels are tinted chips under the field, ranked like desktop Wasabi (receive labels, newest first), filtered as you type. A comma or Return turns typed text into a chip |
+| Waiting for payment | Under the Receive form: addresses handed out and not paid yet (label, middle-truncated address); tap to show that request again |
+| Payment received | On a payment request, a card with a check in `accent`, the amount, and "Pending" or "Confirmed", as soon as a coin lands on the address |
 | Segmented control | iOS segmented style; Android `Segmented` pill track |
 | Secondary button | Tinted: `accent` at 16% fill, `accent` text, capsule |
 | Link status | Tailscale mark in `accent`, Tor mark in `tor`, grey when the link timed out; pulses while connecting |

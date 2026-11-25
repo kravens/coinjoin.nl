@@ -1,5 +1,6 @@
 package nl.kravens.wasabipreview
 
+import androidx.compose.foundation.layout.PaddingValues
 import android.os.Build
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.layer.GraphicsLayer
@@ -392,9 +393,9 @@ fun copy(context: Context, text: String, sensitive: Boolean = false) {
 // Copy with proof: the icon and label flip to a check for 1.5 s with a confirm haptic.
 // The iOS tinted capsule (.bordered with a tint): accent label on a faint accent fill, no outline.
 @Composable
-fun TintedButton(onClick: () -> Unit, modifier: Modifier = Modifier, content: @Composable RowScope.() -> Unit) {
+fun TintedButton(onClick: () -> Unit, modifier: Modifier = Modifier, contentPadding: PaddingValues = ButtonDefaults.ContentPadding, content: @Composable RowScope.() -> Unit) {
     val accent = LocalPalette.current.accent
-    Button(onClick, modifier, shape = CircleShape, colors = ButtonDefaults.buttonColors(containerColor = accent.copy(alpha = 0.16f), contentColor = accent), content = content)
+    Button(onClick, modifier, shape = CircleShape, colors = ButtonDefaults.buttonColors(containerColor = accent.copy(alpha = 0.16f), contentColor = accent), contentPadding = contentPadding, content = content)
 }
 
 @Composable

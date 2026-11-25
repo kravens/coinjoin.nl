@@ -204,6 +204,73 @@ struct HistoryItem: Decodable, Identifiable, Hashable {
 
 struct NewAddress: Decodable { let address: String }
 
+// listkeys: every key of the wallet. Receive (not internal) keys carry the labels typed on Receive; a clean one with a
+// label is an address handed out and not paid yet, desktop Wasabi's "addresses awaiting payment".
+struct WalletKey: Decodable, Hashable, Sendable {
+    let fullKeyPath: String
+    let isInternal: Bool
+    let keyState: Int // KeyState: 0 Clean, 1 Locked, 2 Used
+    let label: String
+    let address: String
+
+    enum CodingKeys: String, CodingKey { case fullKeyPath, isInternal = "internal", keyState, label, address }
+
+    init(fullKeyPath: String, isInternal: Bool, keyState: Int, label: String, address: String) {
+        (self.fullKeyPath, self.isInternal, self.keyState, self.label, self.address) = (fullKeyPath, isInternal, keyState, label, address)
+    }
+
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        fullKeyPath = try c.decode(String.self, forKey: .fullKeyPath)
+        isInternal = try c.decode(Bool.self, forKey: .isInternal)
+        label = try c.decodeIfPresent(String.self, forKey: .label) ?? ""
+        address = try c.decode(String.self, forKey: .address)
+        // An enum, serialized as its number; accept its name too in case a Wasabi version switches to strings.
+        if let n = try? c.decode(Int.self, forKey: .keyState) { keyState = n } else {
+            keyState = ["Clean": 0, "Locked": 1, "Used": 2][try c.decode(String.self, forKey: .keyState)] ?? 2
+        }
+    }
+
+    var index: Int { Int(fullKeyPath.split(separator: "/").last ?? "") ?? 0 }
+    var labels: [String] { Labels.split(label) }
+    var waiting: Bool { !isInternal && keyState == 0 && !labels.isEmpty }
+}
+
+enum Labels {
+    // Wasabi keeps a label as a comma-separated set ("Alice, concert tickets").
+    static func split(_ label: String) -> [String] {
+        label.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+    }
+
+    // Desktop's GetLabelsWithRanking for Receive: each receive label scores 100 plus a recency bonus (100 for the newest
+    // key, one less per older one, at least 1); change labels score 1. Case-insensitive, the first spelling wins.
+    static func ranked(_ keys: [WalletKey]) -> [String] {
+        var score: [String: (label: String, score: Int)] = [:]
+        func add(_ label: String, _ points: Int) {
+            let key = label.lowercased()
+            score[key] = (score[key]?.label ?? label, (score[key]?.score ?? 0) + points)
+        }
+        for (n, key) in keys.filter({ !$0.isInternal }).sorted(by: { $0.index > $1.index }).enumerated() {
+            key.labels.forEach { add($0, 100 + max(1, 100 - n)) }
+        }
+        keys.filter(\.isInternal).forEach { $0.labels.forEach { add($0, 1) } }
+        return score.values.sorted { $0.score != $1.score ? $0.score > $1.score : $0.label.lowercased() < $1.label.lowercased() }.map(\.label)
+    }
+
+    // What to offer under the field: the best-ranked labels that contain what is typed, minus the ones already chosen.
+    static func suggestions(_ ranked: [String], typed: String, chosen: [String], limit: Int = 6) -> [String] {
+        let typed = typed.trimmingCharacters(in: .whitespaces).lowercased()
+        let taken = Set(chosen.map { $0.lowercased() })
+        return Array(ranked.filter { !taken.contains($0.lowercased()) && (typed.isEmpty || $0.lowercased().contains(typed)) }.prefix(limit))
+    }
+
+    // Addresses handed out and not paid yet, newest first, one per address.
+    static func waiting(_ keys: [WalletKey]) -> [WalletKey] {
+        var seen = Set<String>()
+        return keys.filter(\.waiting).sorted { $0.index > $1.index }.filter { seen.insert($0.address).inserted }
+    }
+}
+
 struct SendResult: Decodable { let txid: String }
 
 // listpaymentsincoinjoin; state[0] is the newest state.

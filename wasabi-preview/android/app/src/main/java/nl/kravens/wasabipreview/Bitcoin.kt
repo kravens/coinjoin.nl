@@ -10,6 +10,9 @@ import java.security.MessageDigest
 
 // Money helpers, ported from the iOS app's Bitcoin.swift. Everything is integer satoshis; BTC strings never go through Double.
 object Bitcoin {
+    // bech32m witness v1 ("bc1p…", "tb1p…", "bcrt1p…"): Taproot; anything else Wasabi hands out is SegWit v0.
+    fun isTaproot(address: String) = Regex("^(bc|tb|bcrt)1p").containsMatchIn(address.lowercase())
+
     // Which chain. getstatus.network is NBitcoin's name: Main, TestNet, TestNet4, Signet or RegTest.
     enum class Network(val label: String) {
         MAIN("mainnet"), TEST("testnet"), REGTEST("regtest");

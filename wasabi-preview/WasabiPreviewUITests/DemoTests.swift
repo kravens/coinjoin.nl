@@ -49,6 +49,29 @@ final class DemoTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Groceries"].waitForExistence(timeout: 5))
     }
 
+    // Receive offers earlier labels as chips, lists addresses awaiting payment, and reopens one of them as its request.
+    func testReceiveSuggestsLabelsAndShowsWaitingAddresses() {
+        let app = XCUIApplication()
+        app.launchEnvironment = ["WASABI_SCREEN": "receive", "WASABI_DEMO": "1"]
+        app.launch()
+        XCTAssertTrue(app.buttons["Alice"].waitForExistence(timeout: 5))
+        app.buttons["Alice"].tap()
+        XCTAssertTrue(app.buttons["Alice, remove"].exists)
+        XCTAssertFalse(app.buttons["Alice"].exists) // a chosen label is no longer suggested
+        XCTAssertTrue(app.staticTexts["Waiting for payment"].exists)
+        app.staticTexts["Bob, bike repair"].tap()
+        XCTAssertTrue(app.buttons["Copy"].waitForExistence(timeout: 5)) // the payment request for that address
+        XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS 'Bob, bike repair'")).firstMatch.exists)
+        XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS 'SegWit'")).firstMatch.exists)
+    }
+
+    func testReceivedPaymentShowsOnTheRequest() {
+        let app = XCUIApplication()
+        app.launchEnvironment = ["WASABI_SCREEN": "receivePaid", "WASABI_DEMO": "1"]
+        app.launch()
+        XCTAssertTrue(app.staticTexts["Payment received"].waitForExistence(timeout: 5))
+    }
+
     func testDecoyOpensWithDemoWallet() {
         let app = XCUIApplication()
         app.launchArguments = ["-decoy", "YES"]

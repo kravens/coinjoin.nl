@@ -336,7 +336,7 @@ final class Mirror {
 // otherwise need a write to the RPC (new address, build). Nothing here ever reaches Wasabi.
 enum Screen: String {
     case home, coins, coin, transaction, rounds, privacy, menu, settings, connection
-    case receive, receiveLow, receiveHigh, receiveAddress
+    case receive, receiveLow, receiveHigh, receiveAddress, receivePaid
     case send, sendLow, sendHigh, sendAmount, sendAmountHigh, sendFee, sendReview, sendSuccess
 
     static let current = ProcessInfo.processInfo.environment["WASABI_SCREEN"].flatMap(Screen.init)
@@ -346,7 +346,7 @@ enum Screen: String {
 
     var flow: ContentView.Flow? {
         switch self {
-        case .receive, .receiveLow, .receiveHigh, .receiveAddress: .receive
+        case .receive, .receiveLow, .receiveHigh, .receiveAddress, .receivePaid: .receive
         case .send, .sendLow, .sendHigh, .sendAmount, .sendAmountHigh, .sendFee, .sendReview, .sendSuccess: .send(nil)
         case .home, .coins, .coin, .transaction, .rounds, .privacy, .menu, .settings, .connection: nil
         }
@@ -416,6 +416,23 @@ extension Mirror {
         updated = .now
         walletLoaded = true
     }
+
+    // listkeys, read-only, for Receive's label suggestions and its addresses awaiting payment.
+    func loadKeys() async -> [WalletKey] {
+        if demo { return Self.demoKeys }
+        guard let wallet else { return [] }
+        return (try? await rpc.call("listkeys", wallet: wallet)) ?? []
+    }
+
+    // Made-up labels like the demo history's, and two addresses awaiting payment (BIP350 and BIP173 test vectors, which
+    // no demo coin uses, so they never show as paid).
+    static let demoKeys: [WalletKey] = [
+        ("84'/0'/0'/0/3", 2, "Bitcoin meetup refund", demoAddress),
+        ("84'/0'/0'/0/4", 2, "Sold a concert ticket", demoAddress),
+        ("84'/0'/0'/0/5", 2, "Alice", demoAddress),
+        ("84'/0'/0'/0/6", 0, "Bob, bike repair", "bc1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3qccfmv3"),
+        ("86'/0'/0'/0/7", 0, "Alice, concert tickets", "bc1p0xlxvlhemja6c4dqv22uapctqupfhlxm9h8z3k2e72q4k9hcz7vqzk5jj0"),
+    ].map { WalletKey(fullKeyPath: $0.0, isInternal: false, keyState: $0.1, label: $0.2, address: $0.3) }
 
     // Back to the computer's wallet; the refresh loop picks up the restored server at once.
     func leaveDemo() {
