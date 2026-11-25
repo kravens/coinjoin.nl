@@ -375,6 +375,13 @@ class Mirror(private val context: Context, demoScreen: String? = null, startDemo
         relocks++
     }
 
+    // listkeys, read-only, for Receive's label suggestions and its addresses awaiting payment.
+    suspend fun loadKeys(): List<WalletKey> {
+        if (demo) return DEMO_KEYS
+        val wallet = wallet ?: return emptyList()
+        return runCatching { rpc.array("listkeys", wallet = wallet).let { a -> (0 until a.length()).map { WalletKey.from(a.getJSONObject(it)) } } }.getOrDefault(emptyList())
+    }
+
     // Back to the computer's wallet; the refresh loop picks up the restored server at once.
     fun leaveDemo() {
         demo = false
@@ -390,6 +397,16 @@ class Mirror(private val context: Context, demoScreen: String? = null, startDemo
         const val DEMO_TAPROOT = "bc1p0xlxvlhemja6c4dqv22uapctqupfhlxm9h8z3k2e72q4k9hcz7vqzk5jj0" // BIP350 test vector
         const val DEMO_TXID = "4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b"
         val DEMO_SERVER = Server(host = "100.64.0.1", user = "demo", password = "demo")
+
+        // Made-up labels like the demo history's, and two addresses awaiting payment (BIP350 and BIP173 test vectors,
+        // which no demo coin uses, so they never show as paid).
+        val DEMO_KEYS = listOf(
+            WalletKey("84'/0'/0'/0/3", false, 2, "Bitcoin meetup refund", DEMO_ADDRESS),
+            WalletKey("84'/0'/0'/0/4", false, 2, "Sold a concert ticket", DEMO_ADDRESS),
+            WalletKey("84'/0'/0'/0/5", false, 2, "Alice", DEMO_ADDRESS),
+            WalletKey("84'/0'/0'/0/6", false, 0, "Bob, bike repair", "bc1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3qccfmv3"),
+            WalletKey("86'/0'/0'/0/7", false, 0, "Alice, concert tickets", DEMO_TAPROOT),
+        )
 
         // Same weighting as Wallet.GetPrivacyPercentage() in Wasabi, so the number matches the desktop: semi-private coins count partly.
         fun privacyPercentage(coins: List<Coin>, target: Int): Int {

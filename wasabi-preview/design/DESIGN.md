@@ -103,6 +103,7 @@ Units are points on iOS and dp on Android.
 - **iOS:** system Liquid Glass, `.glassEffect(.regular)` on cards, `.buttonStyle(.glass)` and `.glassProminent` on buttons.
 - **Android:** drawn by `Modifier.glass()`: the backdrop and the content behind are redrawn into a layer, blurred 24 dp, then tinted with `tile` at 50% (dark) or 60% (light), with a 0.75 dp rim that fades from primary at 22% (dark) or 50% (light) to 5%. Android 12 and later; older versions get the tint only.
 - What may sit under glass: the backdrop always; the home list under Receive and Send; the whole screen under the side menu. A glass element never blurs a source that contains itself.
+- **Edge frost on the wide home (iOS):** the system frosts only one scroll view under a bar, so with two columns the app hides it and draws its own across the full width: `ultraThinMaterial` (black on the Black theme), solid over the navigation bar and fading out 40 below it; under Receive and Send at 60% so the list still shows faintly.
 
 ### Black theme cards
 
@@ -124,6 +125,9 @@ Units are points on iOS and dp on Android.
 | Privacy bar | Private, semi-private, rest in the three privacy colours |
 | Transaction row | Direction icon, title and date, signed amount, pending clock, chevron. When title and amount do not fit side by side the amount moves under the title, next to the date |
 | Privacy rounds | Consecutive coinjoins collapse into one "Privacy rounds" row with stacked shields |
+| Label input (Receive) | Chosen labels are filled `accent` chips with a cross (tap to remove); earlier labels are tinted chips under the field, ranked like desktop Wasabi (receive labels, newest first), filtered as you type. A comma or Return turns typed text into a chip |
+| Waiting for payment | Under the Receive form: addresses handed out and not paid yet (label, middle-truncated address); tap to show that request again |
+| Payment received | On a payment request, a card with a check in `accent`, the amount, and "Pending" or "Confirmed", as soon as a coin lands on the address |
 | Segmented control | iOS segmented style; Android `Segmented` pill track |
 | Secondary button | Tinted: `accent` at 16% fill, `accent` text, capsule |
 | Link status | Tailscale mark in `accent`, Tor mark in `tor`, grey when the link timed out; pulses while connecting |

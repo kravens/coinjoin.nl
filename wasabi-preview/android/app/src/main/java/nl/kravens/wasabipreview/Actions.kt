@@ -1,5 +1,12 @@
 package nl.kravens.wasabipreview
 
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.foundation.layout.PaddingValues
 import android.app.Activity
 import android.content.ClipboardManager
 import android.content.Context
@@ -61,11 +68,13 @@ import java.util.UUID
 import kotlin.coroutines.resume
 
 @Composable
-fun Field(value: String, onChange: (String) -> Unit, placeholder: String, modifier: Modifier = Modifier, keyboard: KeyboardType = KeyboardType.Text, mono: Boolean = false, singleLine: Boolean = true, big: Boolean = false) {
+fun Field(value: String, onChange: (String) -> Unit, placeholder: String, modifier: Modifier = Modifier, keyboard: KeyboardType = KeyboardType.Text, mono: Boolean = false, singleLine: Boolean = true, big: Boolean = false,
+          imeAction: androidx.compose.ui.text.input.ImeAction = androidx.compose.ui.text.input.ImeAction.Default, onIme: (() -> Unit)? = null) {
     TextField(
         value, onChange, modifier.fillMaxWidth(), placeholder = { Text(placeholder) }, singleLine = singleLine,
         textStyle = (if (big) MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Medium) else MaterialTheme.typography.bodyLarge).copy(fontFamily = if (mono) FontFamily.Monospace else null),
-        keyboardOptions = KeyboardOptions(keyboardType = keyboard, autoCorrectEnabled = false),
+        keyboardOptions = KeyboardOptions(keyboardType = keyboard, autoCorrectEnabled = false, imeAction = imeAction),
+        keyboardActions = androidx.compose.foundation.text.KeyboardActions(onAny = { onIme?.invoke() ?: defaultKeyboardAction(imeAction) }),
         colors = TextFieldDefaults.colors(focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent, disabledContainerColor = Color.Transparent,
             focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent),
     )
@@ -101,32 +110,72 @@ fun ReceiveScreen(mirror: Mirror, nav: Nav) {
     val scope = rememberCoroutineScope()
     val taproot = remember { context.getSharedPreferences("app", Context.MODE_PRIVATE).getBoolean("taproot", true) } // Settings › Sending and receiving
     val demo = mirror.screen == "receiveAddress"
-    var label by remember { mutableStateOf(if (demo) "Alice, concert tickets" else "") }
+    val paidDemo = mirror.screen == "receivePaid" // the demo coins sit on DEMO_ADDRESS, so its request shows "Payment received"
+    var label by remember { mutableStateOf("") } // what is being typed; a comma or Enter turns it into a chip
+    // Labels chosen so far; Wasabi stores them as one comma-separated set.
+    val chips = remember { androidx.compose.runtime.mutableStateListOf<String>().apply { if (demo) addAll(listOf("Alice", "concert tickets")); if (paidDemo) add("Bitcoin meetup refund") } }
+    var keys by remember { mutableStateOf(emptyList<WalletKey>()) } // listkeys: earlier labels and addresses awaiting payment
+    LaunchedEffect(Unit) { keys = mirror.loadKeys() }
     var amount by remember { mutableStateOf(if (demo) "0.001" else "") }
     var unit by remember { mutableStateOf("BTC") }
-    var address by remember { mutableStateOf<String?>(if (demo) Mirror.DEMO_TAPROOT else null) }
+    var address by remember { mutableStateOf<String?>(if (demo) Mirror.DEMO_TAPROOT else if (paidDemo) Mirror.DEMO_ADDRESS else null) }
     val sats = if (unit == "BTC") Bitcoin.sats(amount) else amount.toLongOrNull()
+    val labels = chips + Labels.split(label)
+    fun commit() {
+        Labels.split(label).forEach { part -> if (chips.none { it.equals(part, ignoreCase = true) }) chips.add(part) }
+        label = ""
+    }
 
     val shown = address
     if (shown == null) {
         Screen("Receive", onBack = null, onClose = { nav.home() }, bottom = {
-            PrimaryAction("Create address", WasabiIcon.receive, label.isNotBlank() && !mirror.busy) {
+            PrimaryAction("Create address", WasabiIcon.receive, labels.isNotEmpty() && !mirror.busy) {
+                commit()
+                val full = chips.joinToString(", ")
                 // sabi.py: getnewaddress [label, taproot]; Wasabi refuses an empty label.
-                scope.launch { mirror.perform("New address") { address = mirror.rpc.obj("getnewaddress", jsonArray(label, taproot), mirror.wallet).getString("address"); null } }
+                scope.launch { mirror.perform("New address") { address = mirror.rpc.obj("getnewaddress", jsonArray(full, taproot), mirror.wallet).getString("address"); null } }
             }
         }) { padding ->
             Sections(padding) {
                 item {
-                    Section(footer = "Only you see the label: Wasabi keeps it so you know later where the coins came from. Leave the amount empty and the sender fills it in.") {
+                    Section(footer = "Only you see the label: Wasabi keeps it so you know later where the coins came from. Separate people or reasons with a comma. Leave the amount empty and the sender fills it in.") {
                         WalletGate(mirror) {
                             Column {
-                                Field(label, { label = it }, "Who is paying you")
+                                val p = LocalPalette.current
+                                if (chips.isNotEmpty()) Row(Modifier.horizontalScroll(rememberScrollState()).padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    for (chip in chips.toList()) androidx.compose.material3.Button(
+                                        { chips.remove(chip) }, Modifier.semantics { contentDescription = "$chip, remove" },
+                                        shape = CircleShape, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                                        colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = p.accent.copy(alpha = 0.85f), contentColor = Color.White),
+                                    ) { Text(chip); Spacer(Modifier.width(4.dp)); Glyph(Glyph.CLOSE, 9.dp, Color.White) }
+                                }
+                                Field(label, { label = it; if (',' in it) commit() }, if (chips.isEmpty()) "Who is paying you" else "Add another label",
+                                    imeAction = androidx.compose.ui.text.input.ImeAction.Next, onIme = { commit() })
+                                val suggestions = Labels.suggestions(Labels.ranked(keys), label, labels)
+                                // Earlier labels, like desktop Wasabi's suggestions: tap one to add it.
+                                if (suggestions.isNotEmpty()) Row(Modifier.horizontalScroll(rememberScrollState()).padding(bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    for (s in suggestions) TintedButton({ label = ""; chips.add(s) }, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) { Text(s) }
+                                }
                                 Divider()
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Field(amount, { amount = it }, "Amount (optional)", Modifier.weight(1f), KeyboardType.Decimal)
                                     UnitPicker(unit) { amount = convert(amount, unit, it); unit = it }
                                 }
                                 if (sats != null) mirror.usd(sats)?.let { Secondary(it, Modifier.padding(bottom = 8.dp).frosted(mirror.discreet)) }
+                            }
+                        }
+                    }
+                }
+                val waiting = Labels.waiting(keys)
+                if (waiting.isNotEmpty()) item {
+                    Section("Waiting for payment", "Addresses you handed out that have not been paid yet. Tap one to show it again.") {
+                        waiting.forEachIndexed { i, key ->
+                            if (i > 0) Divider()
+                            // Show this address again instead of handing out a new one to someone who has not paid yet.
+                            Column(Modifier.fillMaxWidth().clickable { chips.clear(); chips.addAll(key.labels); label = ""; amount = ""; address = key.address }.padding(vertical = 10.dp)) {
+                                Text(key.labels.joinToString(", "), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(mirror.mask(key.address), Modifier.frosted(mirror.discreet), fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall,
+                                    color = LocalPalette.current.secondary, maxLines = 1, overflow = TextOverflow.MiddleEllipsis)
                             }
                         }
                     }
@@ -146,7 +195,20 @@ fun ReceiveScreen(mirror: Mirror, nav: Nav) {
             // Done also arms the coinjoin for Balanced and More private; autoCoinjoin is quiet and does nothing for Lower fees.
             PrimaryAction("Done", WasabiIcon.check) { scope.launch { mirror.autoCoinjoin() }; nav.home() }
         }) { padding ->
+            // The refresh loop keeps running under this screen, so a coin on this address shows up here within seconds.
+            val paid = mirror.coins.filter { it.address == shown }
             Sections(padding) {
+                if (paid.isNotEmpty()) item {
+                    Row(Modifier.fillMaxWidth().glass(LocalPalette.current, RoundedCornerShape(15.dp)).padding(14.dp).semantics(mergeDescendants = true) {}, verticalAlignment = Alignment.CenterVertically) {
+                        Icon(WasabiIcon.check, 26.dp, LocalPalette.current.accent)
+                        Spacer(Modifier.width(12.dp))
+                        Column {
+                            Text("Payment received", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                            Amount(paid.sumOf { it.amount }, mirror, Modifier.frosted(mirror.discreet))
+                            Secondary(if (paid.all { it.confirmed }) "Confirmed" else "Pending, waiting for a block")
+                        }
+                    }
+                }
                 item {
                     Tile(centered = true) {
                         val qr = remember(uri) { Bitcoin.qr(uri).asImageBitmap() }
@@ -161,9 +223,10 @@ fun ReceiveScreen(mirror: Mirror, nav: Nav) {
                 }
                 item {
                     Tile("Request") {
-                        InfoRow("From", label)
+                        InfoRow("From", chips.joinToString(", "))
                         if (sats != null && sats > 0) LabeledRow("Amount") { Amount(sats, mirror, Modifier.frosted(mirror.discreet)) }
-                        InfoRow("Address type", if (taproot) "Taproot" else "SegWit")
+                        // From the address itself: a reopened one keeps the type it was made with, whatever Settings says now.
+                        InfoRow("Address type", if (Bitcoin.isTaproot(shown)) "Taproot" else "SegWit")
                     }
                 }
                 item { Secondary("Each address is used once. Create a new one for the next payment.", Modifier.fillMaxWidth(), align = TextAlign.Center) }

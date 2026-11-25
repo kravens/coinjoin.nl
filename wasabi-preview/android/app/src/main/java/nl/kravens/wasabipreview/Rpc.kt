@@ -306,3 +306,48 @@ object Tor {
         return status to reply.copyOfRange(4, reply.size)
     }
 }
+
+// listkeys: every key of the wallet. Receive (not internal) keys carry the labels typed on Receive; a clean one with a
+// label is an address handed out and not paid yet, desktop Wasabi's "addresses awaiting payment".
+data class WalletKey(val fullKeyPath: String, val isInternal: Boolean, val keyState: Int, val label: String, val address: String) {
+    val index get() = fullKeyPath.substringAfterLast('/').toIntOrNull() ?: 0
+    val labels get() = Labels.split(label)
+    val waiting get() = !isInternal && keyState == 0 && labels.isNotEmpty() // KeyState: 0 Clean, 1 Locked, 2 Used
+
+    companion object {
+        fun from(o: JSONObject) = WalletKey(
+            o.getString("fullKeyPath"), o.getBoolean("internal"),
+            // An enum, serialized as its number; accept its name too in case a Wasabi version switches to strings.
+            o.opt("keyState").let { (it as? Number)?.toInt() ?: mapOf("Clean" to 0, "Locked" to 1, "Used" to 2)[it.toString()] ?: 2 },
+            o.optString("label", ""), o.getString("address"),
+        )
+    }
+}
+
+object Labels {
+    // Wasabi keeps a label as a comma-separated set ("Alice, concert tickets").
+    fun split(label: String) = label.split(',').map { it.trim() }.filter { it.isNotEmpty() }
+
+    // Desktop's GetLabelsWithRanking for Receive: each receive label scores 100 plus a recency bonus (100 for the newest
+    // key, one less per older one, at least 1); change labels score 1. Case-insensitive, the first spelling wins.
+    fun ranked(keys: List<WalletKey>): List<String> {
+        val score = linkedMapOf<String, Pair<String, Int>>()
+        fun add(label: String, points: Int) {
+            val key = label.lowercase()
+            score[key] = (score[key]?.first ?: label) to ((score[key]?.second ?: 0) + points)
+        }
+        keys.filter { !it.isInternal }.sortedByDescending { it.index }.forEachIndexed { n, k -> k.labels.forEach { add(it, 100 + maxOf(1, 100 - n)) } }
+        keys.filter { it.isInternal }.forEach { k -> k.labels.forEach { add(it, 1) } }
+        return score.values.sortedWith(compareByDescending<Pair<String, Int>> { it.second }.thenBy { it.first.lowercase() }).map { it.first }
+    }
+
+    // What to offer under the field: the best-ranked labels that contain what is typed, minus the ones already chosen.
+    fun suggestions(ranked: List<String>, typed: String, chosen: List<String>, limit: Int = 6): List<String> {
+        val t = typed.trim().lowercase()
+        val taken = chosen.map { it.lowercase() }.toSet()
+        return ranked.filter { it.lowercase() !in taken && (t.isEmpty() || it.lowercase().contains(t)) }.take(limit)
+    }
+
+    // Addresses handed out and not paid yet, newest first, one per address.
+    fun waiting(keys: List<WalletKey>) = keys.filter { it.waiting }.sortedByDescending { it.index }.distinctBy { it.address }
+}
