@@ -13,6 +13,15 @@ embedded in the app).
   <img src="release/screenshots/menu.png" alt="Menu" width="15%">
 </p>
 
+## Install
+
+- **iPhone** (iOS 26 or newer): join the [TestFlight beta](https://testflight.apple.com/join/bvMRTbGz), or sideload the
+  `.ipa` from [GitHub releases](https://github.com/kravens/coinjoin.nl/releases).
+- **Android / GrapheneOS**: [Zapstore](https://zapstore.dev/apps/nl.kravens.wasabipreview), or the APK from
+  [GitHub releases](https://github.com/kravens/coinjoin.nl/releases). No Google Play services needed.
+
+No computer with Wasabi at hand? "Try the demo wallet" on the connection screen shows the app with sample data.
+
 ## Build
 
 Needs Xcode 27+, [XcodeGen](https://github.com/yonaskolb/XcodeGen) and Rust (rustup with the iOS targets).
